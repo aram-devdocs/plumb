@@ -48,7 +48,7 @@ impl Rule for HelloWorld {
                 ),
                 selector: node.selector.clone(),
                 viewport: ctx.snapshot().viewport.clone(),
-                rect: node.rect,
+                rect: ctx.rect_for(node.dom_order),
                 dom_order: node.dom_order,
                 fix: Some(Fix {
                     kind: FixKind::CssPropertyReplace {

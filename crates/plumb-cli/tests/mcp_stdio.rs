@@ -154,3 +154,41 @@ fn mcp_echo_round_trip() {
         .expect("text content");
     assert!(text.contains("hi plumb"), "unexpected text: {text}");
 }
+
+#[test]
+fn mcp_lint_url_returns_structured_content() {
+    let lint_url = json!({
+        "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+        "params": { "name": "lint_url", "arguments": { "url": "plumb-fake://hello" } }
+    });
+    let responses = send_and_read(vec![init_request(1), initialized_notification(), lint_url]);
+    let lint_resp = responses
+        .iter()
+        .find(|r| r["id"] == 2)
+        .unwrap_or_else(|| panic!("lint_url response missing: got {responses:?}"));
+    let result = &lint_resp["result"];
+
+    assert_eq!(result["isError"].as_bool(), Some(false));
+
+    let content = result["content"].as_array().expect("content array");
+    assert_eq!(
+        content.len(),
+        1,
+        "lint_url must not return structured payload as extra text: {result}"
+    );
+    assert_eq!(content[0]["type"].as_str(), Some("text"));
+    let text = content[0]["text"].as_str().expect("text content");
+    assert!(
+        text.contains("warning placeholder/hello-world @ html > body [desktop]"),
+        "unexpected lint_url text: {text}"
+    );
+
+    let structured = result["structuredContent"]
+        .as_object()
+        .expect("structuredContent object");
+    assert_eq!(structured["counts"]["total"].as_u64(), Some(1));
+    assert_eq!(
+        structured["violations"][0]["rule_id"].as_str(),
+        Some("placeholder/hello-world")
+    );
+}
