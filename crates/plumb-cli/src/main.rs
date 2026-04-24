@@ -58,6 +58,13 @@ enum Command {
         /// Output format.
         #[arg(long, value_enum, default_value_t = Format::Pretty)]
         format: Format,
+        /// Restrict the run to the named viewports (repeatable).
+        ///
+        /// Defaults to every viewport configured in `plumb.toml`, or
+        /// to a single 1280x800 `desktop` viewport when none are
+        /// configured.
+        #[arg(long = "viewport", value_name = "NAME", action = ArgAction::Append)]
+        viewports: Vec<String>,
     },
     /// Write a starter `plumb.toml` to the current directory.
     Init {
@@ -113,7 +120,8 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 config,
                 executable_path,
                 format,
-            } => commands::lint::run(url, config, executable_path, format.into()).await,
+                viewports,
+            } => commands::lint::run(url, config, executable_path, format.into(), viewports).await,
             Command::Init { force } => commands::init::run(force),
             Command::Explain { rule } => commands::explain::run(&rule),
             Command::Schema => commands::schema::run(),
