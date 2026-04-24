@@ -48,6 +48,7 @@ rmcp = { version = "0.10", default-features = false, features = ["base64", "macr
 
 # Async runtime.
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "io-std", "sync", "time", "fs", "process"] }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
 
 # CLI parsing.
 clap = { version = "4", features = ["derive", "env", "wrap_help"] }

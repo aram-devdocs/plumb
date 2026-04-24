@@ -1374,6 +1374,7 @@ name = "plumb-cdp"
 version = "0.0.1"
 dependencies = [
  "chromiumoxide",
+ "futures-util",
  "plumb-core",
  "thiserror 1.0.69",
  "tokio",

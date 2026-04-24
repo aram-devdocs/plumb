@@ -6,12 +6,14 @@ The `plumb` binary is the primary entry point for developers and CI.
 
 ### `plumb lint <url>`
 
-Lint a URL. The walking skeleton supports the `plumb-fake://hello` URL
-scheme for end-to-end testing — the real Chromium driver lands in PR #2.
+Lint a URL. The `plumb-fake://hello` URL scheme is still available for
+local smoke tests. Real URLs require a Chrome or Chromium binary that
+matches Plumb's pinned Chromium major version.
 
 | Flag | Description |
 |------|-------------|
 | `-c`, `--config <path>` | Config file path. Defaults to `plumb.toml` in CWD. |
+| `--executable-path <path>` | Chrome or Chromium binary to use instead of auto-detection. |
 | `--format <pretty\|json\|sarif>` | Output format. Default: `pretty`. |
 | `-v`, `--verbose` | Increase log verbosity. `-vv` for trace. |
 

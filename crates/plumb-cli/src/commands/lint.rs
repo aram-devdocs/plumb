@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::{Context, Result};
-use plumb_cdp::{BrowserDriver, FakeDriver, Target, is_fake_url};
+use plumb_cdp::{BrowserDriver, ChromiumDriver, ChromiumOptions, FakeDriver, Target, is_fake_url};
 use plumb_core::{Config, Severity, ViewportKey};
 
 use crate::commands::OutputFormat;
@@ -15,14 +15,13 @@ use crate::commands::OutputFormat;
 pub async fn run(
     url: String,
     config_path: Option<PathBuf>,
+    executable_path: Option<PathBuf>,
     format: OutputFormat,
 ) -> Result<ExitCode> {
     tracing::debug!(url = %url, format = %format, "lint");
 
     let config = load_config(config_path.as_deref())?;
 
-    // Walking skeleton: real driver returns NotImplemented. Use the fake
-    // driver when the URL scheme matches; error out for real URLs.
     let snapshot = if is_fake_url(&url) {
         let driver = FakeDriver;
         let target = Target {
@@ -34,9 +33,15 @@ pub async fn run(
         };
         driver.snapshot(target).await.map_err(anyhow::Error::from)?
     } else {
-        anyhow::bail!(
-            "real URLs are not yet supported by the walking skeleton; use `plumb-fake://hello` to smoke-test the pipeline. The real Chromium driver lands in PR #2."
-        );
+        let driver = ChromiumDriver::new(ChromiumOptions { executable_path });
+        let target = Target {
+            url: url.clone(),
+            viewport: ViewportKey::new("desktop"),
+            width: 1280,
+            height: 800,
+            device_pixel_ratio: 1.0,
+        };
+        driver.snapshot(target).await.map_err(anyhow::Error::from)?
     };
 
     let violations = plumb_core::run(&snapshot, &config);

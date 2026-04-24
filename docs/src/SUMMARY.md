@@ -7,6 +7,7 @@
 - [CLI](./cli.md)
 - [MCP server](./mcp.md)
 - [Configuration](./configuration.md)
+- [Install Chromium](./install-chromium.md)
 
 # Rules
 
