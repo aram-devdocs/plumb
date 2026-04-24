@@ -39,6 +39,54 @@ use tokio::task::JoinHandle;
 /// Chromium binary older or newer than this major version refuses to run.
 pub const PINNED_CHROMIUM_MAJOR: u32 = 131;
 
+/// CSS property whitelist passed to `DOMSnapshot.captureSnapshot` as the
+/// `computedStyles` argument.
+///
+/// The list is the canonical source of truth for which computed styles
+/// flow into [`PlumbSnapshot`] nodes. Order is significant — Chromium
+/// returns per-node style values as a parallel array indexed by this
+/// list, so silent reordering would mis-label every value.
+///
+/// Source of truth: PRD §10.3 (`docs/local/prd.md`).
+pub const COMPUTED_STYLE_WHITELIST: &[&str; 36] = &[
+    "font-size",
+    "font-family",
+    "font-weight",
+    "line-height",
+    "color",
+    "background-color",
+    "border-top-color",
+    "border-right-color",
+    "border-bottom-color",
+    "border-left-color",
+    "border-top-width",
+    "border-right-width",
+    "border-bottom-width",
+    "border-left-width",
+    "border-top-left-radius",
+    "border-top-right-radius",
+    "border-bottom-right-radius",
+    "border-bottom-left-radius",
+    "margin-top",
+    "margin-right",
+    "margin-bottom",
+    "margin-left",
+    "padding-top",
+    "padding-right",
+    "padding-bottom",
+    "padding-left",
+    "gap",
+    "row-gap",
+    "column-gap",
+    "display",
+    "position",
+    "box-shadow",
+    "opacity",
+    "z-index",
+    "width",
+    "height",
+];
+
 /// A snapshot target: URL + viewport.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Target {
@@ -378,7 +426,62 @@ fn io_error(err: io::Error) -> CdpError {
 
 #[cfg(test)]
 mod tests {
-    use super::{CdpError, PINNED_CHROMIUM_MAJOR};
+    use super::{COMPUTED_STYLE_WHITELIST, CdpError, PINNED_CHROMIUM_MAJOR};
+
+    #[test]
+    fn style_whitelist_has_36_properties() {
+        assert_eq!(
+            COMPUTED_STYLE_WHITELIST.len(),
+            36,
+            "PRD §10.3 pins exactly 36 computed-style properties"
+        );
+    }
+
+    #[test]
+    fn style_whitelist_pins_canonical_order() {
+        // Locks the exact order from PRD §10.3. If the list grows or the
+        // order changes, the rule engine's interpretation of the parallel
+        // style indices coming back from Chromium silently breaks.
+        let expected: [&str; 36] = [
+            "font-size",
+            "font-family",
+            "font-weight",
+            "line-height",
+            "color",
+            "background-color",
+            "border-top-color",
+            "border-right-color",
+            "border-bottom-color",
+            "border-left-color",
+            "border-top-width",
+            "border-right-width",
+            "border-bottom-width",
+            "border-left-width",
+            "border-top-left-radius",
+            "border-top-right-radius",
+            "border-bottom-right-radius",
+            "border-bottom-left-radius",
+            "margin-top",
+            "margin-right",
+            "margin-bottom",
+            "margin-left",
+            "padding-top",
+            "padding-right",
+            "padding-bottom",
+            "padding-left",
+            "gap",
+            "row-gap",
+            "column-gap",
+            "display",
+            "position",
+            "box-shadow",
+            "opacity",
+            "z-index",
+            "width",
+            "height",
+        ];
+        assert_eq!(COMPUTED_STYLE_WHITELIST, &expected);
+    }
 
     #[test]
     fn parses_product_major_versions() {
