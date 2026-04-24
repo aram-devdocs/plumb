@@ -1,0 +1,45 @@
+---
+source: crates/plumb-format/tests/format_snapshots.rs
+expression: out
+---
+{
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "runs": [
+    {
+      "results": [
+        {
+          "level": "warning",
+          "locations": [
+            {
+              "logicalLocations": [
+                {
+                  "fullyQualifiedName": "html > body",
+                  "kind": "element"
+                }
+              ],
+              "properties": {
+                "domOrder": 2,
+                "viewport": "desktop"
+              }
+            }
+          ],
+          "message": {
+            "text": "`body` has off-scale padding 13px; expected a value from the spacing token set."
+          },
+          "properties": {
+            "docUrl": "https://plumb.dev/rules/placeholder-hello-world"
+          },
+          "ruleId": "placeholder/hello-world"
+        }
+      ],
+      "tool": {
+        "driver": {
+          "informationUri": "https://plumb.dev",
+          "name": "plumb",
+          "rules": []
+        }
+      }
+    }
+  ],
+  "version": "2.1.0"
+}

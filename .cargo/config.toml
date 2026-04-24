@@ -1,0 +1,16 @@
+# Repo-local cargo config.
+#
+# No aliases — `justfile` owns the task surface. Keeping cargo aliases and
+# just targets in sync is churn; pick one. We pick just.
+
+[env]
+# Default tracing filter. Users can still override with RUST_LOG in their shell.
+RUST_LOG = { value = "plumb=info,warn", force = false }
+
+[build]
+# Leave rustflags to the workspace lints table. Setting -D here would apply
+# to proc-macro crates and dependencies too, which is not what we want.
+
+[net]
+# Default is true on recent cargo, but pin it so CI on older workers behaves.
+git-fetch-with-cli = true

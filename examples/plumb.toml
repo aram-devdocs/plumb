@@ -1,0 +1,48 @@
+# Plumb configuration — starter file.
+#
+# Every field here is optional. Remove anything you don't need; add
+# `$schema = "https://plumb.dev/schemas/plumb.toml.json"` to a wrapper
+# `plumb.json` if you prefer JSON.
+
+[viewports.mobile]
+width = 375
+height = 667
+device_pixel_ratio = 2.0
+
+[viewports.tablet]
+width = 768
+height = 1024
+device_pixel_ratio = 2.0
+
+[viewports.desktop]
+width = 1280
+height = 800
+device_pixel_ratio = 1.0
+
+[spacing]
+base_px = 4
+tokens = { xs = 4, sm = 8, md = 16, lg = 24, xl = 32, "2xl" = 48 }
+
+[type_scale]
+families = ["Inter", "system-ui"]
+sizes_px = [12, 14, 16, 18, 20, 24, 30, 36, 48]
+line_heights = [1.0, 1.25, 1.5, 1.75]
+weights = [400, 500, 600, 700]
+
+[color]
+tokens = { "bg/canvas" = "#ffffff", "fg/primary" = "#0b0b0b", "accent/brand" = "#0b7285" }
+delta_e_tolerance = 2.0
+
+[radius]
+allowed_px = [0, 2, 4, 8, 12, 16, 9999]
+
+[alignment]
+grid_columns = 12
+gutter_px = 24
+
+[a11y]
+min_contrast_ratio = 4.5
+
+# Example per-rule overrides. The placeholder rule is enabled by default.
+# [rules."placeholder/hello-world"]
+# enabled = false

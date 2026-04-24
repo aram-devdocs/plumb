@@ -1,0 +1,57 @@
+name: RFC
+description: Larger architectural change, breaking change, or contentious proposal that needs discussion before a PR.
+title: "rfc: "
+labels: ["kind:rfc", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        RFCs are for changes that need design discussion before code lands.
+        If you already know exactly what you want to build, open a feature
+        request instead.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: One paragraph.
+    validations:
+      required: true
+
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation
+      description: What's broken or missing? Who's affected?
+    validations:
+      required: true
+
+  - type: textarea
+    id: guide
+    attributes:
+      label: Guide-level explanation
+      description: Teach the change to a new contributor. Examples, not theory.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reference
+    attributes:
+      label: Reference-level explanation
+      description: API surface, data model changes, migration path.
+
+  - type: textarea
+    id: drawbacks
+    attributes:
+      label: Drawbacks
+      description: Reasons not to do this.
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives
+
+  - type: textarea
+    id: unresolved
+    attributes:
+      label: Unresolved questions

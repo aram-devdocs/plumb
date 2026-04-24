@@ -1,0 +1,31 @@
+---
+source: crates/plumb-core/tests/golden_hello_world.rs
+expression: json
+---
+[
+  {
+    "rule_id": "placeholder/hello-world",
+    "severity": "warning",
+    "message": "`body` has off-scale padding 13px; expected a value from the spacing token set.",
+    "selector": "html > body",
+    "viewport": "desktop",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "width": 1280,
+      "height": 800
+    },
+    "dom_order": 2,
+    "fix": {
+      "kind": {
+        "kind": "css_property_replace",
+        "property": "padding",
+        "from": "13px",
+        "to": "16px"
+      },
+      "description": "Snap `body` padding to the nearest spacing token (16px).",
+      "confidence": "medium"
+    },
+    "doc_url": "https://plumb.dev/rules/placeholder-hello-world"
+  }
+]

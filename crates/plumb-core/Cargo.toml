@@ -1,0 +1,37 @@
+[package]
+name = "plumb-core"
+description = "Deterministic design-system linter — rule engine and core types."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[features]
+# Exposes deterministic test fixtures and an in-memory `canned()` constructor.
+# Never enabled in release builds; consumed by plumb-cdp tests and plumb-cli's
+# `plumb-fake://` URL scheme handler.
+test-fake = []
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+schemars = { workspace = true }
+thiserror = { workspace = true }
+miette = { workspace = true }
+indexmap = { workspace = true }
+ahash = { workspace = true }
+palette = { workspace = true }
+
+[dev-dependencies]
+insta = { workspace = true }
+proptest = { workspace = true }
+
+[lints]
+workspace = true

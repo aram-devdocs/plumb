@@ -1,0 +1,43 @@
+# lefthook — git hooks for Plumb.
+#
+# Every stage has a no-bypass policy: no `--no-verify`, no `SKIP_VALIDATION`.
+# If a hook fails, fix the cause.
+#
+# Hooks installed by `just setup`. See CONTRIBUTING.md for the full dev loop.
+
+min_version: 1.7.0
+
+# Shared settings.
+colors: true
+no_tty: false
+
+pre-commit:
+  parallel: true
+  commands:
+    fmt:
+      run: cargo fmt --all -- --check
+      fail_text: "cargo fmt --check failed. Run `just fmt` to auto-format."
+
+    clippy:
+      run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      fail_text: "clippy found issues. Run `cargo clippy --fix` or fix manually."
+
+    secret-scan:
+      run: bash scripts/secret-scan.sh {staged_files}
+      fail_text: "A staged file appears to contain a secret. Remove it before committing."
+
+    file-size:
+      run: bash scripts/file-size-guard.sh {staged_files}
+      fail_text: "One or more staged files exceed the 500-line guideline."
+
+commit-msg:
+  commands:
+    conventional:
+      run: bash scripts/validate_conventional_commit.sh {1}
+      fail_text: "Commit message must follow Conventional Commits (see CONTRIBUTING.md)."
+
+pre-push:
+  commands:
+    validate:
+      run: just validate
+      fail_text: "`just validate` failed. Fix the errors locally — no push-through bypass."

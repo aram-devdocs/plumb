@@ -1,0 +1,6 @@
+---
+source: crates/plumb-format/tests/format_snapshots.rs
+expression: text
+---
+warning placeholder/hello-world @ html > body [desktop]: `body` has off-scale padding 13px; expected a value from the spacing token set.
+1 violations (0 error, 1 warning, 0 info)

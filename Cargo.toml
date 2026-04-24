@@ -1,0 +1,145 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/plumb-core",
+    "crates/plumb-format",
+    "crates/plumb-cdp",
+    "crates/plumb-config",
+    "crates/plumb-mcp",
+    "crates/plumb-cli",
+]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT OR Apache-2.0"
+authors = ["Aram Hammoudeh <aram.devdocs@gmail.com>"]
+homepage = "https://plumb.dev"
+documentation = "https://plumb.dev"
+repository = "https://github.com/aram-devdocs/plumb"
+readme = "README.md"
+keywords = ["design-system", "linter", "mcp", "chromium", "cdp"]
+categories = ["command-line-utilities", "development-tools", "web-programming"]
+
+[workspace.dependencies]
+# Internal path dependencies resolved by consumers.
+plumb-core = { path = "crates/plumb-core", version = "0.0.1" }
+plumb-format = { path = "crates/plumb-format", version = "0.0.1" }
+plumb-cdp = { path = "crates/plumb-cdp", version = "0.0.1" }
+plumb-config = { path = "crates/plumb-config", version = "0.0.1" }
+plumb-mcp = { path = "crates/plumb-mcp", version = "0.0.1" }
+
+# CDP driver.
+chromiumoxide = { version = "0.7", default-features = false, features = ["tokio-runtime"] }
+
+# Async runtime.
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "io-std", "sync", "time", "fs", "process"] }
+
+# CLI parsing.
+clap = { version = "4", features = ["derive", "env", "wrap_help"] }
+
+# Serialization.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+serde_yaml = "0.9"
+
+# Schema emission.
+schemars = { version = "0.8", features = ["indexmap2", "preserve_order"] }
+
+# Config loading.
+figment = { version = "0.10", features = ["toml", "yaml", "json", "env"] }
+
+# Diagnostics.
+miette = { version = "7", features = ["fancy"] }
+thiserror = "1"
+anyhow = "1"
+
+# Observability.
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+# Deterministic data structures.
+indexmap = { version = "2", features = ["serde"] }
+ahash = "0.8"
+
+# Color distance (CIEDE2000, D65).
+palette = { version = "0.7", default-features = false, features = ["std"] }
+
+# Parallelism (used only where deterministic: sorted inputs with deterministic folds).
+rayon = "1"
+
+# Dev-only.
+insta = { version = "1", features = ["json", "yaml"] }
+assert_cmd = "2"
+predicates = "3"
+proptest = "1"
+criterion = { version = "0.5", features = ["html_reports"] }
+tempfile = "3"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "deny"
+unreachable_pub = "warn"
+rust_2024_compatibility = { level = "warn", priority = -1 }
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+cargo = { level = "warn", priority = -1 }
+# Deny everything that smells like debug/half-finished/imprecise code.
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+print_stdout = "deny"
+print_stderr = "deny"
+# Tighten what pedantic leaves as warn.
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+missing_errors_doc = "warn"
+missing_panics_doc = "warn"
+# Pedantic/nursery noise we deliberately accept. Each has a reason:
+#   multiple_crate_versions — unavoidable across cross-cutting dep graphs.
+#   too_long_first_doc_paragraph — stylistic; does not change API clarity.
+#   derive_partial_eq_without_eq — we intentionally skip Eq where `f32` or
+#       `serde_json::Value` appears; PartialEq is the contract.
+#   missing_const_for_fn — nursery-level churn; reapplies on every PR that
+#       adds a method. The real determinism guarantees are elsewhere.
+#   doc_markdown — pedantic false-positives on proper nouns.
+#   option_if_let_else — nursery rewrite not always clearer.
+#   cognitive_complexity — subjective threshold hits on simple match trees.
+multiple_crate_versions = "allow"
+too_long_first_doc_paragraph = "allow"
+derive_partial_eq_without_eq = "allow"
+missing_const_for_fn = "allow"
+doc_markdown = "allow"
+option_if_let_else = "allow"
+cognitive_complexity = "allow"
+# `unused_async` fires on trait-impl stubs where the signature requires `async`.
+unused_async = "allow"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+debug = false
+incremental = false
+
+[profile.dev]
+incremental = true
+codegen-units = 256
+debug = "line-tables-only"
+
+[profile.test]
+opt-level = 1
+debug = "line-tables-only"
+
+# Heavy build-time deps can use a higher opt-level in dev for faster proc-macro expansion.
+[profile.dev.package."*"]
+opt-level = 1

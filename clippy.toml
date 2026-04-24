@@ -1,0 +1,19 @@
+msrv = "1.85"
+too-many-arguments-threshold = 12
+type-complexity-threshold = 500
+avoid-breaking-exported-api = false
+
+# Tests are allowed to unwrap/expect/panic — assertions are how tests fail.
+# Production code still denies these via workspace lints.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+
+# Determinism: wall-clock time sources are forbidden in plumb-core.
+# The CLI crate explicitly re-enables them via #[allow(clippy::disallowed_methods)]
+# where telemetry or --verbose output legitimately needs them.
+disallowed-methods = [
+    { path = "std::time::SystemTime::now", reason = "nondeterministic; see docs/local/prd.md §9" },
+    { path = "std::time::Instant::now", reason = "nondeterministic; see docs/local/prd.md §9" },
+    { path = "std::env::temp_dir", reason = "nondeterministic path; use tempfile crate in tests only" },
+]

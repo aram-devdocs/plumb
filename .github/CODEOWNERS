@@ -1,0 +1,18 @@
+# Default owner for everything not matched by a later pattern.
+* @aram-devdocs
+
+# Infrastructure and release pipelines — only repo admin merges.
+/.github/         @aram-devdocs
+/release-please-config.json   @aram-devdocs
+/.release-please-manifest.json @aram-devdocs
+/dist-workspace.toml          @aram-devdocs
+
+# Crates with extra-sensitive blast radius (unsafe / FFI / config shape).
+/crates/plumb-cdp/    @aram-devdocs
+/crates/plumb-config/ @aram-devdocs
+
+# AI tooling — the team-of-one maintains these directly.
+/AGENTS.md   @aram-devdocs
+/CLAUDE.md   @aram-devdocs
+/.agents/    @aram-devdocs
+/.claude/    @aram-devdocs

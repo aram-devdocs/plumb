@@ -1,0 +1,77 @@
+name: Bug report
+description: Something Plumb does is wrong or unexpected.
+title: "bug: "
+labels: ["kind:bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing. The more specific the repro, the faster we can fix it.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: One paragraph — what happened, what you expected.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction steps
+      description: |
+        Minimal command + fixture. If you can, paste the exact `plumb …` invocation.
+      placeholder: |
+        1. `git clone …`
+        2. `plumb lint https://example.com`
+        3. Output is X; expected Y.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: output
+    attributes:
+      label: Actual output
+      render: shell
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected output
+      render: shell
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS (Apple Silicon)
+        - macOS (Intel)
+        - Linux (x86_64)
+        - Linux (aarch64)
+        - Windows
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: plumb_version
+    attributes:
+      label: Plumb version
+      description: Run `plumb --version`.
+      placeholder: "0.0.1"
+    validations:
+      required: true
+
+  - type: input
+    id: chromium_version
+    attributes:
+      label: Chromium version
+      description: Run `chromium --version` or equivalent.
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Additional context

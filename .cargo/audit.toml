@@ -1,0 +1,10 @@
+# cargo-audit configuration.
+#
+# No suppressions. Real advisories get a fix; this file stays empty.
+
+[advisories]
+ignore = []
+
+[database]
+fetch = true
+stale = false
