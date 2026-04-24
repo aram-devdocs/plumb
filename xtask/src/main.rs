@@ -13,7 +13,7 @@
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::ExitCode;
+use std::process::{Command, ExitCode};
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -37,8 +37,16 @@ enum Cmd {
     /// Regenerate the list of built-in rules under `docs/src/rules/`
     /// index so it matches `register_builtin()`.
     SyncRulesIndex,
-    /// Pre-release sanity suite: schema up-to-date, Book builds, binary
-    /// under budget, determinism holds.
+    /// Validate every runbook spec under `docs/runbooks/*.yaml` against
+    /// `schemas/runbook-spec.json`. Delegates to the Python generator's
+    /// `--validate-only` mode to reuse the JSON-Schema machinery there.
+    ValidateRunbooks {
+        /// Override the runbooks directory.
+        #[arg(long, default_value = "docs/runbooks")]
+        dir: PathBuf,
+    },
+    /// Pre-release sanity suite: schema up-to-date, rules-index in sync,
+    /// every runbook spec valid.
     PreRelease,
 }
 
@@ -57,6 +65,7 @@ fn run(cli: Cli) -> Result<()> {
     match cli.cmd {
         Cmd::Schema { out } => emit_schema(&out),
         Cmd::SyncRulesIndex => sync_rules_index(),
+        Cmd::ValidateRunbooks { dir } => validate_runbooks(&dir),
         Cmd::PreRelease => pre_release(),
     }
 }
@@ -77,11 +86,6 @@ fn emit_schema(out: &Path) -> Result<()> {
 }
 
 fn sync_rules_index() -> Result<()> {
-    // Placeholder for when the builtin rule list grows. The pattern:
-    //   1. Call `plumb_core::register_builtin()`.
-    //   2. For each rule id, verify a corresponding
-    //      `docs/src/rules/<slug>.md` exists.
-    //   3. Rewrite `docs/src/rules/overview.md` with the canonical list.
     let rules = plumb_core::register_builtin();
     let missing: Vec<String> = rules
         .iter()
@@ -108,6 +112,75 @@ fn sync_rules_index() -> Result<()> {
     Ok(())
 }
 
+fn validate_runbooks(dir: &Path) -> Result<()> {
+    if !dir.exists() {
+        // Empty runbooks dir is valid — nothing to check yet.
+        let _ = writeln!(
+            std::io::stdout(),
+            "▸ {} does not exist; 0 runbook specs to validate.",
+            dir.display()
+        );
+        return Ok(());
+    }
+
+    let script = PathBuf::from(".agents/skills/gh-runbook/scripts/generate_runbook.py");
+    if !script.exists() {
+        anyhow::bail!(
+            "gh-runbook generator script missing at {}; cannot validate specs.",
+            script.display()
+        );
+    }
+
+    let mut specs: Vec<PathBuf> = Vec::new();
+    for entry in std::fs::read_dir(dir).with_context(|| format!("read dir {}", dir.display()))? {
+        let entry = entry.context("read_dir entry")?;
+        let path = entry.path();
+        if path.is_file() && path.extension().is_some_and(|e| e == "yaml" || e == "yml") {
+            specs.push(path);
+        }
+    }
+    specs.sort();
+
+    if specs.is_empty() {
+        let _ = writeln!(
+            std::io::stdout(),
+            "▸ 0 runbook specs under {}; nothing to validate.",
+            dir.display()
+        );
+        return Ok(());
+    }
+
+    let mut failures: Vec<String> = Vec::new();
+    for spec in &specs {
+        let output = Command::new("python3")
+            .arg(&script)
+            .arg(spec)
+            .arg("--validate-only")
+            .output()
+            .with_context(|| format!("invoke generator on {}", spec.display()))?;
+        if output.status.success() {
+            let _ = writeln!(std::io::stdout(), "  ok: {}", spec.display());
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            failures.push(format!("{}: {}", spec.display(), stderr.trim()));
+        }
+    }
+
+    if !failures.is_empty() {
+        for f in &failures {
+            let _ = writeln!(std::io::stderr(), "  fail: {f}");
+        }
+        anyhow::bail!("{} runbook spec(s) failed validation", failures.len());
+    }
+
+    let _ = writeln!(
+        std::io::stdout(),
+        "▸ {} runbook spec(s) valid.",
+        specs.len()
+    );
+    Ok(())
+}
+
 fn pre_release() -> Result<()> {
     let _ = writeln!(std::io::stdout(), "▸ Pre-release sanity suite");
 
@@ -126,6 +199,9 @@ fn pre_release() -> Result<()> {
 
     // 2. Rules index in sync.
     sync_rules_index()?;
+
+    // 3. Runbook specs valid (skips cleanly if docs/runbooks/ doesn't exist yet).
+    validate_runbooks(Path::new("docs/runbooks"))?;
 
     let _ = writeln!(std::io::stdout(), "▸ OK — pre-release gates green.");
     Ok(())
