@@ -235,50 +235,94 @@ def _batch_short(description: str) -> str:
     return description
 
 
-def render_batches_section(spec: Spec) -> str:
-    """Render the GoudEngine-style parent body batches section:
+def compute_gates(spec: Spec) -> list[list[Batch]]:
+    """Topologically sort batches into gates. A gate is a set of batches
+    with no unmet cross-batch dependencies — they can run in parallel."""
+    remaining = {b.id: b for b in spec.batches}
+    placed: set[str] = set()
+    gates: list[list[Batch]] = []
+    # Preserve declaration order within a gate for stable output.
+    declaration_order = [b.id for b in spec.batches]
 
-    1. A summary table (Batch | Issues | Focus | Parallel).
-    2. One sub-section per batch with:
-       - `{{CHILD_ISSUE_LINES_<ID>}}` placeholder filled in by create-issues.sh.
-       - Two fenced `/gh-issue N M O --worktree` + `$gh-issue …` dispatch blocks
-         rendered with `{{GH_ISSUE_CMD_<ID>}}` placeholders.
+    while remaining:
+        current: list[Batch] = []
+        for bid in declaration_order:
+            if bid not in remaining:
+                continue
+            b = remaining[bid]
+            if all(d in placed for d in b.depends_on_batch):
+                current.append(b)
+        if not current:
+            raise RuntimeError(
+                f"cycle in batch dependencies; remaining: {list(remaining.keys())}"
+            )
+        for b in current:
+            del remaining[b.id]
+            placed.add(b.id)
+        gates.append(current)
+    return gates
+
+
+def render_batches_section(spec: Spec) -> str:
+    """Render the gate-based progression section:
+
+    1. A summary table per gate: `| Gate | Batches | Tickets | After |`.
+    2. Per-gate section with every batch rendered flat so the reader
+       sees every ticket available at that gate. Dispatch is one
+       `/gh-issue <N> --worktree` command per ticket — open one session
+       per ticket, fire them in parallel.
+
+    Within a gate, batches are parallel. Between gates, sequential
+    (every PR in gate N must merge before gate N+1 starts).
     """
+    gates = compute_gates(spec)
+
+    lines: list[str] = []
+    lines.append(
+        "Gates run sequentially. Within a gate, every batch's tickets run in parallel — "
+        "open one `/gh-issue <N> --worktree` session per ticket and fire them all concurrently."
+    )
+    lines.append("")
+
     # Summary table.
-    lines = [
-        "| Batch | Issues | Focus | Parallel |",
-        "|-------|--------|-------|----------|",
-    ]
-    for batch in spec.batches:
-        short = _batch_short(batch.description)
-        deps = ""
-        if batch.depends_on_batch:
-            deps = f" (after {', '.join(batch.depends_on_batch)})"
-        parallel = "yes" if batch.parallel else "no"
-        # The create-issues.sh fills `{{BATCH_NUMBERS_<ID>}}` with `#N #M #O`.
-        lines.append(
-            f"| `{batch.id}`{deps} | {{{{BATCH_NUMBERS_{batch.id}}}}} | {short} | {parallel} |"
-        )
+    lines.append("| Gate | Batches | Tickets | After |")
+    lines.append("|------|---------|---------|-------|")
+    for gi, gate in enumerate(gates, start=1):
+        bids = ", ".join(f"`{b.id}`" for b in gate)
+        nums = " ".join(f"{{{{BATCH_NUMBERS_{b.id}}}}}" for b in gate)
+        after = f"Gate {gi - 1} merged" if gi > 1 else "(initial)"
+        lines.append(f"| **Gate {gi}** | {bids} | {nums} | {after} |")
     lines.append("")
     lines.append("---")
     lines.append("")
 
-    # Per-batch sections.
-    for batch in spec.batches:
-        deps_suffix = ""
-        if batch.depends_on_batch:
-            deps_suffix = "  _after " + ", ".join(f"`{b}`" for b in batch.depends_on_batch) + "_"
-        lines.append(f"### Batch `{batch.id}` — {batch.description}{deps_suffix}")
+    # Per-gate sections, with batches flat inside.
+    for gi, gate in enumerate(gates, start=1):
+        suffix = f"  _after Gate {gi - 1}_" if gi > 1 else ""
+        lines.append(f"### Gate {gi}{suffix}")
         lines.append("")
-        lines.append(f"{{{{CHILD_ISSUE_LINES_{batch.id}}}}}")
+        if len(gate) > 1:
+            batch_list = ", ".join(f"`{b.id}`" for b in gate)
+            lines.append(
+                f"**{len(gate)} parallel batches at this gate** ({batch_list}) — "
+                f"fire every ticket below as its own session."
+            )
+            lines.append("")
+        for batch in gate:
+            lines.append(f"#### Batch `{batch.id}` — {batch.description}")
+            lines.append("")
+            lines.append(f"{{{{CHILD_ISSUE_LINES_{batch.id}}}}}")
+            lines.append("")
+            lines.append("```")
+            lines.append(f"{{{{GH_ISSUE_COMMANDS_{batch.id}}}}}")
+            lines.append("```")
+            lines.append("")
+        if gi < len(gates):
+            lines.append(f"**Advance to Gate {gi + 1} when:** every PR in Gate {gi} is merged.")
+        else:
+            lines.append("**Phase gate follows — see the section below.**")
         lines.append("")
-        lines.append("```")
-        lines.append(f"/gh-issue {{{{GH_ISSUE_ARGS_{batch.id}}}}} --worktree")
-        lines.append("```")
-        lines.append("```")
-        lines.append(f"$gh-issue {{{{GH_ISSUE_ARGS_{batch.id}}}}} --worktree")
-        lines.append("```")
-        lines.append("")
+
     return "\n".join(lines).rstrip()
 
 
@@ -563,11 +607,20 @@ def render_create_issues_script(
         lines.append(
             f'  PARENT_BODY="${{PARENT_BODY//\\{{\\{{BATCH_NUMBERS_{bid}\\}}\\}}/${{NUMS_{bid}% }}}}"'
         )
-        # GH_ISSUE_ARGS_<ID> — "11 12 13" for `/gh-issue …` dispatch commands.
+        # GH_ISSUE_COMMANDS_<ID> — one "/gh-issue <N> --worktree" line per
+        # ticket in the batch. Open one session per ticket and fire them
+        # in parallel. Also retains GH_ISSUE_ARGS_<ID> ("11 12 13") for
+        # advanced users who want a single bundled-PR session.
+        lines.append(f'  CMDS_{bid}=""')
         lines.append(f'  ARGS_{bid}=""')
         for c in batch_children:
             var = f"CHILD_{c['slug'].upper().replace('-', '_')}"
+            lines.append(f'  CMDS_{bid}+="/gh-issue ${var} --worktree"$\'\\n\'')
             lines.append(f'  ARGS_{bid}+="${var} "')
+        # Trim trailing newline / trailing space for clean rendering.
+        lines.append(
+            f'  PARENT_BODY="${{PARENT_BODY//\\{{\\{{GH_ISSUE_COMMANDS_{bid}\\}}\\}}/${{CMDS_{bid}%$\'\\n\'}}}}"'
+        )
         lines.append(
             f'  PARENT_BODY="${{PARENT_BODY//\\{{\\{{GH_ISSUE_ARGS_{bid}\\}}\\}}/${{ARGS_{bid}% }}}}"'
         )
