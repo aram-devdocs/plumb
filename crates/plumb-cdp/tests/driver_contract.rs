@@ -1,7 +1,8 @@
-//! Contract tests for [`BrowserDriver`]. Runs against `FakeDriver`;
-//! `ChromiumDriver` will be covered by integration tests once PR #2 lands.
+//! Contract tests for [`BrowserDriver`].
 
-use plumb_cdp::{BrowserDriver, CdpError, ChromiumDriver, FakeDriver, Target, is_fake_url};
+use plumb_cdp::{
+    BrowserDriver, CdpError, ChromiumDriver, ChromiumOptions, FakeDriver, Target, is_fake_url,
+};
 use plumb_core::ViewportKey;
 
 fn target(url: &str) -> Target {
@@ -15,35 +16,36 @@ fn target(url: &str) -> Target {
 }
 
 #[tokio::test]
-async fn fake_driver_returns_canned_snapshot() {
+async fn fake_driver_returns_canned_snapshot() -> Result<(), CdpError> {
     let driver = FakeDriver;
-    let snap = driver
-        .snapshot(target("plumb-fake://hello"))
-        .await
-        .expect("canned");
+    let snap = driver.snapshot(target("plumb-fake://hello")).await?;
     assert_eq!(snap.url, "plumb-fake://hello");
     assert_eq!(snap.viewport.as_str(), "desktop");
     assert!(!snap.nodes.is_empty());
+    Ok(())
 }
 
 #[tokio::test]
 async fn fake_driver_rejects_unknown_urls() {
     let driver = FakeDriver;
-    let err = driver
-        .snapshot(target("plumb-fake://unknown"))
-        .await
-        .unwrap_err();
-    assert!(matches!(err, CdpError::UnknownFakeUrl(_)));
+    let result = driver.snapshot(target("plumb-fake://unknown")).await;
+    assert!(matches!(result, Err(CdpError::UnknownFakeUrl(_))));
 }
 
 #[tokio::test]
-async fn real_driver_is_not_implemented_yet() {
-    let driver = ChromiumDriver;
-    let err = driver
-        .snapshot(target("https://example.com"))
-        .await
-        .unwrap_err();
-    assert!(matches!(err, CdpError::NotImplemented));
+async fn real_driver_reports_missing_explicit_executable() {
+    let driver = ChromiumDriver::new(ChromiumOptions {
+        executable_path: Some(std::path::PathBuf::from(
+            "/definitely/not/a/chromium/binary",
+        )),
+    });
+
+    let result = driver.snapshot(target("https://example.com")).await;
+
+    assert!(matches!(result, Err(CdpError::ChromiumNotFound { .. })));
+    if let Err(CdpError::ChromiumNotFound { install_hint }) = result {
+        assert!(install_hint.contains("--executable-path"));
+    }
 }
 
 #[test]

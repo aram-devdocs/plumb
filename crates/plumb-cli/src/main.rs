@@ -47,11 +47,14 @@ enum Command {
     /// Lint a URL against your design-system spec.
     Lint {
         /// URL to lint. The `plumb-fake://hello` scheme exercises the
-        /// walking skeleton; real URLs require the CDP driver (PR #2).
+        /// deterministic fake driver.
         url: String,
         /// Path to the config file. Defaults to `plumb.toml` in CWD.
         #[arg(long, short = 'c')]
         config: Option<PathBuf>,
+        /// Explicit Chrome or Chromium executable path.
+        #[arg(long, value_name = "PATH")]
+        executable_path: Option<PathBuf>,
         /// Output format.
         #[arg(long, value_enum, default_value_t = Format::Pretty)]
         format: Format,
@@ -108,8 +111,9 @@ fn run(cli: Cli) -> Result<ExitCode> {
             Command::Lint {
                 url,
                 config,
+                executable_path,
                 format,
-            } => commands::lint::run(url, config, format.into()).await,
+            } => commands::lint::run(url, config, executable_path, format.into()).await,
             Command::Init { force } => commands::init::run(force),
             Command::Explain { rule } => commands::explain::run(&rule),
             Command::Schema => commands::schema::run(),
