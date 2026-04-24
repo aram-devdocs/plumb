@@ -197,13 +197,133 @@ def cmd_validate_resume(primary: int, slug: str) -> None:
 
 
 def cmd_poll_pr(primary: int, slug: str) -> None:
+    """Poll the PR for combined CI + Claude-code-review status.
+
+    Prints a summary line:
+        status: ci=<pass|fail|pending> review=<approve|request_changes|block|pending|none>
+
+    Then the raw CI table and the latest Claude review comment. Exit code:
+        0 — both green (ci=pass review=approve): advance to cleanup
+        1 — anything else: fix loop or wait
+    """
     state = load_state(primary, slug)
     pr = state.get('pr')
     if not pr:
         print('ERROR: No PR number in state. Create PR first.', file=sys.stderr)
         sys.exit(1)
 
-    print(f'Polling CI for PR #{pr}...')
+    ci_state = _poll_ci(pr)
+    review_verdict, review_body = _poll_claude_review(pr)
+
+    print(f'status: ci={ci_state} review={review_verdict}')
+    print('')
+    print('--- CI checks ---')
+    _print_ci_checks(pr)
+    if review_body:
+        print('')
+        print('--- latest Claude review comment ---')
+        print(review_body[:4000])
+        if len(review_body) > 4000:
+            print(f'... ({len(review_body) - 4000} more chars — `gh pr view {pr} --comments` for full)')
+
+    if ci_state == 'pass' and review_verdict == 'approve':
+        sys.exit(0)
+    sys.exit(1)
+
+
+def _poll_ci(pr: int) -> str:
+    """Return 'pass' | 'fail' | 'pending' for the PR's CI rollup."""
+    try:
+        result = subprocess.run(
+            ['gh', 'pr', 'view', str(pr), '--repo', REPO, '--json', 'statusCheckRollup'],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
+        print(f'WARN: polling CI failed: {exc}', file=sys.stderr)
+        return 'pending'
+
+    if result.returncode != 0:
+        return 'pending'
+
+    try:
+        data = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return 'pending'
+
+    checks = data.get('statusCheckRollup') or []
+    if not checks:
+        return 'pending'
+
+    any_pending = False
+    any_failed = False
+    for check in checks:
+        status = (check.get('status') or '').upper()
+        conclusion = (check.get('conclusion') or '').upper()
+        if conclusion in ('FAILURE', 'CANCELLED', 'TIMED_OUT', 'ACTION_REQUIRED'):
+            any_failed = True
+        elif conclusion in ('SUCCESS', 'NEUTRAL', 'SKIPPED'):
+            continue
+        elif status in ('IN_PROGRESS', 'QUEUED', 'PENDING', 'WAITING') or not conclusion:
+            any_pending = True
+
+    if any_failed:
+        return 'fail'
+    if any_pending:
+        return 'pending'
+    return 'pass'
+
+
+def _poll_claude_review(pr: int) -> tuple[str, str]:
+    """Return (verdict, raw_body) from the latest Claude code review comment.
+
+    verdict ∈ {'approve', 'request_changes', 'block', 'pending', 'none'}.
+    The Claude review workflow (.github/workflows/claude-code-review.yml)
+    posts PR comments via `anthropics/claude-code-action`. We match by
+    author (github-actions / claude-code) OR by a line matching
+    `Verdict: APPROVE | REQUEST_CHANGES | BLOCK`.
+    """
+    try:
+        result = subprocess.run(
+            ['gh', 'pr', 'view', str(pr), '--repo', REPO, '--json', 'comments'],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return ('pending', '')
+
+    if result.returncode != 0:
+        return ('pending', '')
+
+    try:
+        data = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return ('pending', '')
+
+    comments = data.get('comments') or []
+    for c in reversed(comments):
+        body = c.get('body', '') or ''
+        author = (c.get('author') or {}).get('login', '')
+        if 'Verdict:' in body or 'claude' in author.lower() or 'github-actions' in author.lower():
+            for line in reversed(body.splitlines()):
+                line = line.strip()
+                for prefix in ('Verdict:', '**Verdict:**', '*Verdict:*'):
+                    if line.lower().startswith(prefix.lower()):
+                        tail = line[len(prefix):].strip().strip('*').strip()
+                        verdict = tail.split()[0].upper() if tail else ''
+                        if verdict == 'APPROVE':
+                            return ('approve', body)
+                        if verdict in ('REQUEST_CHANGES', 'REQUEST-CHANGES', 'CHANGES'):
+                            return ('request_changes', body)
+                        if verdict == 'BLOCK':
+                            return ('block', body)
+            return ('pending', body)
+    return ('none', '')
+
+
+def _print_ci_checks(pr: int) -> None:
     try:
         result = subprocess.run(
             ['gh', 'pr', 'checks', str(pr), '--repo', REPO],
@@ -211,15 +331,11 @@ def cmd_poll_pr(primary: int, slug: str) -> None:
             text=True,
             timeout=30,
         )
-        print(result.stdout)
-        if result.returncode != 0:
+        print(result.stdout, end='')
+        if result.returncode != 0 and result.stderr:
             print(result.stderr, file=sys.stderr)
-    except FileNotFoundError:
-        print('ERROR: gh CLI not found', file=sys.stderr)
-        sys.exit(1)
-    except subprocess.TimeoutExpired:
-        print('ERROR: gh pr checks timed out', file=sys.stderr)
-        sys.exit(1)
+    except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
+        print(f'(ci check fetch failed: {exc})', file=sys.stderr)
 
 
 def cmd_cleanup_worktree(primary: int, slug: str) -> None:

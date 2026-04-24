@@ -153,11 +153,13 @@ Sequential gates (review-gate-guard hook enforces the order):
 
 ### Phase 7 — pr
 
+**Non-optional.** The session does NOT end until a PR exists, unless it's a worktree-only dry run explicitly requested by the user.
+
 1. Push the branch:
    ```bash
    git push -u origin <branch-name>
    ```
-2. Render the PR body from `.agents/skills/gh-issue/assets/pr-body-template.md` — it mirrors `.github/PULL_REQUEST_TEMPLATE.md` section-for-section.
+2. Render the PR body from `.agents/skills/gh-issue/assets/pr-body-template.md` — it mirrors `.github/PULL_REQUEST_TEMPLATE.md` section-for-section. Fill every section; do not collapse.
 3. Create the PR targeting `main`:
    ```bash
    gh pr create --repo aram-devdocs/plumb --base main \
@@ -171,18 +173,56 @@ Sequential gates (review-gate-guard hook enforces the order):
 
 ### Phase 8 — waiting-ci
 
-1. Poll:
+**Non-optional.** The session loops here until BOTH of these converge:
+
+- Every CI check on the PR is **green** (`gh pr checks <PR>`).
+- The Claude code reviewer (`.github/workflows/claude-code-review.yml`) has posted a comment on the PR ending with `Verdict: APPROVE`.
+
+Until both hold, the session does not advance. No exceptions.
+
+**Loop**:
+
+```bash
+# 1. Poll status (fetches both CI state and the latest Claude review verdict).
+python3 .agents/skills/gh-issue/scripts/gh_issue_run.py poll-pr <primary> <slug>
+```
+
+The poller reports one of:
+
+- `ci: pass, review: approve` — proceed to cleanup.
+- `ci: pass, review: request_changes` — read the review comment, dispatch `01-implementer` (or `07-debugger` if the issue is unclear) to fix, push, loop.
+- `ci: pass, review: block` — same as above; treat as a hard stop that needs a fix before advancing.
+- `ci: pass, review: pending` — review hasn't posted yet; wait and re-poll (respect GitHub rate limits — sleep ≥ 60s between polls).
+- `ci: fail` — read failure details, dispatch `07-debugger` → `01-implementer`, push the fix, loop.
+
+**Fix loop** (applies to both CI failures and review REQUEST_CHANGES/BLOCK verdicts):
+
+1. Read the failure / review comment:
    ```bash
-   python3 .agents/skills/gh-issue/scripts/gh_issue_run.py poll-pr <primary> <slug>
+   gh pr checks <PR> --repo aram-devdocs/plumb --fail-fast
+   gh pr view <PR> --repo aram-devdocs/plumb --json comments --jq '.comments[-1].body'
    ```
-2. On CI failure: `gh pr checks <PR> --repo aram-devdocs/plumb --fail-fast`, dispatch `07-debugger` → `01-implementer`, push fix, loop.
-3. On pass: advance to cleanup.
+2. Dispatch `07-debugger` for root-cause diagnosis if the failure / feedback is non-obvious.
+3. Dispatch `01-implementer` (or `10-quick-fix` for trivial) with the fix scope.
+4. Push the fix:
+   ```bash
+   git push origin <branch-name>
+   ```
+5. Record the fix commit:
+   ```bash
+   python3 .agents/skills/gh-issue/scripts/gh_issue_run.py update-state <primary> <slug> --commit <sha>
+   ```
+6. Re-poll. The Claude reviewer auto-triggers on every push; CI re-runs on every push.
+
+**Hard budget**: if the loop runs > 10 iterations without converging, stop and surface to the user. Something deeper is wrong and needs human judgment.
+
+When both converge: `--phase cleanup`.
 
 ### Phase 9 — cleanup
 
 1. Update run state to `cleanup`.
-2. If `--worktree`: `cleanup-worktree`.
-3. Return to `main`:
+2. If `--worktree`: `cleanup-worktree` removes the worktree and runs `git worktree prune`.
+3. Return to `main` in the primary checkout:
    ```bash
    git checkout main && git pull origin main
    ```
@@ -190,7 +230,7 @@ Sequential gates (review-gate-guard hook enforces the order):
 ### Phase 10 — done
 
 1. `--phase done`.
-2. Report: PR URL, issues addressed, review verdicts, CI outcome.
+2. Final report: PR URL, issues addressed, every review gate verdict, CI final state, Claude review verdict, any iteration count beyond 1.
 
 ## Durable run state
 
