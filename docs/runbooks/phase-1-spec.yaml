@@ -1,0 +1,195 @@
+schema: https://plumb.dev/schemas/runbook-spec.json
+name: "Phase 1 — Real CDP driver + foundational rules"
+phase_number: 1
+repo: aram-devdocs/plumb
+
+parent:
+  title: "[RUNBOOK] Phase 1 — Real CDP driver + foundational rules"
+  labels: ["phase-1", "kind:rfc"]
+  milestone: "v0.1-phase-1"
+  summary: |
+    Replace the `plumb-fake://` walking-skeleton path with a real
+    Chromium-backed CDP driver and ship 3 foundational rules
+    (`spacing/grid-conformance`, `spacing/scale-conformance`,
+    `type/scale-conformance`). By the end of this phase,
+    `plumb lint <real-url>` renders a real page via Chromium and emits
+    deterministic violations from real rules.
+
+    Establishes the cookie-cutter pattern every subsequent rule / driver
+    extension follows: Rule trait + golden test + docs page +
+    register_builtin; Chromium launch + DOMSnapshot + viewport multi-run.
+  acceptance_criteria:
+    - "`plumb lint https://plumb.dev --format json` renders a real page via Chromium and emits ≥1 violation from a real rule."
+    - "3x byte-diff determinism check holds on the new rules (`just determinism-check`)."
+    - "`cargo xtask pre-release` green — rule docs in sync, schema current."
+    - "All 9 child PRs merged."
+  related_prd_sections: ["§10.3", "§10.6", "§11.1", "§11.2", "§11.3", "§12.2", "§15.4"]
+
+batches:
+  - id: "1A"
+    description: "Foundation — driver launch + engine refactor + config shape"
+    parallel: true
+    issues:
+      - slug: cdp-chromium-launch
+        title: "feat(cdp): Chromium detection, launch, and BYO-Chromium support"
+        labels: ["phase-1", "area:cdp", "kind:feat"]
+        crate: plumb-cdp
+        effort: M
+        prd_refs: ["§10.6"]
+        summary: |
+          Detect a system Chromium (macOS / Linux / Windows), expose an
+          `--executable-path` flag to override, and exit gracefully with a
+          typed `CdpError` + install instructions when not found.
+        acceptance_criteria:
+          - "`ChromiumDriver::snapshot` launches a real Chromium for standard install paths on all three OSes."
+          - "`--executable-path /custom/chrome` overrides detection."
+          - "Missing Chromium yields `CdpError::ChromiumNotFound` with a human-readable install hint."
+          - "Chromium major version verified against `PINNED_CHROMIUM_MAJOR`; mismatch yields `CdpError::UnsupportedChromium`."
+          - "`docs/src/install-chromium.md` documents install steps per OS."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner", "06-security-auditor"]
+      - slug: core-rule-trait-dispatch
+        title: "refactor(core): formalize Rule trait + RuleEngine dispatch"
+        labels: ["phase-1", "area:core", "kind:refactor"]
+        crate: plumb-core
+        effort: S
+        prd_refs: ["§11.1"]
+        summary: |
+          Tighten the `Rule` trait, `register_builtin`, and `engine::run`
+          to support parallel per-rule execution via rayon while keeping
+          output deterministic. Prepares the engine for the 3 foundational
+          rules arriving in Batch 1C.
+        acceptance_criteria:
+          - "Rule dispatch supports deterministic parallel execution."
+          - "`engine::run` output is byte-identical across 3 invocations on the same snapshot."
+          - "Golden tests unchanged (placeholder rule still passes)."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner"]
+      - slug: config-spacing-type-sections
+        title: "feat(config): [spacing] and [type] sections + JSON Schema"
+        labels: ["phase-1", "area:config", "kind:feat"]
+        crate: plumb-config
+        effort: M
+        prd_refs: ["§12.2"]
+        summary: |
+          Implement the PRD §12.2 `[spacing]` and `[type]` sections on
+          `Config` with full `schemars` schema emission. Adds `base_unit`,
+          `scale`, named token maps, and type scale arrays.
+        acceptance_criteria:
+          - "`plumb.toml` parses the `[spacing]` and `[type]` sections with `deny_unknown_fields`."
+          - "`cargo xtask schema` emits the updated JSON Schema with correct types."
+          - "`plumb-config` validation rejects off-schema input with `miette` spans."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner"]
+      - slug: core-snapshot-ctx-viewport
+        title: "feat(core): enrich SnapshotCtx with viewport set + rect index"
+        labels: ["phase-1", "area:core", "kind:feat"]
+        crate: plumb-core
+        effort: S
+        prd_refs: ["§10.3", "§11.1"]
+        summary: |
+          Extend `SnapshotCtx` to carry the active viewport set and a
+          pre-built rect index so rules don't re-scan the node tree.
+          Prepares the context for per-viewport parallel rule execution.
+        acceptance_criteria:
+          - "`SnapshotCtx` exposes `viewports()` and `rect_for(dom_order)`."
+          - "Rect index is built once per snapshot; rules query O(1)."
+          - "Placeholder rule still passes."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner"]
+
+  - id: "1B"
+    description: "Integration — real DOMSnapshot + viewport multi-run"
+    parallel: true
+    depends_on_batch: "1A"
+    issues:
+      - slug: cdp-domsnapshot-integration
+        title: "feat(cdp): DOMSnapshot.captureSnapshot integration with style whitelist"
+        labels: ["phase-1", "area:cdp", "kind:feat"]
+        crate: plumb-cdp
+        effort: M
+        prd_refs: ["§10.3"]
+        summary: |
+          Wire chromiumoxide's CDP call to `DOMSnapshot.captureSnapshot`
+          with the 30-property computed-style whitelist from PRD §10.3,
+          flatten the DOM tree into `PlumbSnapshot`, and include bounding
+          rects.
+        acceptance_criteria:
+          - "Real URL snapshots produce `PlumbSnapshot` with computed styles populated for every whitelisted property."
+          - "Rect bounds match what Chromium reports (no off-by-one)."
+          - "Snapshot content is byte-identical across 3 runs on a fixed fixture page."
+          - "Driver contract tests cover a static local HTML fixture."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner", "06-security-auditor"]
+      - slug: cli-viewport-flag-multirun
+        title: "feat(cli,core): --viewport flag + viewport multi-run orchestration"
+        labels: ["phase-1", "area:cli", "area:core", "kind:feat"]
+        crate: plumb-cli
+        effort: M
+        prd_refs: ["§10.3", "§15.4"]
+        summary: |
+          Add `--viewport <name>` flag (repeatable) to filter the
+          configured viewport set. CLI iterates over viewports, reuses
+          the browser process, and runs rules in parallel across
+          viewports.
+        acceptance_criteria:
+          - "`plumb lint <url> --viewport mobile --viewport desktop` runs against exactly those two viewports."
+          - "Absent `--viewport`, every configured viewport runs."
+          - "Browser reused across viewport iterations (one launch per CLI invocation)."
+          - "Exit code reflects the worst severity across viewports."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner"]
+
+  - id: "1C"
+    description: "First real rules — three foundational conformance checks"
+    parallel: true
+    depends_on_batch: "1B"
+    issues:
+      - slug: rule-spacing-grid-conformance
+        title: "feat(core): rule spacing/grid-conformance"
+        labels: ["phase-1", "area:core", "kind:feat"]
+        crate: plumb-core
+        effort: M
+        prd_refs: ["§11.2", "§11.3"]
+        summary: |
+          Flag `margin-*`, `padding-*`, `gap` values that aren't multiples
+          of `spacing.base_unit`. Emits a violation with a nearest-multiple
+          fix suggestion and honors per-rule overrides in `plumb.toml`.
+        acceptance_criteria:
+          - "Rule emits one violation per off-grid computed value per selector."
+          - "Fix suggests the nearest in-scale value."
+          - "Golden snapshot test in `crates/plumb-core/tests/golden_spacing_grid.rs`."
+          - "Docs page at `docs/src/rules/spacing-grid-conformance.md`."
+          - "Registered in `register_builtin`."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner"]
+      - slug: rule-spacing-scale-conformance
+        title: "feat(core): rule spacing/scale-conformance"
+        labels: ["phase-1", "area:core", "kind:feat"]
+        crate: plumb-core
+        effort: S
+        prd_refs: ["§11.2"]
+        summary: |
+          Flag spacing values that aren't in the discrete `spacing.scale`
+          set (complements grid-conformance: grid checks multiples-of,
+          scale checks set-membership).
+        acceptance_criteria:
+          - "Rule emits a violation when a spacing value is not in `spacing.scale`."
+          - "Fix suggests the nearest in-scale value by absolute delta."
+          - "Golden test + docs page + `register_builtin` entry."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner"]
+      - slug: rule-type-scale-conformance
+        title: "feat(core): rule type/scale-conformance"
+        labels: ["phase-1", "area:core", "kind:feat"]
+        crate: plumb-core
+        effort: S
+        prd_refs: ["§11.2"]
+        summary: |
+          Flag `font-size` values that aren't in `type.scale`. Behaves
+          symmetrically with spacing/scale-conformance.
+        acceptance_criteria:
+          - "Rule emits a violation when `font-size` is not in `type.scale`."
+          - "Fix suggests the nearest in-scale value."
+          - "Golden test + docs page + `register_builtin` entry."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner"]
+
+phase_gate:
+  criterion: |
+    `just validate` green AND `plumb lint https://plumb.dev --format json`
+    renders a real page via Chromium and emits ≥1 violation from a real
+    rule AND `just determinism-check` passes on the new rules AND
+    `cargo xtask pre-release` passes (rule docs in sync, schema current).
+  unblocks: "phase-2"

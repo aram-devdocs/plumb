@@ -1,0 +1,118 @@
+schema: https://plumb.dev/schemas/runbook-spec.json
+name: "Phase 4 — Output formatter completeness"
+phase_number: 4
+repo: aram-devdocs/plumb
+
+parent:
+  title: "[RUNBOOK] Phase 4 — Output formatter completeness"
+  labels: ["phase-4", "kind:rfc"]
+  milestone: "v0.4-phase-4"
+  summary: |
+    Complete the output story: ship a conformant SARIF 2.1.0 formatter
+    with rule metadata, add summary stats + grouped-pretty output, and
+    document how to pipe Plumb's output into GitHub Code Scanning and
+    reviewdog.
+
+    By the end of this phase, a PR in a Plumb-using repo surfaces
+    violations as GitHub Code Scanning alerts and as inline reviewdog PR
+    comments without any custom glue.
+  acceptance_criteria:
+    - "`plumb lint <url> --format sarif` emits a SARIF 2.1.0 document that uploads cleanly to GitHub Code Scanning."
+    - "Pretty format groups by viewport + rule with a summary stats footer."
+    - "Reviewdog integration cookbook documented."
+    - "All 5 child PRs merged."
+  related_prd_sections: ["§13.1", "§13.4"]
+
+batches:
+  - id: "4A"
+    description: "SARIF + stats"
+    parallel: true
+    issues:
+      - slug: format-sarif-2-1-0-rule-metadata
+        title: "feat(format): SARIF 2.1.0 with rule metadata + helpUri"
+        labels: ["phase-4", "area:format", "kind:feat"]
+        crate: plumb-format
+        effort: M
+        prd_refs: ["§13.4"]
+        summary: |
+          Enrich the SARIF stub from the walking skeleton: include a full
+          `tool.driver.rules` list with id, shortDescription,
+          fullDescription, helpUri, and defaultConfiguration (severity).
+          Run results reference rule metadata by id.
+        acceptance_criteria:
+          - "SARIF validates against schemastore's 2.1.0 schema."
+          - "GitHub Code Scanning upload accepts the document end-to-end on a dogfood PR."
+          - "Rule metadata sourced from `Rule` trait + `docs/src/rules/<slug>.md`."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner"]
+      - slug: cli-format-sarif-flag
+        title: "feat(cli): --format sarif + --output <path>"
+        labels: ["phase-4", "area:cli", "kind:feat"]
+        crate: plumb-cli
+        effort: S
+        prd_refs: ["§13.4"]
+        summary: |
+          Make `--format sarif` the first-class SARIF path; add `--output
+          <path>` to write to a file instead of stdout (useful in CI).
+        acceptance_criteria:
+          - "`plumb lint <url> --format sarif --output results.sarif` writes a valid SARIF file."
+          - "Exit code unchanged — independent of output format."
+          - "CLI integration test."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner"]
+      - slug: format-summary-stats
+        title: "feat(format): summary stats block (error/warning/info counts + durations)"
+        labels: ["phase-4", "area:format", "kind:feat"]
+        crate: plumb-format
+        effort: S
+        prd_refs: ["§13.1"]
+        summary: |
+          Add a deterministic stats block appended to pretty + JSON
+          output with severity counts, viewport count, rule count, and
+          content-hashed run id. No wall-clock durations in JSON (the
+          pretty format may include them, rendered via `plumb-cli` only).
+        acceptance_criteria:
+          - "Stats block byte-identical across 3 runs in JSON output."
+          - "Pretty output groups by viewport → rule → selector."
+          - "Snapshot tests updated."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner"]
+
+  - id: "4B"
+    description: "Integration docs — Code Scanning + reviewdog"
+    parallel: true
+    depends_on_batch: "4A"
+    issues:
+      - slug: docs-sarif-upload-runbook
+        title: "docs: SARIF upload runbook for GitHub Code Scanning"
+        labels: ["phase-4", "area:docs", "kind:docs"]
+        crate: docs
+        effort: S
+        summary: |
+          Step-by-step: add a CI job that runs `plumb lint --format
+          sarif --output plumb.sarif`, then `github/codeql-action/upload-sarif@v3`.
+          Include example workflow snippet.
+        acceptance_criteria:
+          - "Docs page at `docs/src/ci/github-code-scanning.md`."
+          - "Example workflow tested against a throwaway GitHub repo."
+          - "Humanizer run."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "04-test-runner"]
+      - slug: docs-reviewdog-integration
+        title: "docs: reviewdog integration cookbook"
+        labels: ["phase-4", "area:docs", "kind:docs"]
+        crate: docs
+        effort: S
+        summary: |
+          Document piping `plumb lint --format json | reviewdog -f=plumb
+          -reporter=github-pr-review`. Includes a reviewdog format definition
+          file committed to the repo.
+        acceptance_criteria:
+          - "Docs page at `docs/src/ci/reviewdog.md`."
+          - "Reviewdog custom format file at `contrib/reviewdog-plumb.yaml`."
+          - "Humanizer run."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "04-test-runner"]
+
+phase_gate:
+  criterion: |
+    `just validate` green AND `plumb lint <fixture> --format sarif`
+    uploads cleanly to GitHub Code Scanning on a dogfood PR AND stats
+    block is byte-identical across 3 runs AND `cargo xtask pre-release`
+    green.
+  unblocks: "phase-5"

@@ -1,0 +1,100 @@
+schema: https://plumb.dev/schemas/runbook-spec.json
+name: "Plumb V0 → V1 roadmap"
+repo: aram-devdocs/plumb
+
+parent:
+  title: "[ROADMAP] Plumb V0 → V1"
+  labels: [roadmap, "kind:rfc"]
+  summary: |
+    Top-level delivery plan for Plumb from the walking-skeleton founding
+    commit through V1 feature completion. Each phase is a runbook of
+    grouped child workstreams organized into sequential batches with a
+    phase gate; phases unlock strictly in order.
+
+    Scope coverage: every PRD item that isn't shipped in the walking
+    skeleton is assigned to a phase. Phase 1–6 is V0 (launch-ready
+    release); Phase 7 collects V1 features marked for after V0 ships.
+
+    Non-goals carried forward from the PRD: auto-fix source files,
+    embedded Chromium, commercial positioning, CSS-in-JS runtime token
+    extraction. IDE extensions and baseline-rhythm rule are assigned
+    to Phase 7 (V1), not deferred silently.
+  acceptance_criteria:
+    - "All 6 V0 phase-parent issues are closed with their phase gates satisfied."
+    - "`plumb lint https://plumb.dev` produces deterministic output from 8 MVP rules with zero false positives."
+    - "`plumb` is installable via `cargo install plumb-cli`, `brew install plumb-dev/tap/plumb`, `npm i -g @plumb/cli`, and `curl | sh`."
+    - "Phase 7 parent (V1) either closed, or explicitly tracked as the V1 milestone with clear acceptance criteria."
+  related_prd_sections: ["§6", "§7", "§10", "§11", "§12", "§13", "§14", "§15", "§16"]
+
+batches:
+  - id: "R"
+    description: "Phase parents — each phase unlocks only after the prior phase closes"
+    parallel: false
+    issues:
+      - slug: phase-1-parent-link
+        title: "chore(roadmap): link phase-1 parent"
+        labels: [roadmap, "phase-1", "kind:chore"]
+        crate: docs
+        effort: XS
+        summary: |
+          Placeholder child that records the Phase 1 parent issue number
+          in the roadmap body once Phase 1 is created. The create-issues
+          script rewrites {{PARENT_ISSUE}} and leaves this child closed
+          with a cross-reference note.
+        acceptance_criteria:
+          - "Phase 1 parent issue exists and is linked from the roadmap."
+        reviewers: ["02-spec-reviewer"]
+      - slug: phase-2-parent-link
+        title: "chore(roadmap): link phase-2 parent"
+        labels: [roadmap, "phase-2", "kind:chore"]
+        effort: XS
+        summary: "Placeholder to link the Phase 2 parent."
+        acceptance_criteria:
+          - "Phase 2 parent issue exists and is linked from the roadmap."
+        reviewers: ["02-spec-reviewer"]
+      - slug: phase-3-parent-link
+        title: "chore(roadmap): link phase-3 parent"
+        labels: [roadmap, "phase-3", "kind:chore"]
+        effort: XS
+        summary: "Placeholder to link the Phase 3 parent."
+        acceptance_criteria:
+          - "Phase 3 parent issue exists and is linked from the roadmap."
+        reviewers: ["02-spec-reviewer"]
+      - slug: phase-4-parent-link
+        title: "chore(roadmap): link phase-4 parent"
+        labels: [roadmap, "phase-4", "kind:chore"]
+        effort: XS
+        summary: "Placeholder to link the Phase 4 parent."
+        acceptance_criteria:
+          - "Phase 4 parent issue exists and is linked from the roadmap."
+        reviewers: ["02-spec-reviewer"]
+      - slug: phase-5-parent-link
+        title: "chore(roadmap): link phase-5 parent"
+        labels: [roadmap, "phase-5", "kind:chore"]
+        effort: XS
+        summary: "Placeholder to link the Phase 5 parent."
+        acceptance_criteria:
+          - "Phase 5 parent issue exists and is linked from the roadmap."
+        reviewers: ["02-spec-reviewer"]
+      - slug: phase-6-parent-link
+        title: "chore(roadmap): link phase-6 parent"
+        labels: [roadmap, "phase-6", "kind:chore"]
+        effort: XS
+        summary: "Placeholder to link the Phase 6 parent."
+        acceptance_criteria:
+          - "Phase 6 parent issue exists and is linked from the roadmap."
+        reviewers: ["02-spec-reviewer"]
+      - slug: phase-7-parent-link
+        title: "chore(roadmap): link phase-7 parent (V1)"
+        labels: [roadmap, "phase-7", "kind:chore"]
+        effort: XS
+        summary: "Placeholder to link the Phase 7 (V1) parent."
+        acceptance_criteria:
+          - "Phase 7 parent issue exists and is linked from the roadmap."
+        reviewers: ["02-spec-reviewer"]
+
+phase_gate:
+  criterion: |
+    All 6 V0 phase parents closed with their phase gates satisfied.
+    Phase 7 (V1) has a tracked milestone and clear definition of done.
+  unblocks: "(terminal roadmap)"

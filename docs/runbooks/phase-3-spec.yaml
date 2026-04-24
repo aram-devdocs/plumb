@@ -1,0 +1,168 @@
+schema: https://plumb.dev/schemas/runbook-spec.json
+name: "Phase 3 — MCP surface expansion"
+phase_number: 3
+repo: aram-devdocs/plumb
+
+parent:
+  title: "[RUNBOOK] Phase 3 — MCP surface expansion"
+  labels: ["phase-3", "kind:rfc"]
+  milestone: "v0.3-phase-3"
+  summary: |
+    Extend the Model Context Protocol surface beyond the walking-skeleton
+    `echo` + `lint_url`. Ship `explain_rule`, `list_rules`, `get_config`,
+    graduate `lint_url` to real URLs, add persistent browser + per-call
+    incognito isolation, and publish one doc page per built-in rule so
+    `explain_rule` has content to surface. Exposes a Plumb config
+    resource so agents can read the resolved spec without a tool call.
+  acceptance_criteria:
+    - "6 MCP tools exposed: echo, lint_url, explain_rule, list_rules, get_config, resource `plumb.toml`."
+    - "A real MCP client (Claude Code, Cursor) uses lint_url + explain_rule + list_rules end-to-end against https://plumb.dev."
+    - "Persistent browser reused across calls; each lint_url call gets its own incognito context."
+    - "Every built-in rule has a doc page; `cargo xtask sync-rules-index` green."
+    - "All 8 child PRs merged."
+  related_prd_sections: ["§11.6", "§14", "§14.2", "§14.3"]
+
+batches:
+  - id: "3A"
+    description: "Tool scaffolding — read-side tools first"
+    parallel: true
+    issues:
+      - slug: mcp-explain-rule
+        title: "feat(mcp): explain_rule tool"
+        labels: ["phase-3", "area:mcp", "kind:feat"]
+        crate: plumb-mcp
+        effort: S
+        prd_refs: ["§14.2"]
+        summary: |
+          Add an `explain_rule` tool accepting `rule_id`. Reads
+          `docs/src/rules/<slug>.md` and returns the markdown + a
+          `structuredContent` block with severity, default config, and
+          examples.
+        acceptance_criteria:
+          - "Tool registered in `tools/list`; protocol test case in `mcp_stdio.rs`."
+          - "Unknown rule_id returns a typed JSON-RPC error (-32602)."
+          - "Response cap ≤ 10 KB structured content."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner", "06-security-auditor"]
+      - slug: mcp-list-rules
+        title: "feat(mcp): list_rules tool"
+        labels: ["phase-3", "area:mcp", "kind:feat"]
+        crate: plumb-mcp
+        effort: S
+        prd_refs: ["§14.2"]
+        summary: |
+          Enumerate every enabled rule with id, default severity, and
+          one-line summary from `Rule::summary`.
+        acceptance_criteria:
+          - "Tool registered; response includes every `register_builtin` rule."
+          - "Deterministic ordering by `(category, id)`."
+          - "Protocol test."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner"]
+      - slug: mcp-get-config
+        title: "feat(mcp): get_config tool"
+        labels: ["phase-3", "area:mcp", "kind:feat"]
+        crate: plumb-mcp
+        effort: S
+        prd_refs: ["§14.2"]
+        summary: |
+          Return the resolved `plumb.toml` (with all adapters applied) so
+          an agent can see the constraint set without re-parsing.
+        acceptance_criteria:
+          - "Tool returns JSON-serialized Config."
+          - "Memoized per working-dir + mtime."
+          - "Protocol test."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner", "06-security-auditor"]
+
+  - id: "3B"
+    description: "lint_url graduation + browser warmth"
+    parallel: true
+    depends_on_batch: "3A"
+    issues:
+      - slug: mcp-lint-url-real
+        title: "feat(mcp): lint_url accepts real URLs (not just plumb-fake://)"
+        labels: ["phase-3", "area:mcp", "area:cdp", "kind:feat"]
+        crate: plumb-mcp
+        effort: M
+        prd_refs: ["§14.2"]
+        summary: |
+          Graduate lint_url to real `http(s)` URLs via the real
+          ChromiumDriver from Phase 1. Keep plumb-fake:// for tests.
+        acceptance_criteria:
+          - "Real URL produces violations from real rules (Phase 1/2 rules)."
+          - "Typed errors for Chromium-not-found / unsupported version."
+          - "Protocol test: call against a local fixture HTML via `http://localhost:<N>/fixture.html`."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner", "06-security-auditor"]
+      - slug: mcp-persistent-browser-incognito
+        title: "feat(mcp,cdp): persistent browser + per-call incognito context"
+        labels: ["phase-3", "area:mcp", "area:cdp", "kind:feat"]
+        crate: plumb-mcp
+        effort: M
+        prd_refs: ["§14.3"]
+        summary: |
+          Warm a single Chromium process on MCP server init; give each
+          `lint_url` call its own incognito BrowserContext for isolation.
+          Cache survives the session; incognito contexts torn down post-call.
+        acceptance_criteria:
+          - "Second+ lint_url calls are ≥ 3× faster than the first (warm)."
+          - "State from call N doesn't leak into call N+1 (incognito isolation verified)."
+          - "Graceful shutdown on MCP server exit."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner", "06-security-auditor"]
+      - slug: mcp-detail-mode
+        title: "feat(mcp,format): lint_url detail=\"full\" mode"
+        labels: ["phase-3", "area:mcp", "area:format", "kind:feat"]
+        crate: plumb-mcp
+        effort: S
+        prd_refs: ["§14.2"]
+        summary: |
+          Accept an optional `detail: "full"` arg that returns the full
+          violation JSON (not just the compact summary). Default remains
+          compact to preserve agent token budget.
+        acceptance_criteria:
+          - "`detail: \"compact\"` is the default and current behavior."
+          - "`detail: \"full\"` returns full JSON per violation."
+          - "Response cap still enforced (reject if payload exceeds 50 KB in full mode)."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner"]
+
+  - id: "3C"
+    description: "Docs + MCP resource"
+    parallel: true
+    depends_on_batch: "3B"
+    issues:
+      - slug: docs-one-rule-doc-per-builtin
+        title: "docs: one rule doc per built-in rule"
+        labels: ["phase-3", "area:docs", "kind:docs"]
+        crate: docs
+        effort: M
+        prd_refs: ["§11.6", "§14.2"]
+        summary: |
+          Ensure every rule registered in `register_builtin` has a
+          `docs/src/rules/<slug>.md` matching the contract in
+          `docs/src/rules/AGENTS.md`. `cargo xtask sync-rules-index`
+          enforces this; fill any gaps.
+        acceptance_criteria:
+          - "`cargo xtask sync-rules-index` green."
+          - "Each doc has all 8 required sections."
+          - "Humanizer skill run on every added file."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "04-test-runner"]
+      - slug: mcp-resource-plumb-toml
+        title: "feat(mcp): MCP resource exposing resolved plumb.toml"
+        labels: ["phase-3", "area:mcp", "kind:feat"]
+        crate: plumb-mcp
+        effort: S
+        prd_refs: ["§14"]
+        summary: |
+          Expose the resolved config as an MCP Resource (not a tool), so
+          agents can `resources/read` to see the spec without a tool
+          call. URI: `plumb://config`.
+        acceptance_criteria:
+          - "Resource registered; `resources/list` includes it."
+          - "`resources/read plumb://config` returns the resolved Config JSON."
+          - "Protocol test."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner"]
+
+phase_gate:
+  criterion: |
+    `just validate` green AND a real MCP client connects to `plumb mcp`
+    and successfully calls lint_url + explain_rule + list_rules against
+    https://plumb.dev AND `cargo xtask sync-rules-index` green AND
+    `cargo xtask pre-release` green.
+  unblocks: "phase-4"

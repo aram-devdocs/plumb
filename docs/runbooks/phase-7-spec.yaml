@@ -1,0 +1,319 @@
+schema: https://plumb.dev/schemas/runbook-spec.json
+name: "Phase 7 — V1 features (post-V0)"
+phase_number: 7
+repo: aram-devdocs/plumb
+
+parent:
+  title: "[RUNBOOK] Phase 7 — V1 features"
+  labels: ["phase-7", "kind:rfc"]
+  milestone: "v1.0-phase-7"
+  summary: |
+    V1 features that intentionally shipped AFTER V0. Expands the rule
+    catalog (8 more rules), hardens the driver (wait-for, auth scripts,
+    Playwright storage-state, Chromium auto-fetch), expands the MCP
+    surface (lint_page_html, compare_viewports, HTTP transport), and
+    adds codegen + watch mode + suggest-ignores.
+
+    This is long. Phase 7 runs in batches of related work; each batch
+    can ship on its own milestone if the V1 release needs to fan out.
+  acceptance_criteria:
+    - "All batches in the V1 track close with their gates satisfied."
+    - "`plumb lint` supports the full CDP capability surface (auth, cookies, wait-for, storage-state, animation disable)."
+    - "8 V1 rules shipped alongside V0's 8, for 16 total."
+    - "MCP surface stable on stdio + HTTP transports."
+    - "VS Code extension published (separate repo; tracked via 7E)."
+  related_prd_sections: ["§10.6", "§11.2", "§11.4", "§14.1", "§14.2", "§14.4", "§15.3", "§15.4", "§15.5", "§16"]
+
+batches:
+  - id: "7A"
+    description: "Remaining rules (8 in parallel)"
+    parallel: true
+    issues:
+      - slug: rule-type-family-conformance
+        title: "feat(core): rule type/family-conformance"
+        labels: ["phase-7", "area:core", "kind:feat"]
+        crate: plumb-core
+        effort: S
+        prd_refs: ["§11.2"]
+        summary: "Flag `font-family` not in `type.families`."
+        acceptance_criteria:
+          - "Rule + golden test + docs + `register_builtin`."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner"]
+      - slug: rule-type-weight-conformance
+        title: "feat(core): rule type/weight-conformance"
+        labels: ["phase-7", "area:core", "kind:feat"]
+        crate: plumb-core
+        effort: S
+        prd_refs: ["§11.2"]
+        summary: "Flag `font-weight` not in `type.weights`."
+        acceptance_criteria:
+          - "Rule + golden test + docs + `register_builtin`."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner"]
+      - slug: rule-color-contrast-aa
+        title: "feat(core): rule color/contrast-aa (WCAG 2.1 AA)"
+        labels: ["phase-7", "area:core", "kind:feat"]
+        crate: plumb-core
+        effort: L
+        prd_refs: ["§11.2"]
+        summary: |
+          Enforce WCAG 2.1 AA contrast (4.5:1 normal, 3:1 large). Pairs
+          foreground color + font-size + background per node.
+        acceptance_criteria:
+          - "Rule correctly classifies text as normal vs large per WCAG 2.1."
+          - "Computes contrast ratio with relative luminance."
+          - "Golden test + docs + `register_builtin`."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner"]
+      - slug: rule-shadow-scale-conformance
+        title: "feat(core): rule shadow/scale-conformance"
+        labels: ["phase-7", "area:core", "kind:feat"]
+        crate: plumb-core
+        effort: S
+        prd_refs: ["§11.2"]
+        summary: "Flag `box-shadow` not matching a named token."
+        acceptance_criteria:
+          - "Rule + golden test + docs + `register_builtin`."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner"]
+      - slug: rule-sibling-padding-consistency
+        title: "feat(core): rule sibling/padding-consistency"
+        labels: ["phase-7", "area:core", "kind:feat"]
+        crate: plumb-core
+        effort: S
+        prd_refs: ["§11.2"]
+        summary: "Elements matching a family selector share computed padding."
+        acceptance_criteria:
+          - "Rule + golden test + docs + `register_builtin`."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner"]
+      - slug: rule-z-scale-conformance
+        title: "feat(core): rule z/scale-conformance"
+        labels: ["phase-7", "area:core", "kind:feat"]
+        crate: plumb-core
+        effort: S
+        prd_refs: ["§11.2"]
+        summary: "Flag `z-index` not in `z_index.scale`."
+        acceptance_criteria:
+          - "Rule + golden test + docs + `register_builtin`."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner"]
+      - slug: rule-opacity-scale-conformance
+        title: "feat(core): rule opacity/scale-conformance"
+        labels: ["phase-7", "area:core", "kind:feat"]
+        crate: plumb-core
+        effort: S
+        prd_refs: ["§11.2"]
+        summary: "Flag `opacity` not in `opacity.scale`."
+        acceptance_criteria:
+          - "Rule + golden test + docs + `register_builtin`."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner"]
+      - slug: rule-baseline-rhythm
+        title: "feat(core): rule baseline/rhythm (font metrics + CDP textBoxes)"
+        labels: ["phase-7", "area:core", "kind:feat"]
+        crate: plumb-core
+        effort: L
+        prd_refs: ["§11.4"]
+        summary: |
+          Text baselines align to `rhythm.base_line_px` within tolerance.
+          Requires font cap-height offsets and CDP's `textBoxes` data.
+          Non-trivial — see PRD §11.4 for the full design.
+        acceptance_criteria:
+          - "Rule implements the baseline-snapping algorithm from PRD §11.4."
+          - "Handles multi-font lines via cap-height fallback."
+          - "Golden test + docs + `register_builtin`."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner"]
+
+  - id: "7B"
+    description: "Driver ergonomics — wait-for, auth, animation disable, auto-fetch"
+    parallel: true
+    depends_on_batch: "7A"
+    issues:
+      - slug: cli-wait-for-wait-ms
+        title: "feat(cli): --wait-for <selector> and --wait-ms <ms> flags"
+        labels: ["phase-7", "area:cli", "kind:feat"]
+        crate: plumb-cli
+        effort: S
+        prd_refs: ["§16"]
+        summary: |
+          Wait for a CSS selector to appear OR wait additional ms before
+          snapshot.
+        acceptance_criteria:
+          - "Both flags supported; either may be present."
+          - "CLI integration test."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner"]
+      - slug: cli-cookie-header-auth-script
+        title: "feat(cli): --cookie / --header / --auth-script flags"
+        labels: ["phase-7", "area:cli", "area:cdp", "kind:feat"]
+        crate: plumb-cli
+        effort: M
+        prd_refs: ["§16"]
+        summary: |
+          Set cookies, custom headers, run a pre-navigation auth script
+          for authenticated pages.
+        acceptance_criteria:
+          - "All three flags supported, composable, tested."
+          - "Security auditor review — no credential leakage in logs or `run_id`."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner", "06-security-auditor"]
+      - slug: cli-cdp-playwright-storage-state
+        title: "feat(cli,cdp): Playwright storage-state loading"
+        labels: ["phase-7", "area:cli", "area:cdp", "kind:feat"]
+        crate: plumb-cli
+        effort: M
+        prd_refs: ["§16"]
+        summary: |
+          Load Playwright-compatible `.auth.json` files to resume
+          authenticated sessions without re-running the auth flow.
+        acceptance_criteria:
+          - "Loader accepts Playwright 1.x storage-state JSON."
+          - "Cookies + localStorage + sessionStorage all applied."
+          - "Security auditor review — no stale token reuse."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner", "06-security-auditor"]
+      - slug: cdp-disable-anim-hide-scroll-pin-dpr
+        title: "feat(cdp): disable animations + hide scrollbars + pin DPR"
+        labels: ["phase-7", "area:cdp", "kind:feat"]
+        crate: plumb-cdp
+        effort: S
+        prd_refs: ["§16"]
+        summary: |
+          Inject `* { animation-duration: 0s !important }` stylesheet,
+          pass `--hide-scrollbars`, and set `--force-device-scale-factor=1`
+          for deterministic output.
+        acceptance_criteria:
+          - "All three behaviors active by default; flags to disable."
+          - "Snapshot byte-stable across runs that used to race on anim."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner", "06-security-auditor"]
+      - slug: cdp-chromium-auto-fetch
+        title: "feat(cdp): Chromium auto-fetch via chromiumoxide fetcher"
+        labels: ["phase-7", "area:cdp", "kind:feat"]
+        crate: plumb-cdp
+        effort: L
+        prd_refs: ["§10.6"]
+        summary: |
+          Use chromiumoxide's `fetcher` feature to download the pinned
+          Chromium on first run (opt-in). Pinned version appears in the
+          `run_id` hash for full reproducibility.
+        acceptance_criteria:
+          - "`plumb lint --fetch-chromium` downloads the pinned major."
+          - "SHA + attestation of the fetched binary verified before launch."
+          - "Security auditor review — no arbitrary binary execution."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner", "06-security-auditor"]
+
+  - id: "7C"
+    description: "MCP V1 — new tools + HTTP transport"
+    parallel: true
+    issues:
+      - slug: mcp-lint-page-html
+        title: "feat(mcp): lint_page_html tool"
+        labels: ["phase-7", "area:mcp", "kind:feat"]
+        crate: plumb-mcp
+        effort: M
+        prd_refs: ["§14.2"]
+        summary: |
+          Accept inline HTML + base URL; lint without requiring a real
+          URL. Useful for agents testing generated components before save.
+        acceptance_criteria:
+          - "Tool registered; protocol test."
+          - "Response cap matches lint_url."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner", "06-security-auditor"]
+      - slug: mcp-compare-viewports
+        title: "feat(mcp): compare_viewports tool"
+        labels: ["phase-7", "area:mcp", "kind:feat"]
+        crate: plumb-mcp
+        effort: M
+        prd_refs: ["§14.2"]
+        summary: |
+          Delta layout between two viewports — elements missing / size
+          change > threshold / ordering change.
+        acceptance_criteria:
+          - "Tool returns structured delta per node."
+          - "Handles the common cases (hidden at mobile, reordered, reflowed)."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner"]
+      - slug: mcp-http-transport-token
+        title: "feat(mcp): HTTP transport + PLUMB_MCP_TOKEN auth"
+        labels: ["phase-7", "area:mcp", "kind:feat"]
+        crate: plumb-mcp
+        effort: S
+        prd_refs: ["§14.1", "§14.4"]
+        summary: |
+          Add an HTTP transport alongside stdio, gated by a bearer
+          token from `PLUMB_MCP_TOKEN`. Stdio remains the default.
+        acceptance_criteria:
+          - "`plumb mcp --transport http --port 4242` listens and authenticates."
+          - "Invalid tokens get 401; no-token starts refuses to boot."
+          - "Security auditor review."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner", "06-security-auditor"]
+
+  - id: "7D"
+    description: "Codegen + watch + suggest-ignores"
+    parallel: false
+    depends_on_batch: "7A"
+    issues:
+      - slug: plumb-codegen-crate-init-from
+        title: "feat(codegen): plumb-codegen crate + `plumb init --from ./`"
+        labels: ["phase-7", "area:cli", "kind:feat"]
+        crate: plumb-cli
+        effort: L
+        prd_refs: ["§12.3", "§15.3"]
+        summary: |
+          Add a `plumb-codegen` crate that walks a source tree, infers
+          tokens from CSS / Tailwind / DTCG sources, and bootstraps a
+          best-effort `plumb.toml`. Wired through `plumb init --from <path>`.
+        acceptance_criteria:
+          - "New `plumb-codegen` crate (layer: depends on plumb-core + plumb-config only)."
+          - "`plumb init --from ./` produces a plausible `plumb.toml` on a real project."
+          - "Deterministic output given deterministic inputs."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner"]
+      - slug: cli-plumb-watch
+        title: "feat(cli): plumb watch"
+        labels: ["phase-7", "area:cli", "kind:feat"]
+        crate: plumb-cli
+        effort: M
+        prd_refs: ["§15.4"]
+        summary: |
+          Re-run `plumb lint` on page reload. Detects reload via network
+          idle + MutationObserver or `--wait-for` retriggers.
+        acceptance_criteria:
+          - "`plumb watch <url>` re-lints on detected reload."
+          - "Output clears prior findings between runs."
+          - "Exits cleanly on SIGINT."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner"]
+      - slug: cli-suggest-ignores
+        title: "feat(cli): plumb lint --suggest-ignores"
+        labels: ["phase-7", "area:cli", "kind:feat"]
+        crate: plumb-cli
+        effort: M
+        prd_refs: ["§16"]
+        summary: |
+          Analyze repeated noise and propose ignore rules with selectors
+          that would silence the top N patterns. Writes the proposed
+          ignores to stdout as a `plumb.toml` fragment.
+        acceptance_criteria:
+          - "Proposals deduplicate by (rule, selector pattern)."
+          - "Top-N configurable via flag."
+          - "No writes to disk — user applies manually."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner"]
+
+  - id: "7E"
+    description: "VS Code extension (separate repo — tracked here)"
+    parallel: false
+    depends_on_batch: "7C"
+    issues:
+      - slug: vscode-extension
+        title: "feat(vscode): VS Code extension consuming plumb JSON + SARIF"
+        labels: ["phase-7", "area:docs", "kind:feat"]
+        crate: docs
+        effort: L
+        prd_refs: ["§15.5"]
+        summary: |
+          Publish a VS Code extension (separate repo: `plumb-dev/vscode-plumb`)
+          that consumes Plumb JSON + SARIF and renders squigglies in a
+          side panel mapped to rendered elements. This is explicitly a
+          V2 track — V1 ships only a quality-gate for extension parity.
+        acceptance_criteria:
+          - "Extension published on the VS Code marketplace."
+          - "Consumes Plumb output over stdio (MCP) + JSON files."
+          - "Links back to the docs rule pages on every violation."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "04-test-runner"]
+
+phase_gate:
+  criterion: |
+    All V1 batches closed with tests + docs AND `plumb lint` supports
+    the full CDP capability surface AND MCP surface stable on both
+    transports AND `cargo xtask pre-release` green.
+  unblocks: "(terminal; V2 begins a new runbook)"

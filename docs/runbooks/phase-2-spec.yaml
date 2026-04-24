@@ -1,0 +1,248 @@
+schema: https://plumb.dev/schemas/runbook-spec.json
+name: "Phase 2 — MVP rule set + token adapters"
+phase_number: 2
+repo: aram-devdocs/plumb
+
+parent:
+  title: "[RUNBOOK] Phase 2 — MVP rule set + token adapters"
+  labels: ["phase-2", "kind:rfc"]
+  milestone: "v0.2-phase-2"
+  summary: |
+    Ship the remaining 5 MVP rules (color/palette, radius/scale,
+    sibling/height, a11y/touch-target, edge/near-alignment), the full
+    config schema (color, radius, alignment, a11y), and adapters that
+    let teams reuse existing token sources — DTCG, Tailwind config,
+    CSS custom properties.
+
+    By the end of this phase, 8 rules operate end-to-end against real
+    design-system configs and `plumb init` can bootstrap from a
+    Tailwind project.
+  acceptance_criteria:
+    - "8 rules emit findings on a dogfood fixture with zero false positives."
+    - "DTCG 2025.10 adapter round-trips a Tokens Studio export."
+    - "Tailwind adapter round-trips a real `tailwind.config.ts`."
+    - "`plumb init` detects Tailwind and scaffolds `plumb.toml`."
+    - "All 13 child PRs merged."
+  related_prd_sections: ["§11.2", "§11.3", "§12.2", "§12.3", "§12.4", "§13.2", "§15.3", "§15.4"]
+
+batches:
+  - id: "2A"
+    description: "Config shape — remaining sections + span-annotated errors"
+    parallel: true
+    issues:
+      - slug: config-color-radius-alignment-a11y-sections
+        title: "feat(config): [color], [radius], [alignment], [a11y] sections + schema"
+        labels: ["phase-2", "area:config", "kind:feat"]
+        crate: plumb-config
+        effort: M
+        prd_refs: ["§12.2"]
+        summary: |
+          Complete the PRD §12.2 config shape: palette (flat + nested),
+          scales, tolerances, touch-target thresholds. Regenerate JSON
+          Schema.
+        acceptance_criteria:
+          - "All four sections parse `deny_unknown_fields`."
+          - "`cargo xtask schema` emits the updated schema; `pre-release` holds."
+          - "Defaults documented in `docs/src/configuration.md`."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner"]
+      - slug: config-miette-validation
+        title: "feat(config): span-annotated validation errors via miette"
+        labels: ["phase-2", "area:config", "kind:feat"]
+        crate: plumb-config
+        effort: M
+        prd_refs: ["§12.4"]
+        summary: |
+          Validate config inputs with `miette`-style span annotations so
+          errors pinpoint the offending line in `plumb.toml`.
+        acceptance_criteria:
+          - "Bad palette values yield miette diagnostic with span."
+          - "Unknown keys yield miette diagnostic."
+          - "Integration test covers 4 failure classes."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner"]
+
+  - id: "2B"
+    description: "Remaining MVP rules (5 parallel implementations)"
+    parallel: true
+    depends_on_batch: "2A"
+    issues:
+      - slug: rule-color-palette-conformance
+        title: "feat(core): rule color/palette-conformance (Oklab ΔE00)"
+        labels: ["phase-2", "area:core", "kind:feat"]
+        crate: plumb-core
+        effort: L
+        prd_refs: ["§11.2", "§11.3"]
+        summary: |
+          Match rendered colors against `color.tokens` using Oklab ΔE00
+          with `delta_e_tolerance` (default 1.5). Blend semi-transparent
+          colors against the CDP-reported blended background.
+        acceptance_criteria:
+          - "Rule flags off-palette colors within tolerance."
+          - "Blended-background semantics match PRD §11.3."
+          - "Palette converted to Oklab once at config load."
+          - "Golden test + docs + `register_builtin`."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner"]
+      - slug: rule-radius-scale-conformance
+        title: "feat(core): rule radius/scale-conformance"
+        labels: ["phase-2", "area:core", "kind:feat"]
+        crate: plumb-core
+        effort: S
+        prd_refs: ["§11.2"]
+        summary: |
+          Flag `border-radius` values not in `radius.scale`.
+        acceptance_criteria:
+          - "Rule emits violation for off-scale radius."
+          - "Fix suggests nearest in-scale value."
+          - "Golden test + docs + `register_builtin`."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner"]
+      - slug: rule-sibling-height-consistency
+        title: "feat(core): rule sibling/height-consistency"
+        labels: ["phase-2", "area:core", "kind:feat"]
+        crate: plumb-core
+        effort: M
+        prd_refs: ["§11.2", "§11.3"]
+        summary: |
+          Group sibling elements by visual row (same top ± tolerance, ≥50%
+          overlap) and flag height discrepancies within a row.
+        acceptance_criteria:
+          - "Rule clusters visual rows correctly on dogfood fixture."
+          - "Fallback to DOM siblings when row clustering fails."
+          - "Golden test + docs + `register_builtin`."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner"]
+      - slug: rule-a11y-touch-target
+        title: "feat(core): rule a11y/touch-target"
+        labels: ["phase-2", "area:core", "kind:feat"]
+        crate: plumb-core
+        effort: S
+        prd_refs: ["§11.2"]
+        summary: |
+          Flag interactive elements smaller than `a11y.touch_target`
+          (default 24×24 CSS px per WCAG 2.5.8).
+        acceptance_criteria:
+          - "Rule emits violation for undersized interactive nodes."
+          - "Tolerance configurable via `[a11y]` section."
+          - "Golden test + docs + `register_builtin`."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner"]
+      - slug: rule-edge-near-alignment
+        title: "feat(core): rule edge/near-alignment"
+        labels: ["phase-2", "area:core", "kind:feat"]
+        crate: plumb-core
+        effort: M
+        prd_refs: ["§11.2", "§11.3"]
+        summary: |
+          Cluster edges within `alignment.tolerance_px` (default 3) and
+          flag elements off by 0 < delta ≤ tolerance — the "almost but
+          not quite aligned" case.
+        acceptance_criteria:
+          - "Edge clustering algorithm documented + tested."
+          - "Rule emits violation for near-miss alignments, ignores pixel-perfect and unrelated edges."
+          - "Golden test + docs + `register_builtin`."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner"]
+
+  - id: "2C"
+    description: "Token adapters — DTCG + Tailwind + CSS custom properties"
+    parallel: true
+    depends_on_batch: "2A"
+    issues:
+      - slug: config-dtcg-adapter
+        title: "feat(config): DTCG 2025.10 token adapter"
+        labels: ["phase-2", "area:config", "kind:feat"]
+        crate: plumb-config
+        effort: L
+        prd_refs: ["§12.3"]
+        summary: |
+          Parse Design Tokens Community Group JSON (2025.10), resolve
+          aliases + `$ref`, and map `$type: color | dimension |
+          fontFamily | fontWeight | shadow | radius` to the appropriate
+          `plumb.toml` sections.
+        acceptance_criteria:
+          - "Round-trips a Tokens Studio export."
+          - "Alias resolution handles nested references."
+          - "Integration test against the DTCG spec examples."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner", "06-security-auditor"]
+      - slug: config-tailwind-adapter
+        title: "feat(config): Tailwind config adapter"
+        labels: ["phase-2", "area:config", "kind:feat"]
+        crate: plumb-config
+        effort: L
+        prd_refs: ["§12.3"]
+        summary: |
+          Parse `tailwind.config.{js,ts,mjs,cjs}` via a subprocess or
+          embedded runtime; merge theme sections into `plumb.toml`
+          equivalents. Memoize by mtime.
+        acceptance_criteria:
+          - "Round-trips a real `tailwind.config.ts` from a sample project."
+          - "Mtime-based memoization."
+          - "Fallback path when `node` isn't available, with clear error."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner", "06-security-auditor"]
+      - slug: config-css-custom-props-scraper
+        title: "feat(config): CSS custom-properties scraper"
+        labels: ["phase-2", "area:config", "kind:feat"]
+        crate: plumb-config
+        effort: S
+        prd_refs: ["§12.3"]
+        summary: |
+          Scan a list of CSS files for `:root { --foo: 4px; }` decls and
+          surface them as token candidates. Used by `plumb init` for
+          projects that track tokens in CSS.
+        acceptance_criteria:
+          - "Handles nested `:root` + media-query `:root` blocks."
+          - "Units normalized to px where applicable."
+          - "Integration test on fixture CSS."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner"]
+
+  - id: "2D"
+    description: "Developer experience — JSON output, selector scoping, init"
+    parallel: true
+    depends_on_batch: "2C"
+    issues:
+      - slug: cli-format-json-deterministic
+        title: "feat(cli,format): --format json deterministic key ordering"
+        labels: ["phase-2", "area:cli", "area:format", "kind:feat"]
+        crate: plumb-format
+        effort: S
+        prd_refs: ["§13.2"]
+        summary: |
+          Guarantee byte-identical JSON output across runs. Include
+          `plumb_version`, `run_id` (content-hash), and a `summary`
+          stats block.
+        acceptance_criteria:
+          - "3x byte-diff deterministic."
+          - "JSON validates against `plumb-output.schema.json` (PRD §13.2)."
+          - "`run_id` derivation documented."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner"]
+      - slug: cli-selector-flag
+        title: "feat(cli): --selector flag scoping lint to subtree"
+        labels: ["phase-2", "area:cli", "kind:feat"]
+        crate: plumb-cli
+        effort: S
+        prd_refs: ["§15.4"]
+        summary: |
+          Add `--selector <css-selector>` to scope lint to elements
+          matching the selector and their descendants.
+        acceptance_criteria:
+          - "CSS selector supported via scraper's matcher."
+          - "Selector filtering applied before rule dispatch."
+          - "CLI integration test."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner"]
+      - slug: cli-init-tailwind-detect
+        title: "feat(cli): plumb init with Tailwind detection"
+        labels: ["phase-2", "area:cli", "kind:feat"]
+        crate: plumb-cli
+        effort: M
+        prd_refs: ["§15.3"]
+        summary: |
+          Detect Next.js + Tailwind, read `tailwind.config.ts`, and
+          scaffold a `plumb.toml` with an `extends` directive.
+        acceptance_criteria:
+          - "Detection works on a minimal Next.js fixture."
+          - "Generated `plumb.toml` parses; `plumb lint` runs against the fixture."
+          - "Fallback: generic template when Tailwind not present."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner"]
+
+phase_gate:
+  criterion: |
+    `just validate` green AND 8 rules produce findings with zero false
+    positives on the dogfood fixture AND `plumb init` scaffolds a usable
+    `plumb.toml` from a Tailwind project AND `cargo xtask pre-release`
+    green AND `just determinism-check` holds on JSON output.
+  unblocks: "phase-3"

@@ -1,0 +1,167 @@
+schema: https://plumb.dev/schemas/runbook-spec.json
+name: "Phase 6 — Docs + dogfooding"
+phase_number: 6
+repo: aram-devdocs/plumb
+
+parent:
+  title: "[RUNBOOK] Phase 6 — Docs + dogfooding"
+  labels: ["phase-6", "kind:rfc"]
+  milestone: "v0.6-phase-6"
+  summary: |
+    Finish the user-facing story: publish the mdBook at plumb.dev, run
+    Plumb against its own site until it passes clean, publish baseline
+    performance benchmarks, and capture the V0 architectural decisions
+    as ADRs. Adds the landing site and enables GitHub Discussions.
+
+    This is the phase that flips Plumb from "works" to "launchable."
+  acceptance_criteria:
+    - "plumb.dev live and indexed, with install / quick-start / config / rule / MCP / FAQ chapters."
+    - "`plumb lint https://plumb.dev` emits zero violations (dogfooding clean)."
+    - "Benchmarks published showing cold-start, warm-run, per-rule cost across DOM sizes."
+    - "Landing site live with 90%-UI problem framing + quick demo + install CTA."
+    - "GitHub Discussions enabled; roadmap umbrella pinned."
+    - "All 8 child PRs merged."
+  related_prd_sections: ["§15", "§16"]
+
+batches:
+  - id: "6A"
+    description: "Core docs chapters"
+    parallel: true
+    issues:
+      - slug: docs-install-quickstart-config
+        title: "docs: install + quick-start + config reference chapters"
+        labels: ["phase-6", "area:docs", "kind:docs"]
+        crate: docs
+        effort: M
+        summary: |
+          Three chapters at `docs/src/{install,quickstart,configuration}.md`
+          covering install (all 4 channels), the 5-minute first-run, and
+          the full `plumb.toml` reference with tool-tip links to the
+          schema.
+        acceptance_criteria:
+          - "Each chapter ships with copy-pasteable examples."
+          - "Schema reference auto-links to `schemas/plumb.toml.json`."
+          - "Humanizer skill run on all three."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "04-test-runner"]
+      - slug: docs-mcp-integration-cookbook
+        title: "docs: MCP integration cookbook (Claude Code, Cursor, Codex)"
+        labels: ["phase-6", "area:docs", "kind:docs"]
+        crate: docs
+        effort: M
+        prd_refs: ["§14"]
+        summary: |
+          One recipe per major AI coding agent: `.mcp.json` shape, tool
+          usage examples, gotchas (PATH, working directory, long outputs).
+        acceptance_criteria:
+          - "3 recipes at `docs/src/mcp/{claude,cursor,codex}.md`."
+          - "Each tested against the actual client."
+          - "Humanizer run."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "04-test-runner"]
+      - slug: docs-faq-troubleshooting
+        title: "docs: FAQ + troubleshooting (CSP, auth, Chromium, CSS-in-JS)"
+        labels: ["phase-6", "area:docs", "kind:docs"]
+        crate: docs
+        effort: S
+        summary: |
+          Curate the top 12 real questions from early dogfooding: CSP
+          blocking CDP, auth-protected pages, unsupported Chromium
+          versions, CSS-in-JS runtime extraction (non-goal), false
+          positives, performance tuning.
+        acceptance_criteria:
+          - "12 Q&A entries at `docs/src/faq.md`."
+          - "Each answer links to the relevant PRD section or ADR."
+          - "Humanizer run."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "04-test-runner"]
+
+  - id: "6B"
+    description: "Dogfooding + benchmarks + ADRs"
+    parallel: true
+    depends_on_batch: "6A"
+    issues:
+      - slug: dogfood-demo-site-lint
+        title: "test(dogfood): plumb.dev demo fixture + clean lint"
+        labels: ["phase-6", "area:docs", "kind:test"]
+        crate: docs
+        effort: L
+        summary: |
+          Build or reuse a minimal plumb.dev demo fixture, then iterate:
+          run `plumb lint`, fix findings (either the fixture or, if
+          warranted, a rule tolerance), commit, repeat until clean with
+          zero false positives.
+        acceptance_criteria:
+          - "`plumb lint https://plumb.dev` → 0 violations."
+          - "Every false-positive fixed in the appropriate layer (rule vs fixture)."
+          - "Dogfood CI job runs `plumb lint` on the deployed site daily."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner"]
+      - slug: bench-cold-warm-per-rule
+        title: "bench: cold-start, warm-run, per-rule cost across DOM sizes"
+        labels: ["phase-6", "area:ci", "kind:perf"]
+        crate: ci
+        effort: M
+        summary: |
+          Add criterion benchmarks for (a) cold-start (launch Chromium +
+          one snapshot), (b) warm-run (subsequent snapshots via
+          persistent browser), (c) per-rule cost on DOM sizes 100/1k/10k
+          nodes. Results published in the docs.
+        acceptance_criteria:
+          - "Benchmark CI job runs on main."
+          - "Results committed to `docs/src/performance.md` as a versioned table."
+          - "Regression alert if cold-start p50 > 2s or warm p50 > 500ms."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner"]
+      - slug: docs-adrs-0002-0004
+        title: "docs: ADRs 0002–0004 (DTCG vs alternatives, no auto-fix, Chromium pin)"
+        labels: ["phase-6", "area:docs", "kind:docs"]
+        crate: docs
+        effort: S
+        summary: |
+          Three ADRs covering key V0 decisions: (0002) why DTCG over
+          direct Tailwind/CSS-only; (0003) why no auto-fix in V0;
+          (0004) why pinned Chromium rather than bundled.
+        acceptance_criteria:
+          - "Three ADRs committed under `docs/adr/`."
+          - "Each follows the existing 0001 format."
+          - "Humanizer run."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "04-test-runner"]
+
+  - id: "6C"
+    description: "Branding + community"
+    parallel: true
+    depends_on_batch: "6B"
+    issues:
+      - slug: docs-landing-site
+        title: "docs: plumb.dev landing site (90%-UI problem + demo + CTA)"
+        labels: ["phase-6", "area:docs", "kind:docs"]
+        crate: docs
+        effort: L
+        prd_refs: ["§2.1", "§4.1"]
+        summary: |
+          Homepage with the "90% UI" problem framing, competitor
+          positioning per PRD §4.1, a 30-second demo animation, and
+          install CTAs for all 4 channels.
+        acceptance_criteria:
+          - "Landing page deployed at plumb.dev/ root."
+          - "Demo animation ≤ 2 MB total."
+          - "Install CTAs work — each has been verified clicking through."
+          - "Humanizer run; anti-AI-writing pass strict."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "04-test-runner"]
+      - slug: chore-discussions-roadmap-launch
+        title: "chore: enable GitHub Discussions + pin roadmap + launch blog post"
+        labels: ["phase-6", "area:docs", "kind:chore"]
+        crate: docs
+        effort: S
+        summary: |
+          Turn on GitHub Discussions, pin the roadmap umbrella issue,
+          and publish a "Plumb v0.6 is here" post on the docs blog with
+          installation, demo link, and contact.
+        acceptance_criteria:
+          - "Discussions enabled with 3 starter categories."
+          - "Umbrella issue pinned."
+          - "Launch post committed at `docs/src/blog/launch-v0.6.md`."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "04-test-runner"]
+
+phase_gate:
+  criterion: |
+    plumb.dev live AND `plumb lint https://plumb.dev` emits 0 violations
+    AND benchmarks published AND landing page live AND
+    `cargo xtask pre-release` green.
+  unblocks: "phase-7"
