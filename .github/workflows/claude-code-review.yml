@@ -1,0 +1,66 @@
+name: Claude code review
+
+# Runs Claude Code as an automated code reviewer on every PR.
+# Leaves a review comment with a verdict + punch list.
+#
+# Requires repository secret: ANTHROPIC_API_KEY.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  id-token: write
+
+concurrency:
+  group: claude-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    name: Claude review
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            Review this pull request as a senior Rust reviewer for the
+            Plumb project. Read `AGENTS.md` and `.agents/rules/` first —
+            Plumb has non-obvious invariants (determinism, layering,
+            no-bypass strictness) documented there.
+
+            Focus, in this order:
+            1. Determinism invariants (no wall-clock, no HashMap in
+               outputs, stable sort key) — blocker if violated.
+            2. Workspace layering — plumb-core has no internal deps;
+               unsafe is forbidden outside plumb-cdp.
+            3. Error handling — library crates use thiserror; no
+               unwrap/expect in libraries.
+            4. Test coverage — new public APIs need tests.
+            5. Documentation — every public item has a doc; fallible
+               fns have `# Errors`.
+
+            End your review with exactly one line:
+
+                Verdict: APPROVE
+                Verdict: REQUEST_CHANGES
+                Verdict: BLOCK
+
+            Above the verdict, give a punch list with file:line
+            references. Skip nits unless they stack; focus on
+            substantive issues.
+          claude_args: |
+            --max-turns 20
+            --model claude-sonnet-4-6
+            --allowed-tools "Bash(cargo *),Bash(git diff:*),Bash(git log:*),Read,Glob,Grep"
+            --disallowed-tools "Bash(git push:*),Bash(git commit:*)"

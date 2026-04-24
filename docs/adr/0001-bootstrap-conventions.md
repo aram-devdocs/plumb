@@ -91,16 +91,18 @@ appear in rustdoc.
 **Rationale.** A TODO in a comment is easy to forget. A deprecation
 warning is not.
 
-### 8. Hand-rolled MCP server for the walking skeleton
+### 8. rmcp 0.2.x from day one
 
-`plumb-mcp` implements JSON-RPC 2.0 over stdio directly, handling
-`initialize`, `tools/list`, and `tools/call`. A full rmcp integration
-lands in a later PR.
+`plumb-mcp` uses the official [`rmcp`](https://crates.io/crates/rmcp)
+crate with the `#[tool_router]` / `#[tool]` macros. Protocol tests spawn
+the real `plumb mcp` subprocess and speak JSON-RPC 2.0 over stdio.
 
-**Rationale.** rmcp's public API is evolving. Pinning to a specific
-macro surface now would guarantee churn. The hand-rolled server speaks
-the same wire protocol, so AI agents and test clients work unchanged
-when rmcp drops in.
+**Rationale.** rmcp is Anthropic's canonical Rust MCP SDK. Rolling a
+hand-written JSON-RPC loop trades a dependency for a protocol-drift
+risk — the SDK will track new MCP spec revisions, a fork would not.
+Tools live under `impl PlumbServer` and get their description directly
+in the attribute; the pattern is documented in
+`.agents/rules/mcp-tool-patterns.md`.
 
 ## Consequences
 

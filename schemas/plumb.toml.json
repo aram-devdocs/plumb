@@ -1,0 +1,330 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Config",
+  "description": "Top-level Plumb configuration.\n\n`Eq` is not derived — several sub-structs carry `f32` fields.",
+  "type": "object",
+  "properties": {
+    "viewports": {
+      "description": "Named viewports to snapshot the page at.",
+      "default": {},
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/ViewportSpec"
+      }
+    },
+    "spacing": {
+      "description": "Spacing spec — the allowed discrete values for `gap`, `margin`, `padding`, etc.",
+      "default": {
+        "base_px": null,
+        "tokens": {}
+      },
+      "allOf": [
+        {
+          "$ref": "#/definitions/SpacingSpec"
+        }
+      ]
+    },
+    "type_scale": {
+      "description": "Type scale spec.",
+      "default": {
+        "families": [],
+        "line_heights": [],
+        "sizes_px": [],
+        "weights": []
+      },
+      "allOf": [
+        {
+          "$ref": "#/definitions/TypeScaleSpec"
+        }
+      ]
+    },
+    "color": {
+      "description": "Color palette spec.",
+      "default": {
+        "delta_e_tolerance": 0.0,
+        "tokens": {}
+      },
+      "allOf": [
+        {
+          "$ref": "#/definitions/ColorSpec"
+        }
+      ]
+    },
+    "radius": {
+      "description": "Border-radius spec.",
+      "default": {
+        "allowed_px": []
+      },
+      "allOf": [
+        {
+          "$ref": "#/definitions/RadiusSpec"
+        }
+      ]
+    },
+    "alignment": {
+      "description": "Alignment / layout spec.",
+      "default": {
+        "grid_columns": null,
+        "gutter_px": null
+      },
+      "allOf": [
+        {
+          "$ref": "#/definitions/AlignmentSpec"
+        }
+      ]
+    },
+    "a11y": {
+      "description": "Accessibility spec.",
+      "default": {
+        "min_contrast_ratio": null
+      },
+      "allOf": [
+        {
+          "$ref": "#/definitions/A11ySpec"
+        }
+      ]
+    },
+    "rules": {
+      "description": "Per-rule overrides — severity bumps, enable/disable.",
+      "default": {},
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/RuleOverride"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "ViewportSpec": {
+      "description": "Specification of a single named viewport.",
+      "type": "object",
+      "required": [
+        "height",
+        "width"
+      ],
+      "properties": {
+        "width": {
+          "description": "Width in CSS pixels.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "height": {
+          "description": "Height in CSS pixels.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "device_pixel_ratio": {
+          "description": "Device pixel ratio. Defaults to 1.0.",
+          "default": 1.0,
+          "type": "number",
+          "format": "float"
+        }
+      },
+      "additionalProperties": false
+    },
+    "SpacingSpec": {
+      "description": "Spacing spec.",
+      "type": "object",
+      "properties": {
+        "base_px": {
+          "description": "Base unit in pixels; discrete scale is multiples of this.",
+          "default": null,
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "tokens": {
+          "description": "Named tokens mapped to their pixel values.",
+          "default": {},
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0.0
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "TypeScaleSpec": {
+      "description": "Type scale spec.",
+      "type": "object",
+      "properties": {
+        "families": {
+          "description": "Allowed font families.",
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "sizes_px": {
+          "description": "Allowed font sizes in pixels.",
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0.0
+          }
+        },
+        "line_heights": {
+          "description": "Allowed line heights (unitless ratios).",
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "float"
+          }
+        },
+        "weights": {
+          "description": "Allowed font weights.",
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint16",
+            "minimum": 0.0
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "ColorSpec": {
+      "description": "Color spec.",
+      "type": "object",
+      "properties": {
+        "tokens": {
+          "description": "Named tokens mapped to hex values (e.g. `#0b7285`).",
+          "default": {},
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "delta_e_tolerance": {
+          "description": "CIEDE2000 Delta-E tolerance when matching off-palette colors.",
+          "default": 2.0,
+          "type": "number",
+          "format": "float"
+        }
+      },
+      "additionalProperties": false
+    },
+    "RadiusSpec": {
+      "description": "Border-radius spec.",
+      "type": "object",
+      "properties": {
+        "allowed_px": {
+          "description": "Allowed radii in pixels.",
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0.0
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "AlignmentSpec": {
+      "description": "Alignment / layout spec.",
+      "type": "object",
+      "properties": {
+        "grid_columns": {
+          "description": "Grid column count, if the design uses a fixed grid.",
+          "default": null,
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "gutter_px": {
+          "description": "Container gutter in pixels.",
+          "default": null,
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0.0
+        }
+      },
+      "additionalProperties": false
+    },
+    "A11ySpec": {
+      "description": "Accessibility spec.",
+      "type": "object",
+      "properties": {
+        "min_contrast_ratio": {
+          "description": "Minimum contrast ratio to enforce (e.g. `4.5` for WCAG AA body text).",
+          "default": null,
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "float"
+        }
+      },
+      "additionalProperties": false
+    },
+    "RuleOverride": {
+      "description": "Per-rule override.",
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "description": "Enable or disable the rule entirely.",
+          "default": true,
+          "type": "boolean"
+        },
+        "severity": {
+          "description": "Override the rule's default severity.",
+          "default": null,
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Severity"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "Severity": {
+      "description": "How severe a violation is. Maps to CLI exit-code thresholds and to the SARIF `level` field.",
+      "oneOf": [
+        {
+          "description": "Suggestion — ignored by default CI thresholds.",
+          "type": "string",
+          "enum": [
+            "info"
+          ]
+        },
+        {
+          "description": "Warning — CI-configurable.",
+          "type": "string",
+          "enum": [
+            "warning"
+          ]
+        },
+        {
+          "description": "Error — fails CI by default.",
+          "type": "string",
+          "enum": [
+            "error"
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -1,7 +1,10 @@
 # Repo-local cargo config.
 #
-# No aliases — `justfile` owns the task surface. Keeping cargo aliases and
-# just targets in sync is churn; pick one. We pick just.
+# The `justfile` owns the day-to-day task surface. The one alias here is
+# `cargo xtask`, which the cargo convention establishes.
+
+[alias]
+xtask = "run --package xtask --quiet --"
 
 [env]
 # Default tracing filter. Users can still override with RUST_LOG in their shell.

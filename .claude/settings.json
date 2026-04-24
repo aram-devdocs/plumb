@@ -39,6 +39,7 @@
       "Bash(cargo deny:*)",
       "Bash(cargo audit:*)",
       "Bash(cargo dist:*)",
+      "Bash(cargo xtask:*)",
       "Bash(just:*)",
       "Bash(mdbook:*)",
       "Bash(lefthook:*)",
@@ -60,6 +61,23 @@
     ]
   },
   "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          { "type": "command", "command": "bash .claude/hooks/role-marker.sh" },
+          { "type": "command", "command": "bash .claude/hooks/context-loader.sh" }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          { "type": "command", "command": "bash .claude/hooks/challenge-injector.sh" }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "matcher": "Bash",
@@ -70,15 +88,28 @@
       {
         "matcher": "Write|Edit|MultiEdit",
         "hooks": [
-          { "type": "command", "command": "bash .claude/hooks/secret-scanner.sh" }
+          { "type": "command", "command": "bash .claude/hooks/secret-scanner.sh" },
+          { "type": "command", "command": "bash .claude/hooks/delegation-guard.sh" }
+        ]
+      },
+      {
+        "matcher": "Task",
+        "hooks": [
+          { "type": "command", "command": "bash .claude/hooks/review-gate-guard.sh" }
         ]
       }
     ],
-    "SessionStart": [
+    "PostToolUse": [
       {
-        "matcher": "",
+        "matcher": "Task",
         "hooks": [
-          { "type": "command", "command": "bash .claude/hooks/context-loader.sh" }
+          { "type": "command", "command": "bash .claude/hooks/delegation-tracker.sh" }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          { "type": "command", "command": "bash .claude/hooks/quality-check.sh" }
         ]
       }
     ],
@@ -86,7 +117,19 @@
       {
         "matcher": "(02-spec-reviewer|03-code-quality-reviewer|04-test-runner)",
         "hooks": [
-          { "type": "command", "command": "bash .claude/hooks/review-verdict-validator.sh" }
+          { "type": "command", "command": "bash .claude/hooks/review-verdict-validator.sh" },
+          { "type": "command", "command": "bash .claude/hooks/review-gate-tracker.sh" }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          { "type": "command", "command": "bash .claude/hooks/plan-completion-guard.sh" },
+          { "type": "command", "command": "bash .claude/hooks/completion-check.sh" },
+          { "type": "command", "command": "bash .claude/hooks/save-session.sh" },
+          { "type": "command", "command": "bash .claude/hooks/state-cleanup.sh" }
         ]
       }
     ]

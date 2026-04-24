@@ -1,0 +1,137 @@
+name: release
+
+# Triggered when release-please creates a tag. Builds cross-platform
+# binaries via cargo-dist, generates installers, and attaches artifacts
+# to the GitHub Release.
+#
+# This workflow is a hand-authored version of what `cargo dist init`
+# would generate. It stays in sync with `dist-workspace.toml`. Re-run
+# `cargo dist generate` locally and diff before editing.
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-*"
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: Plan release
+    runs-on: ubuntu-latest
+    outputs:
+      val: ${{ steps.plan.outputs.manifest }}
+      tag: ${{ (github.ref_type == 'tag' && github.ref_name) || '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cargo-bins/cargo-binstall@main
+      - name: Install cargo-dist
+        run: cargo binstall --no-confirm --force --locked cargo-dist@0.28.0
+      - name: cargo dist plan
+        id: plan
+        run: |
+          set -euo pipefail
+          manifest="$(cargo dist plan --tag "${{ github.ref_name }}" --output-format=json)"
+          echo "$manifest" > dist-manifest.json
+          echo "manifest<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$manifest" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: artifacts-plan
+          path: dist-manifest.json
+
+  build:
+    name: Build ${{ matrix.target }}
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            os: macos-latest
+          - target: x86_64-apple-darwin
+            os: macos-13
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-24.04-arm
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+          - target: aarch64-pc-windows-msvc
+            os: windows-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - uses: cargo-bins/cargo-binstall@main
+      - name: Install cargo-dist
+        run: cargo binstall --no-confirm --force --locked cargo-dist@0.28.0
+      - name: Install musl toolchain
+        if: endsWith(matrix.target, '-musl')
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: cargo dist build
+        shell: bash
+        run: cargo dist build --tag "${{ github.ref_name }}" --target ${{ matrix.target }}
+      - uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: target/distrib/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: artifacts-${{ matrix.target }}
+          path: target/distrib/
+          if-no-files-found: error
+
+  installers:
+    name: Build installers
+    needs: [plan, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: target/distrib/
+          pattern: artifacts-*
+          merge-multiple: true
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: cargo-bins/cargo-binstall@main
+      - run: cargo binstall --no-confirm --force --locked cargo-dist@0.28.0
+      - name: cargo dist build installers
+        run: cargo dist build --tag "${{ github.ref_name }}" --artifacts=global
+      - uses: actions/upload-artifact@v4
+        with:
+          name: artifacts-installers
+          path: target/distrib/
+
+  publish:
+    name: Publish release artifacts
+    needs: [plan, build, installers]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: target/distrib/
+          pattern: artifacts-*
+          merge-multiple: true
+      - uses: cargo-bins/cargo-binstall@main
+      - run: cargo binstall --no-confirm --force --locked cargo-dist@0.28.0
+      - name: cargo dist host
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: cargo dist host --tag "${{ github.ref_name }}" --steps=upload --steps=release

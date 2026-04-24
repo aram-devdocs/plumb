@@ -1,0 +1,18 @@
+{
+  "primary": 0,
+  "issues": [],
+  "slug": "",
+  "phase": "investigating",
+  "branch": null,
+  "pr": null,
+  "commits": [],
+  "reviews": {
+    "spec": null,
+    "quality": null,
+    "architecture": null,
+    "security": "not_required"
+  },
+  "worktree": false,
+  "created": "",
+  "updated": ""
+}
