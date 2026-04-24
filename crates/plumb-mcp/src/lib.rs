@@ -91,19 +91,12 @@ impl PlumbServer {
         let config = Config::default();
         let violations = run(&snapshot, &config);
         let (text, structured) = mcp_compact(&violations);
-        // rmcp 0.2 CallToolResult carries text/image/resource content
-        // directly. Ship the structured JSON as an additional text block;
-        // agents that want strict JSON parse the second block.
-        let structured_text = serde_json::to_string(&structured).map_err(|error| {
-            ErrorData::internal_error(
-                format!("failed to serialize structured MCP result: {error}"),
-                None,
-            )
-        })?;
-        Ok(CallToolResult::success(vec![
-            Content::text(text),
-            Content::text(structured_text),
-        ]))
+        Ok(CallToolResult {
+            content: vec![Content::text(text)],
+            structured_content: Some(structured),
+            is_error: Some(false),
+            meta: None,
+        })
     }
 }
 
