@@ -11,3 +11,4 @@ From the first release onward, this file is maintained automatically by [`releas
 ### Added
 
 - Initial workspace scaffold, tooling, and walking skeleton.
+- PRD-style `[spacing]` and `[type]` config sections with schema validation.

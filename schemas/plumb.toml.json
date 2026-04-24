@@ -15,7 +15,8 @@
     "spacing": {
       "description": "Spacing spec — the allowed discrete values for `gap`, `margin`, `padding`, etc.",
       "default": {
-        "base_px": null,
+        "base_unit": 4,
+        "scale": [],
         "tokens": {}
       },
       "allOf": [
@@ -24,12 +25,12 @@
         }
       ]
     },
-    "type_scale": {
+    "type": {
       "description": "Type scale spec.",
       "default": {
         "families": [],
-        "line_heights": [],
-        "sizes_px": [],
+        "scale": [],
+        "tokens": {},
         "weights": []
       },
       "allOf": [
@@ -128,15 +129,22 @@
       "description": "Spacing spec.",
       "type": "object",
       "properties": {
-        "base_px": {
+        "base_unit": {
           "description": "Base unit in pixels; discrete scale is multiples of this.",
-          "default": null,
-          "type": [
-            "integer",
-            "null"
-          ],
+          "default": 4,
+          "type": "integer",
           "format": "uint32",
           "minimum": 0.0
+        },
+        "scale": {
+          "description": "Allowed spacing values in pixels.",
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0.0
+          }
         },
         "tokens": {
           "description": "Named tokens mapped to their pixel values.",
@@ -163,7 +171,17 @@
             "type": "string"
           }
         },
-        "sizes_px": {
+        "weights": {
+          "description": "Allowed font weights.",
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint16",
+            "minimum": 0.0
+          }
+        },
+        "scale": {
           "description": "Allowed font sizes in pixels.",
           "default": [],
           "type": "array",
@@ -173,22 +191,13 @@
             "minimum": 0.0
           }
         },
-        "line_heights": {
-          "description": "Allowed line heights (unitless ratios).",
-          "default": [],
-          "type": "array",
-          "items": {
-            "type": "number",
-            "format": "float"
-          }
-        },
-        "weights": {
-          "description": "Allowed font weights.",
-          "default": [],
-          "type": "array",
-          "items": {
+        "tokens": {
+          "description": "Named type tokens mapped to their pixel values.",
+          "default": {},
+          "type": "object",
+          "additionalProperties": {
             "type": "integer",
-            "format": "uint16",
+            "format": "uint32",
             "minimum": 0.0
           }
         }

@@ -20,14 +20,15 @@ height = 800
 device_pixel_ratio = 1.0
 
 [spacing]
-base_px = 4
+base_unit = 4
+scale = [0, 4, 8, 12, 16, 24, 32, 48]
 tokens = { xs = 4, sm = 8, md = 16, lg = 24, xl = 32, "2xl" = 48 }
 
-[type_scale]
+[type]
 families = ["Inter", "system-ui"]
-sizes_px = [12, 14, 16, 18, 20, 24, 30, 36, 48]
-line_heights = [1.0, 1.25, 1.5, 1.75]
 weights = [400, 500, 600, 700]
+scale = [12, 14, 16, 18, 20, 24, 30, 36, 48]
+tokens = { caption = 12, body = 16, heading = 24 }
 
 [color]
 tokens = { "bg/canvas" = "#ffffff", "fg/primary" = "#0b0b0b", "accent/brand" = "#0b7285" }

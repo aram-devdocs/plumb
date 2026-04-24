@@ -27,7 +27,8 @@ pub struct Config {
     pub spacing: SpacingSpec,
 
     /// Type scale spec.
-    #[serde(default)]
+    #[serde(default, rename = "type")]
+    #[schemars(rename = "type")]
     pub type_scale: TypeScaleSpec,
 
     /// Color palette spec.
@@ -69,15 +70,32 @@ fn default_dpr() -> f32 {
 }
 
 /// Spacing spec.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, Default)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SpacingSpec {
     /// Base unit in pixels; discrete scale is multiples of this.
+    #[serde(default = "default_base_unit")]
+    pub base_unit: u32,
+    /// Allowed spacing values in pixels.
     #[serde(default)]
-    pub base_px: Option<u32>,
+    pub scale: Vec<u32>,
     /// Named tokens mapped to their pixel values.
     #[serde(default)]
     pub tokens: IndexMap<String, u32>,
+}
+
+fn default_base_unit() -> u32 {
+    4
+}
+
+impl Default for SpacingSpec {
+    fn default() -> Self {
+        Self {
+            base_unit: default_base_unit(),
+            scale: Vec::new(),
+            tokens: IndexMap::new(),
+        }
+    }
 }
 
 /// Type scale spec.
@@ -87,15 +105,15 @@ pub struct TypeScaleSpec {
     /// Allowed font families.
     #[serde(default)]
     pub families: Vec<String>,
-    /// Allowed font sizes in pixels.
-    #[serde(default)]
-    pub sizes_px: Vec<u32>,
-    /// Allowed line heights (unitless ratios).
-    #[serde(default)]
-    pub line_heights: Vec<f32>,
     /// Allowed font weights.
     #[serde(default)]
     pub weights: Vec<u16>,
+    /// Allowed font sizes in pixels.
+    #[serde(default)]
+    pub scale: Vec<u32>,
+    /// Named type tokens mapped to their pixel values.
+    #[serde(default)]
+    pub tokens: IndexMap<String, u32>,
 }
 
 /// Color spec.
