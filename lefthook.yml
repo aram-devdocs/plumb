@@ -30,6 +30,10 @@ pre-commit:
       run: bash scripts/file-size-guard.sh {staged_files}
       fail_text: "One or more staged files exceed the 500-line guideline."
 
+    agents-md:
+      run: bash scripts/check-agents-md.sh
+      fail_text: "scripts/check-agents-md.sh failed (AGENTS.md size / symlink / drift)."
+
 commit-msg:
   commands:
     conventional:

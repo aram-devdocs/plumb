@@ -28,9 +28,14 @@ fmt:
     cargo fmt --all
 
 # All static checks — fmt + clippy with zero tolerance. Matches CI preflight.
-check:
+check: check-agents
     cargo fmt --all -- --check
     cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+# Enforce hierarchical AGENTS.md contract (size budget + CLAUDE.md
+# symlinks + no drift phrases).
+check-agents:
+    bash scripts/check-agents-md.sh
 
 # Full test run.
 test:

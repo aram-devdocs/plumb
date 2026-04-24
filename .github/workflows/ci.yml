@@ -17,7 +17,7 @@ env:
 
 jobs:
   preflight:
-    name: Preflight (fmt, clippy, check)
+    name: Preflight (fmt, clippy, check, agents-md)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -26,6 +26,8 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+      - name: check-agents-md
+        run: bash scripts/check-agents-md.sh
       - name: cargo fmt --check
         run: cargo fmt --all -- --check
       - name: cargo clippy
