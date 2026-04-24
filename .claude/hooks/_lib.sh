@@ -82,5 +82,20 @@ hook_read_review_gates() {
     fi
 }
 
-export -f hook_allow hook_block hook_warn hook_read_role hook_read_review_gates hook_read_input hook_init
+# Reverse a file line-by-line. Portable across BSD (macOS) and GNU
+# (Linux). GNU has `tac`; BSD has `tail -r`; awk works everywhere as
+# the last-resort fallback.
+hook_reverse_file() {
+    local f="${1:-}"
+    [ -z "$f" ] && return 0
+    if command -v tac >/dev/null 2>&1; then
+        tac "$f"
+    elif tail -r "$f" >/dev/null 2>&1; then
+        tail -r "$f"
+    else
+        awk '{ a[NR] = $0 } END { for (i = NR; i > 0; i--) print a[i] }' "$f"
+    fi
+}
+
+export -f hook_allow hook_block hook_warn hook_read_role hook_read_review_gates hook_read_input hook_init hook_reverse_file
 export HOOK_CWD HOOK_SESSION_ID HOOK_STATE_DIR

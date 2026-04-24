@@ -17,12 +17,15 @@ if [ -z "$transcript" ] || [ ! -f "$transcript" ]; then
     hook_allow
 fi
 
-last_assistant="$(tac "$transcript" \
-    | jq -r 'select(.type == "assistant") | .message.content[0].text // empty' 2>/dev/null \
-    | head -n 1 || true)"
+# Pull the full text of the latest assistant message, then grep its
+# lines for the verdict marker. The verdict is conventionally the last
+# line of a reviewer response, so we must search the whole text — not
+# just the first line.
+last_assistant="$(jq -sr 'map(select(.type == "assistant") | .message.content[0].text // empty)[-1] // empty' "$transcript" 2>/dev/null || true)"
 
-verdict="$(printf '%s' "$last_assistant" | grep -Eo '^Verdict:[[:space:]]+(APPROVE|REQUEST_CHANGES|BLOCK)' \
-    | awk '{print $NF}' | head -n 1 || true)"
+verdict="$(printf '%s\n' "$last_assistant" \
+    | grep -E '^Verdict:[[:space:]]+(APPROVE|REQUEST_CHANGES|BLOCK)[[:space:]]*$' \
+    | awk '{print $2}' | tail -n 1 || true)"
 
 if [ -z "$verdict" ]; then
     hook_allow
