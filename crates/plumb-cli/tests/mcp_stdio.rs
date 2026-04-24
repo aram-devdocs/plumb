@@ -110,6 +110,32 @@ fn mcp_initialize_and_tools_list() {
     let names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
     assert!(names.contains(&"echo"));
     assert!(names.contains(&"lint_url"));
+
+    let echo = tools
+        .iter()
+        .find(|tool| tool["name"] == "echo")
+        .unwrap_or_else(|| panic!("echo tool missing: got {tools:?}"));
+    assert_eq!(
+        echo["description"],
+        "Echo a message — smoke test the MCP transport."
+    );
+    assert_eq!(
+        echo["inputSchema"]["properties"]["message"]["type"],
+        "string"
+    );
+
+    let lint_url = tools
+        .iter()
+        .find(|tool| tool["name"] == "lint_url")
+        .unwrap_or_else(|| panic!("lint_url tool missing: got {tools:?}"));
+    assert_eq!(
+        lint_url["description"],
+        "Lint a URL with Plumb. Walking-skeleton accepts plumb-fake:// URLs only."
+    );
+    assert_eq!(
+        lint_url["inputSchema"]["properties"]["url"]["type"],
+        "string"
+    );
 }
 
 #[test]
