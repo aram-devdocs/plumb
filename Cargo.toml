@@ -96,6 +96,16 @@ unsafe_code = "forbid"
 missing_docs = "deny"
 unreachable_pub = "warn"
 rust_2024_compatibility = { level = "warn", priority = -1 }
+# No-legacy-code policy (.agents/rules/no-legacy-code.md). CI already
+# promotes every warn to an error via RUSTFLAGS=-Dwarnings; these
+# explicit denies encode the intent in the workspace manifest so
+# contributors see the policy at the source.
+dead_code = "deny"
+unused_imports = "deny"
+# `deprecated` stays overridable at the registration site via a tightly
+# scoped `#[allow(deprecated)]`. Every such allow is a marker for the
+# removal PR to delete alongside the deprecated item.
+deprecated = "deny"
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }
