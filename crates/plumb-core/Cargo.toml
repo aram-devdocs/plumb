@@ -28,6 +28,7 @@ miette = { workspace = true }
 indexmap = { workspace = true }
 ahash = { workspace = true }
 palette = { workspace = true }
+rayon = { workspace = true }
 
 [dev-dependencies]
 insta = { workspace = true }

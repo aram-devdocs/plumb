@@ -6,22 +6,24 @@
 use plumb_core::{Config, PlumbSnapshot, run};
 
 #[test]
-fn hello_world_golden() {
+fn hello_world_golden() -> Result<(), serde_json::Error> {
     let snapshot = PlumbSnapshot::canned();
     let config = Config::default();
     let violations = run(&snapshot, &config);
 
-    let json = serde_json::to_string_pretty(&violations).expect("serialize");
+    let json = serde_json::to_string_pretty(&violations)?;
     insta::assert_snapshot!("hello_world", json);
+    Ok(())
 }
 
 #[test]
-fn engine_run_is_deterministic() {
+fn engine_run_is_deterministic() -> Result<(), serde_json::Error> {
     let snapshot = PlumbSnapshot::canned();
     let config = Config::default();
-    let a = run(&snapshot, &config);
-    let b = run(&snapshot, &config);
-    let c = run(&snapshot, &config);
+    let a = serde_json::to_string_pretty(&run(&snapshot, &config))?;
+    let b = serde_json::to_string_pretty(&run(&snapshot, &config))?;
+    let c = serde_json::to_string_pretty(&run(&snapshot, &config))?;
     assert_eq!(a, b);
     assert_eq!(b, c);
+    Ok(())
 }

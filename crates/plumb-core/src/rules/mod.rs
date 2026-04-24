@@ -16,10 +16,13 @@ use crate::snapshot::SnapshotCtx;
 
 /// A rule — the fundamental unit of work in the engine.
 ///
-/// Rules are `Send + Sync` so the engine can evaluate them in parallel
-/// across viewports. Implementations must be **pure**: given the same
-/// `ctx` and `config`, they must push the same sequence of violations
-/// into the sink every time.
+/// Rules are `Send + Sync` so the engine can evaluate built-in rules in
+/// parallel against one shared snapshot context. Implementations must be
+/// **pure**: given the same `ctx` and `config`, they must push the same
+/// sequence of violations into their local sink every time. Do not rely on
+/// shared mutable state, I/O, clocks, environment variables, randomness, or
+/// cross-rule ordering; each rule must be safe to run concurrently with any
+/// other rule.
 pub trait Rule: Send + Sync {
     /// Stable identifier, `<category>/<id>` (e.g. `spacing/hard-coded-gap`).
     fn id(&self) -> &'static str;
