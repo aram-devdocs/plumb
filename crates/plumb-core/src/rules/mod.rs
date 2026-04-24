@@ -9,6 +9,9 @@
 //! 4. Document it at `docs/src/rules/<rule-id>.md`.
 
 pub mod placeholder;
+pub mod spacing;
+
+mod util;
 
 use crate::config::Config;
 use crate::report::{Severity, ViolationSink};
@@ -43,10 +46,13 @@ pub trait Rule: Send + Sync {
 #[must_use]
 pub fn register_builtin() -> Vec<Box<dyn Rule>> {
     // The placeholder is deprecated-on-purpose so it's visible in the
-    // compiler output until a real rule replaces it. The registration
-    // site is the one place we allow the deprecation.
+    // compiler output until every walking-skeleton consumer migrates.
+    // The registration site is the one place we allow the deprecation.
     #[allow(deprecated)]
     {
-        vec![Box::new(placeholder::HelloWorld)]
+        vec![
+            Box::new(placeholder::HelloWorld),
+            Box::new(spacing::grid_conformance::GridConformance),
+        ]
     }
 }

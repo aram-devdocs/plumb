@@ -1,0 +1,106 @@
+---
+source: crates/plumb-core/tests/golden_spacing_grid.rs
+expression: json
+---
+[
+  {
+    "rule_id": "spacing/grid-conformance",
+    "severity": "warning",
+    "message": "`html > body > div:nth-child(2)` has off-grid margin-bottom 13px; expected a multiple of 4px.",
+    "selector": "html > body > div:nth-child(2)",
+    "viewport": "desktop",
+    "rect": {
+      "x": 0,
+      "y": 100,
+      "width": 200,
+      "height": 100
+    },
+    "dom_order": 2,
+    "fix": {
+      "kind": {
+        "kind": "css_property_replace",
+        "property": "margin-bottom",
+        "from": "13px",
+        "to": "12px"
+      },
+      "description": "Snap `margin-bottom` to the nearest spacing-grid value (12px).",
+      "confidence": "medium"
+    },
+    "doc_url": "https://plumb.aramhammoudeh.com/rules/spacing-grid-conformance"
+  },
+  {
+    "rule_id": "spacing/grid-conformance",
+    "severity": "warning",
+    "message": "`html > body > div:nth-child(2)` has off-grid padding-top 5px; expected a multiple of 4px.",
+    "selector": "html > body > div:nth-child(2)",
+    "viewport": "desktop",
+    "rect": {
+      "x": 0,
+      "y": 100,
+      "width": 200,
+      "height": 100
+    },
+    "dom_order": 2,
+    "fix": {
+      "kind": {
+        "kind": "css_property_replace",
+        "property": "padding-top",
+        "from": "5px",
+        "to": "4px"
+      },
+      "description": "Snap `padding-top` to the nearest spacing-grid value (4px).",
+      "confidence": "medium"
+    },
+    "doc_url": "https://plumb.aramhammoudeh.com/rules/spacing-grid-conformance"
+  },
+  {
+    "rule_id": "spacing/grid-conformance",
+    "severity": "warning",
+    "message": "`html > body > div:nth-child(3)` has off-grid margin-left -13px; expected a multiple of 4px.",
+    "selector": "html > body > div:nth-child(3)",
+    "viewport": "desktop",
+    "rect": {
+      "x": 0,
+      "y": 200,
+      "width": 200,
+      "height": 100
+    },
+    "dom_order": 3,
+    "fix": {
+      "kind": {
+        "kind": "css_property_replace",
+        "property": "margin-left",
+        "from": "-13px",
+        "to": "-12px"
+      },
+      "description": "Snap `margin-left` to the nearest spacing-grid value (-12px).",
+      "confidence": "medium"
+    },
+    "doc_url": "https://plumb.aramhammoudeh.com/rules/spacing-grid-conformance"
+  },
+  {
+    "rule_id": "spacing/grid-conformance",
+    "severity": "warning",
+    "message": "`html > body > div:nth-child(3)` has off-grid gap 7px; expected a multiple of 4px.",
+    "selector": "html > body > div:nth-child(3)",
+    "viewport": "desktop",
+    "rect": {
+      "x": 0,
+      "y": 200,
+      "width": 200,
+      "height": 100
+    },
+    "dom_order": 3,
+    "fix": {
+      "kind": {
+        "kind": "css_property_replace",
+        "property": "gap",
+        "from": "7px",
+        "to": "8px"
+      },
+      "description": "Snap `gap` to the nearest spacing-grid value (8px).",
+      "confidence": "medium"
+    },
+    "doc_url": "https://plumb.aramhammoudeh.com/rules/spacing-grid-conformance"
+  }
+]

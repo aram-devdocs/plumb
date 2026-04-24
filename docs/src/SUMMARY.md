@@ -13,6 +13,7 @@
 
 - [Overview](./rules/overview.md)
 - [placeholder/hello-world](./rules/placeholder-hello-world.md)
+- [spacing/grid-conformance](./rules/spacing-grid-conformance.md)
 
 # Contributing
 
