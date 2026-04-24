@@ -21,7 +21,7 @@ default-members = [
 [workspace.package]
 version = "0.0.1"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.95"
 license = "MIT OR Apache-2.0"
 authors = ["Aram Hammoudeh <aram.devdocs@gmail.com>"]
 homepage = "https://plumb.aramhammoudeh.com"
@@ -42,9 +42,8 @@ plumb-mcp = { path = "crates/plumb-mcp", version = "0.0.1" }
 # CDP driver.
 chromiumoxide = { version = "0.7", default-features = false, features = ["tokio-runtime"] }
 
-# MCP SDK. rmcp 0.10 moved its macro stack from unmaintained `paste`
-# to maintained `pastey`.
-rmcp = { version = "0.10", default-features = false, features = ["base64", "macros", "server", "transport-io", "schemars"] }
+# MCP SDK.
+rmcp = { version = "1.5", default-features = false, features = ["base64", "macros", "server", "transport-io", "schemars"] }
 
 # Async runtime.
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "io-std", "sync", "time", "fs", "process"] }
@@ -56,18 +55,18 @@ clap = { version = "4", features = ["derive", "env", "wrap_help"] }
 # Serialization.
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-toml = "0.8"
+toml = "1"
 serde_yaml = "0.9"
 
 # Schema emission.
-schemars = { version = "0.8", features = ["indexmap2", "preserve_order"] }
+schemars = { version = "1", features = ["indexmap2", "preserve_order"] }
 
 # Config loading.
 figment = { version = "0.10", features = ["toml", "yaml", "json", "env"] }
 
 # Diagnostics.
 miette = { version = "7", features = ["fancy"] }
-thiserror = "1"
+thiserror = "2"
 anyhow = "1"
 
 # Observability.

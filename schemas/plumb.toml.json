@@ -1,129 +1,105 @@
 {
-  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Config",
   "description": "Top-level Plumb configuration.\n\n`Eq` is not derived — several sub-structs carry `f32` fields.",
   "type": "object",
   "properties": {
     "viewports": {
       "description": "Named viewports to snapshot the page at.",
-      "default": {},
       "type": "object",
       "additionalProperties": {
-        "$ref": "#/definitions/ViewportSpec"
-      }
+        "$ref": "#/$defs/ViewportSpec"
+      },
+      "default": {}
     },
     "spacing": {
-      "description": "Spacing spec — the allowed discrete values for `gap`, `margin`, `padding`, etc.",
+      "description": "Spacing spec — the allowed discrete values for `gap`, `margin`,\n`padding`, etc.",
+      "$ref": "#/$defs/SpacingSpec",
       "default": {
         "base_unit": 4,
         "scale": [],
         "tokens": {}
-      },
-      "allOf": [
-        {
-          "$ref": "#/definitions/SpacingSpec"
-        }
-      ]
+      }
     },
     "type": {
       "description": "Type scale spec.",
+      "$ref": "#/$defs/TypeScaleSpec",
       "default": {
         "families": [],
+        "weights": [],
         "scale": [],
-        "tokens": {},
-        "weights": []
-      },
-      "allOf": [
-        {
-          "$ref": "#/definitions/TypeScaleSpec"
-        }
-      ]
+        "tokens": {}
+      }
     },
     "color": {
       "description": "Color palette spec.",
+      "$ref": "#/$defs/ColorSpec",
       "default": {
-        "delta_e_tolerance": 0.0,
-        "tokens": {}
-      },
-      "allOf": [
-        {
-          "$ref": "#/definitions/ColorSpec"
-        }
-      ]
+        "tokens": {},
+        "delta_e_tolerance": 0.0
+      }
     },
     "radius": {
       "description": "Border-radius spec.",
+      "$ref": "#/$defs/RadiusSpec",
       "default": {
         "allowed_px": []
-      },
-      "allOf": [
-        {
-          "$ref": "#/definitions/RadiusSpec"
-        }
-      ]
+      }
     },
     "alignment": {
       "description": "Alignment / layout spec.",
+      "$ref": "#/$defs/AlignmentSpec",
       "default": {
         "grid_columns": null,
         "gutter_px": null
-      },
-      "allOf": [
-        {
-          "$ref": "#/definitions/AlignmentSpec"
-        }
-      ]
+      }
     },
     "a11y": {
       "description": "Accessibility spec.",
+      "$ref": "#/$defs/A11ySpec",
       "default": {
         "min_contrast_ratio": null
-      },
-      "allOf": [
-        {
-          "$ref": "#/definitions/A11ySpec"
-        }
-      ]
+      }
     },
     "rules": {
       "description": "Per-rule overrides — severity bumps, enable/disable.",
-      "default": {},
       "type": "object",
       "additionalProperties": {
-        "$ref": "#/definitions/RuleOverride"
-      }
+        "$ref": "#/$defs/RuleOverride"
+      },
+      "default": {}
     }
   },
   "additionalProperties": false,
-  "definitions": {
+  "$defs": {
     "ViewportSpec": {
       "description": "Specification of a single named viewport.",
       "type": "object",
-      "required": [
-        "height",
-        "width"
-      ],
       "properties": {
         "width": {
           "description": "Width in CSS pixels.",
           "type": "integer",
           "format": "uint32",
-          "minimum": 0.0
+          "minimum": 0
         },
         "height": {
           "description": "Height in CSS pixels.",
           "type": "integer",
           "format": "uint32",
-          "minimum": 0.0
+          "minimum": 0
         },
         "device_pixel_ratio": {
           "description": "Device pixel ratio. Defaults to 1.0.",
-          "default": 1.0,
           "type": "number",
-          "format": "float"
+          "format": "float",
+          "default": 1.0
         }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "required": [
+        "width",
+        "height"
+      ]
     },
     "SpacingSpec": {
       "description": "Spacing spec.",
@@ -131,30 +107,30 @@
       "properties": {
         "base_unit": {
           "description": "Base unit in pixels; discrete scale is multiples of this.",
-          "default": 4,
           "type": "integer",
           "format": "uint32",
-          "minimum": 0.0
+          "minimum": 0,
+          "default": 4
         },
         "scale": {
           "description": "Allowed spacing values in pixels.",
-          "default": [],
           "type": "array",
           "items": {
             "type": "integer",
             "format": "uint32",
-            "minimum": 0.0
-          }
+            "minimum": 0
+          },
+          "default": []
         },
         "tokens": {
           "description": "Named tokens mapped to their pixel values.",
-          "default": {},
           "type": "object",
           "additionalProperties": {
             "type": "integer",
             "format": "uint32",
-            "minimum": 0.0
-          }
+            "minimum": 0
+          },
+          "default": {}
         }
       },
       "additionalProperties": false
@@ -165,41 +141,42 @@
       "properties": {
         "families": {
           "description": "Allowed font families.",
-          "default": [],
           "type": "array",
           "items": {
             "type": "string"
-          }
+          },
+          "default": []
         },
         "weights": {
           "description": "Allowed font weights.",
-          "default": [],
           "type": "array",
           "items": {
             "type": "integer",
             "format": "uint16",
-            "minimum": 0.0
-          }
+            "minimum": 0,
+            "maximum": 65535
+          },
+          "default": []
         },
         "scale": {
           "description": "Allowed font sizes in pixels.",
-          "default": [],
           "type": "array",
           "items": {
             "type": "integer",
             "format": "uint32",
-            "minimum": 0.0
-          }
+            "minimum": 0
+          },
+          "default": []
         },
         "tokens": {
           "description": "Named type tokens mapped to their pixel values.",
-          "default": {},
           "type": "object",
           "additionalProperties": {
             "type": "integer",
             "format": "uint32",
-            "minimum": 0.0
-          }
+            "minimum": 0
+          },
+          "default": {}
         }
       },
       "additionalProperties": false
@@ -210,17 +187,17 @@
       "properties": {
         "tokens": {
           "description": "Named tokens mapped to hex values (e.g. `#0b7285`).",
-          "default": {},
           "type": "object",
           "additionalProperties": {
             "type": "string"
-          }
+          },
+          "default": {}
         },
         "delta_e_tolerance": {
           "description": "CIEDE2000 Delta-E tolerance when matching off-palette colors.",
-          "default": 2.0,
           "type": "number",
-          "format": "float"
+          "format": "float",
+          "default": 2.0
         }
       },
       "additionalProperties": false
@@ -231,13 +208,13 @@
       "properties": {
         "allowed_px": {
           "description": "Allowed radii in pixels.",
-          "default": [],
           "type": "array",
           "items": {
             "type": "integer",
             "format": "uint32",
-            "minimum": 0.0
-          }
+            "minimum": 0
+          },
+          "default": []
         }
       },
       "additionalProperties": false
@@ -248,23 +225,23 @@
       "properties": {
         "grid_columns": {
           "description": "Grid column count, if the design uses a fixed grid.",
-          "default": null,
           "type": [
             "integer",
             "null"
           ],
           "format": "uint32",
-          "minimum": 0.0
+          "minimum": 0,
+          "default": null
         },
         "gutter_px": {
           "description": "Container gutter in pixels.",
-          "default": null,
           "type": [
             "integer",
             "null"
           ],
           "format": "uint32",
-          "minimum": 0.0
+          "minimum": 0,
+          "default": null
         }
       },
       "additionalProperties": false
@@ -275,12 +252,12 @@
       "properties": {
         "min_contrast_ratio": {
           "description": "Minimum contrast ratio to enforce (e.g. `4.5` for WCAG AA body text).",
-          "default": null,
           "type": [
             "number",
             "null"
           ],
-          "format": "float"
+          "format": "float",
+          "default": null
         }
       },
       "additionalProperties": false
@@ -291,47 +268,41 @@
       "properties": {
         "enabled": {
           "description": "Enable or disable the rule entirely.",
-          "default": true,
-          "type": "boolean"
+          "type": "boolean",
+          "default": true
         },
         "severity": {
           "description": "Override the rule's default severity.",
-          "default": null,
           "anyOf": [
             {
-              "$ref": "#/definitions/Severity"
+              "$ref": "#/$defs/Severity"
             },
             {
               "type": "null"
             }
-          ]
+          ],
+          "default": null
         }
       },
       "additionalProperties": false
     },
     "Severity": {
-      "description": "How severe a violation is. Maps to CLI exit-code thresholds and to the SARIF `level` field.",
+      "description": "How severe a violation is. Maps to CLI exit-code thresholds and to the\nSARIF `level` field.",
       "oneOf": [
         {
           "description": "Suggestion — ignored by default CI thresholds.",
           "type": "string",
-          "enum": [
-            "info"
-          ]
+          "const": "info"
         },
         {
           "description": "Warning — CI-configurable.",
           "type": "string",
-          "enum": [
-            "warning"
-          ]
+          "const": "warning"
         },
         {
           "description": "Error — fails CI by default.",
           "type": "string",
-          "enum": [
-            "error"
-          ]
+          "const": "error"
         }
       ]
     }

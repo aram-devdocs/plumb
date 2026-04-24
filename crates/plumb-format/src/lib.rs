@@ -19,6 +19,8 @@
 #![deny(missing_docs)]
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 
+use std::fmt::Write as _;
+
 use plumb_core::{Severity, Violation};
 use serde_json::{Value, json};
 
@@ -32,18 +34,19 @@ pub fn pretty(violations: &[Violation]) -> String {
     }
     let mut out = String::new();
     for v in violations {
-        out.push_str(&format!(
-            "{level:>7} {rule}\n         at {selector} [{viewport}]\n         {msg}\n",
+        let _ = writeln!(
+            out,
+            "{level:>7} {rule}\n         at {selector} [{viewport}]\n         {msg}",
             level = v.severity.label(),
             rule = v.rule_id,
             selector = v.selector,
             viewport = v.viewport.as_str(),
             msg = v.message,
-        ));
+        );
         if let Some(fix) = &v.fix {
-            out.push_str(&format!("         fix: {}\n", fix.description));
+            let _ = writeln!(out, "         fix: {}", fix.description);
         }
-        out.push_str(&format!("         docs: {}\n\n", v.doc_url));
+        let _ = writeln!(out, "         docs: {}\n", v.doc_url);
     }
     out.push_str(&summary_line(violations));
     out.push('\n');
@@ -125,14 +128,15 @@ pub fn sarif(violations: &[Violation]) -> Result<String, serde_json::Error> {
 pub fn mcp_compact(violations: &[Violation]) -> (String, Value) {
     let mut text = String::new();
     for v in violations {
-        text.push_str(&format!(
-            "{severity} {rule} @ {selector} [{viewport}]: {message}\n",
+        let _ = writeln!(
+            text,
+            "{severity} {rule} @ {selector} [{viewport}]: {message}",
             severity = v.severity.label(),
             rule = v.rule_id,
             selector = v.selector,
             viewport = v.viewport.as_str(),
             message = v.message,
-        ));
+        );
     }
     if violations.is_empty() {
         text.push_str("ok: 0 violations\n");

@@ -1,7 +1,13 @@
-msrv = "1.85"
+msrv = "1.95"
 too-many-arguments-threshold = 12
 type-complexity-threshold = 500
 avoid-breaking-exported-api = false
+
+# ConfigError::Parse carries miette diagnostic payloads (NamedSource +
+# SourceSpan + boxed ConfigParseSource) that exceed the default 128-byte
+# Result-err budget. Bumping the threshold keeps rich diagnostics without
+# pushing the whole ConfigError behind a Box at every call site.
+large-error-threshold = 512
 
 # Tests are allowed to unwrap/expect/panic — assertions are how tests fail.
 # Production code still denies these via workspace lints.
