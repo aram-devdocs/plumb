@@ -5,7 +5,7 @@
 //! `(rule_id, viewport, selector, dom_order)` — see `docs/local/prd.md` §9.
 
 use crate::config::Config;
-use crate::report::{Violation, ViolationSink};
+use crate::report::{ViewportKey, Violation, ViolationSink};
 use crate::rules::{Rule, register_builtin};
 use crate::snapshot::{PlumbSnapshot, SnapshotCtx};
 use rayon::prelude::*;
@@ -24,7 +24,14 @@ pub fn run(snapshot: &PlumbSnapshot, config: &Config) -> Vec<Violation> {
 }
 
 fn run_rules(snapshot: &PlumbSnapshot, config: &Config, rules: &[Box<dyn Rule>]) -> Vec<Violation> {
-    let ctx = SnapshotCtx::new(snapshot);
+    let ctx = if config.viewports.is_empty() {
+        SnapshotCtx::new(snapshot)
+    } else {
+        SnapshotCtx::with_viewports(
+            snapshot,
+            config.viewports.keys().cloned().map(ViewportKey::new),
+        )
+    };
     let mut buffer: Vec<Violation> = rules
         .par_iter()
         .filter(|rule| {

@@ -126,13 +126,30 @@ impl PlumbSnapshot {
 #[derive(Debug)]
 pub struct SnapshotCtx<'a> {
     snapshot: &'a PlumbSnapshot,
+    viewports: Vec<ViewportKey>,
+    rects_by_dom_order: IndexMap<u64, Rect>,
 }
 
 impl<'a> SnapshotCtx<'a> {
     /// Wrap a borrowed snapshot.
     #[must_use]
     pub fn new(snapshot: &'a PlumbSnapshot) -> Self {
-        Self { snapshot }
+        Self::with_viewports(snapshot, [snapshot.viewport.clone()])
+    }
+
+    /// Wrap a borrowed snapshot with the full viewport set for this run.
+    ///
+    /// The caller-provided order is preserved.
+    #[must_use]
+    pub fn with_viewports(
+        snapshot: &'a PlumbSnapshot,
+        viewports: impl IntoIterator<Item = ViewportKey>,
+    ) -> Self {
+        Self {
+            snapshot,
+            viewports: viewports.into_iter().collect(),
+            rects_by_dom_order: rect_index(snapshot),
+        }
     }
 
     /// The underlying snapshot.
@@ -141,8 +158,28 @@ impl<'a> SnapshotCtx<'a> {
         self.snapshot
     }
 
+    /// The viewports included in the current engine run.
+    #[must_use]
+    pub fn viewports(&self) -> &[ViewportKey] {
+        &self.viewports
+    }
+
+    /// Return the bounding rect for a node by document-order index.
+    #[must_use]
+    pub fn rect_for(&self, dom_order: u64) -> Option<Rect> {
+        self.rects_by_dom_order.get(&dom_order).copied()
+    }
+
     /// Iterate nodes in document order.
     pub fn nodes(&self) -> impl Iterator<Item = &SnapshotNode> {
         self.snapshot.nodes.iter()
     }
+}
+
+fn rect_index(snapshot: &PlumbSnapshot) -> IndexMap<u64, Rect> {
+    snapshot
+        .nodes
+        .iter()
+        .filter_map(|node| node.rect.map(|rect| (node.dom_order, rect)))
+        .collect()
 }
