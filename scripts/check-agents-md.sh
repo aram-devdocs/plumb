@@ -28,7 +28,7 @@ declare -a SCOPES=(
     "docs/src/rules/AGENTS.md:40"
     "docs/runbooks/AGENTS.md:45"
     ".agents/AGENTS.md:40"
-    ".agents/rules/AGENTS.md:40"
+    ".agents/rules/AGENTS.md:42"
     ".agents/skills/AGENTS.md:40"
 )
 

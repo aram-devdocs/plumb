@@ -44,6 +44,7 @@ These are non-negotiable and enforced by CI. Violating them is never acceptable.
 - **Layer discipline.** `plumb-core` depends on nothing project-internal. `plumb-format` depends only on `plumb-core`. `plumb-cdp` owns all `unsafe`. `plumb-cli` is the only crate that may call `println!`/`eprintln!`.
 - **No `unwrap`/`expect` in libraries.** Return `Result` with `thiserror`-derived errors. `anyhow` is allowed only in `plumb-cli::main`.
 - **No `todo!`/`unimplemented!`/`dbg!` anywhere.** If something is unfinished, open a tracking issue and return a typed error.
+- **No legacy code.** `#[deprecated]` items carry a tracking issue and a concrete removal milestone. No commented-out code, no orphan shims, no open-ended `TODO: remove later`. Unused imports, functions, and fields fail CI. Full policy: `.agents/rules/no-legacy-code.md`.
 - **Docs must be human.** The `humanizer` skill runs on every docs PR. Avoid AI-tell phrasing ("dive in", "comprehensive", "leverage", "seamless", etc.).
 
 ## Workflow expectations

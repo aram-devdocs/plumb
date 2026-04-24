@@ -25,6 +25,7 @@ discussion.
 
 - `determinism.md` — byte-identical output invariants.
 - `dependency-hierarchy.md` — crate layer graph + enforcement.
+- `no-legacy-code.md` — no indefinite deprecations, no dead code, no orphan shims.
 - `rule-engine-patterns.md` — how to add a rule.
 - `mcp-tool-patterns.md` — how to add an MCP tool.
 - `testing.md` — nextest + insta + proptest conventions.
