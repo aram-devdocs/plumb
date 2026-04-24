@@ -64,8 +64,19 @@ impl PlumbSnapshot {
         html_attrs.insert("lang".into(), "en".into());
 
         let mut body_styles = IndexMap::new();
-        body_styles.insert("margin".into(), "0".into());
-        body_styles.insert("padding".into(), "13px".into()); // odd — the placeholder rule keys off this
+        // Longhands match what `getComputedStyle` returns in the real
+        // CDP driver (PRD §10.3). `padding-top: 13px` is deliberately
+        // off-grid against the default `spacing.base_unit = 4`, so the
+        // walking-skeleton smoke path produces one violation from
+        // `spacing/grid-conformance`.
+        body_styles.insert("margin-top".into(), "0".into());
+        body_styles.insert("margin-right".into(), "0".into());
+        body_styles.insert("margin-bottom".into(), "0".into());
+        body_styles.insert("margin-left".into(), "0".into());
+        body_styles.insert("padding-top".into(), "13px".into());
+        body_styles.insert("padding-right".into(), "0".into());
+        body_styles.insert("padding-bottom".into(), "0".into());
+        body_styles.insert("padding-left".into(), "0".into());
 
         Self {
             url: "plumb-fake://hello".into(),

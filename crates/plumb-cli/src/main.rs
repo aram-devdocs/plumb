@@ -74,7 +74,7 @@ enum Command {
     },
     /// Print the long-form documentation for a rule.
     Explain {
-        /// Rule id, e.g. `placeholder/hello-world`.
+        /// Rule id, e.g. `spacing/grid-conformance`.
         rule: String,
     },
     /// Emit the JSON Schema for `plumb.toml` on stdout.

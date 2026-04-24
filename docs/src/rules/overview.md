@@ -7,15 +7,17 @@ against each page snapshot. Every rule has:
 - A **default severity** (`info`, `warning`, `error`).
 - A **docs page** — the one you get from `plumb explain <id>`.
 
-## Walking skeleton
+## Built-in rules
 
-Only one rule ships today:
-
-- [`placeholder/hello-world`](./placeholder-hello-world.md) — the
-  end-to-end wiring test. Removed when the first real rule lands.
+- [`spacing/grid-conformance`](./spacing-grid-conformance.md) — flags
+  spacing values that aren't multiples of `spacing.base_unit`.
+- [`spacing/scale-conformance`](./spacing-scale-conformance.md) —
+  flags spacing values that aren't members of `spacing.scale`.
+- [`type/scale-conformance`](./type-scale-conformance.md) — flags
+  `font-size` values that aren't members of `type.scale`.
 
 ## Coming soon
 
-The PRD lists the initial rule set — spacing, type scale, color,
-radius, alignment, a11y. Each will land with its own docs page and a
-golden snapshot test.
+The PRD lists the rest of the initial rule set — color, radius,
+alignment, a11y. Each will land with its own docs page and a golden
+snapshot test.

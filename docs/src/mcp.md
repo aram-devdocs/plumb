@@ -47,7 +47,7 @@ convention:
   "content": [
     {
       "type": "text",
-      "text": "warning placeholder/hello-world @ html > body [desktop]: …"
+      "text": "warning spacing/grid-conformance @ html > body [desktop]: …"
     }
   ],
   "isError": false,

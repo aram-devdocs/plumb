@@ -179,7 +179,7 @@ fn mcp_lint_url_returns_structured_content() {
     assert_eq!(content[0]["type"].as_str(), Some("text"));
     let text = content[0]["text"].as_str().expect("text content");
     assert!(
-        text.contains("warning placeholder/hello-world @ html > body [desktop]"),
+        text.contains("warning spacing/grid-conformance @ html > body [desktop]"),
         "unexpected lint_url text: {text}"
     );
 
@@ -189,6 +189,6 @@ fn mcp_lint_url_returns_structured_content() {
     assert_eq!(structured["counts"]["total"].as_u64(), Some(1));
     assert_eq!(
         structured["violations"][0]["rule_id"].as_str(),
-        Some("placeholder/hello-world")
+        Some("spacing/grid-conformance")
     );
 }

@@ -11,9 +11,10 @@ fn workspace_with_two_viewports() -> Result<TempDir, Box<dyn std::error::Error>>
     let dir = TempDir::new()?;
     fs::write(
         dir.path().join("plumb.toml"),
-        // `body { padding: 13px }` in the canned snapshot makes the
-        // placeholder rule fire at every viewport, so the orchestrator
-        // produces one violation per requested viewport.
+        // `body { padding-top: 13px }` in the canned snapshot is
+        // off-grid against the default `spacing.base_unit = 4`, so the
+        // orchestrator produces one `spacing/grid-conformance`
+        // violation per requested viewport.
         "[viewports.mobile]\nwidth = 375\nheight = 812\n\n\
          [viewports.desktop]\nwidth = 1280\nheight = 800\n",
     )?;
@@ -37,7 +38,7 @@ fn lint_fake_url_emits_one_violation() -> Result<(), Box<dyn std::error::Error>>
         .args(["lint", "plumb-fake://hello"])
         .assert()
         .code(3) // warning-only -> exit 3
-        .stdout(contains("placeholder/hello-world"));
+        .stdout(contains("spacing/grid-conformance"));
     Ok(())
 }
 
@@ -79,7 +80,7 @@ fn lint_fake_url_ignores_executable_path_override() -> Result<(), Box<dyn std::e
         ])
         .assert()
         .code(3)
-        .stdout(contains("placeholder/hello-world"));
+        .stdout(contains("spacing/grid-conformance"));
     Ok(())
 }
 
@@ -95,14 +96,14 @@ fn schema_outputs_json_schema() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
-fn explain_placeholder_rule() -> Result<(), Box<dyn std::error::Error>> {
+fn explain_spacing_grid_rule() -> Result<(), Box<dyn std::error::Error>> {
     // `plumb explain` resolves docs relative to CWD. Run it from the
     // workspace root so it can find docs/src/rules/...
     let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join("..");
     Command::cargo_bin("plumb")?
-        .args(["explain", "placeholder/hello-world"])
+        .args(["explain", "spacing/grid-conformance"])
         .current_dir(workspace_root)
         .assert()
         .success();
@@ -142,7 +143,7 @@ fn lint_runs_every_configured_viewport_when_flag_absent() -> Result<(), Box<dyn 
         .current_dir(workspace.path())
         .assert()
         .code(3)
-        .stdout(contains("placeholder/hello-world"))
+        .stdout(contains("spacing/grid-conformance"))
         .stdout(contains("mobile"))
         .stdout(contains("desktop"));
     Ok(())

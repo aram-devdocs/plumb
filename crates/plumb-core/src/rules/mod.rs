@@ -8,7 +8,6 @@
 //! 3. Add a golden snapshot test under `tests/`.
 //! 4. Document it at `docs/src/rules/<rule-id>.md`.
 
-pub mod placeholder;
 pub mod spacing;
 pub mod type_;
 
@@ -46,16 +45,9 @@ pub trait Rule: Send + Sync {
 /// violations by `(rule_id, viewport, selector, dom_order)` before return.
 #[must_use]
 pub fn register_builtin() -> Vec<Box<dyn Rule>> {
-    // The placeholder is deprecated-on-purpose so it's visible in the
-    // compiler output until every walking-skeleton consumer migrates.
-    // The registration site is the one place we allow the deprecation.
-    #[allow(deprecated)]
-    {
-        vec![
-            Box::new(placeholder::HelloWorld),
-            Box::new(spacing::grid_conformance::GridConformance),
-            Box::new(spacing::scale_conformance::ScaleConformance),
-            Box::new(type_::scale_conformance::ScaleConformance),
-        ]
-    }
+    vec![
+        Box::new(spacing::grid_conformance::GridConformance),
+        Box::new(spacing::scale_conformance::ScaleConformance),
+        Box::new(type_::scale_conformance::ScaleConformance),
+    ]
 }
