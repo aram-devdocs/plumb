@@ -53,7 +53,10 @@ pub async fn run(
             .await
             .map_err(anyhow::Error::from)?
     } else {
-        let driver = ChromiumDriver::new(ChromiumOptions { executable_path });
+        let driver = ChromiumDriver::new(ChromiumOptions {
+            executable_path,
+            ..ChromiumOptions::default()
+        });
         driver
             .snapshot_all(targets)
             .await

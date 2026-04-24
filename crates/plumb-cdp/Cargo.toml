@@ -13,6 +13,14 @@ readme.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
+[features]
+default = []
+# Opt-in flag for end-to-end tests that need a real Chromium 131 binary
+# on the host. Off in `just validate` / CI; flip on for local smoke runs.
+# Pulls in `plumb-core/test-fake` so `FakeDriver::snapshot` (which calls
+# `PlumbSnapshot::canned`) builds without dev-deps.
+e2e-chromium = ["plumb-core/test-fake"]
+
 [dependencies]
 plumb-core = { workspace = true }
 chromiumoxide = { workspace = true }
@@ -20,10 +28,13 @@ futures-util = { workspace = true }
 tokio = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
+indexmap = { workspace = true }
 
 [dev-dependencies]
 plumb-core = { workspace = true, features = ["test-fake"] }
 tokio = { workspace = true, features = ["test-util"] }
+serde_json = { workspace = true }
+tempfile = { workspace = true }
 
 [lints]
 workspace = true
