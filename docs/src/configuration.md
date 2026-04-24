@@ -22,8 +22,9 @@ is the canonical example. Highlights:
 - `[viewports.<name>]` — viewport specs. At least one required in real
   runs; the walking skeleton defaults to `desktop` (1280×800).
 - `[spacing]` — the discrete spacing scale. Violations flag values off
-  the scale.
-- `[type_scale]` — allowed font families, sizes, line-heights, weights.
+  the `base_unit` grid or outside the declared `scale`.
+- `[type]` — allowed font families, weights, font-size scale, and named
+  type tokens.
 - `[color]` — named color tokens and the CIEDE2000 tolerance for fuzzy
   matches.
 - `[radius]` — allowed border-radii.
