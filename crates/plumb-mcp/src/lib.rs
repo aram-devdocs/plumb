@@ -19,7 +19,7 @@
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 
-use std::{borrow::Cow, io, sync::Arc};
+use std::io;
 
 use plumb_core::{Config, PlumbSnapshot, run};
 use plumb_format::mcp_compact;
@@ -27,8 +27,8 @@ use rmcp::{
     RoleServer, ServerHandler, ServiceExt,
     handler::server::tool::schema_for_type,
     model::{
-        CallToolRequestParam, CallToolResult, Content, ErrorData, Implementation, JsonObject,
-        ListToolsResult, PaginatedRequestParam, ProtocolVersion, ServerCapabilities, ServerInfo,
+        CallToolRequestParams, CallToolResult, Content, ErrorData, Implementation, JsonObject,
+        ListToolsResult, PaginatedRequestParams, ProtocolVersion, ServerCapabilities, ServerInfo,
         Tool,
     },
     schemars::{self, JsonSchema},
@@ -91,38 +91,29 @@ impl PlumbServer {
         let config = Config::default();
         let violations = run(&snapshot, &config);
         let (text, structured) = mcp_compact(&violations);
-        Ok(CallToolResult {
-            content: vec![Content::text(text)],
-            structured_content: Some(structured),
-            is_error: Some(false),
-            meta: None,
-        })
+        let mut result = CallToolResult::success(vec![Content::text(text)]);
+        result.structured_content = Some(structured);
+        Ok(result)
     }
 }
 
 impl ServerHandler for PlumbServer {
     fn get_info(&self) -> ServerInfo {
-        ServerInfo {
-            protocol_version: ProtocolVersion::V_2024_11_05,
-            capabilities: ServerCapabilities::builder().enable_tools().build(),
-            server_info: Implementation {
-                name: "plumb".into(),
-                title: None,
-                version: env!("CARGO_PKG_VERSION").into(),
-                icons: None,
-                website_url: None,
-            },
-            instructions: Some(
-                "Deterministic design-system linter. Call `lint_url` with a URL to get violations; \
-                 use `echo` to smoke-test the transport."
-                    .into(),
-            ),
-        }
+        let mut info = ServerInfo::default();
+        info.protocol_version = ProtocolVersion::V_2024_11_05;
+        info.capabilities = ServerCapabilities::builder().enable_tools().build();
+        info.server_info = Implementation::new("plumb", env!("CARGO_PKG_VERSION"));
+        info.instructions = Some(
+            "Deterministic design-system linter. Call `lint_url` with a URL to get violations; \
+             use `echo` to smoke-test the transport."
+                .into(),
+        );
+        info
     }
 
     async fn call_tool(
         &self,
-        request: CallToolRequestParam,
+        request: CallToolRequestParams,
         _context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, ErrorData> {
         let arguments = request.arguments.unwrap_or_default();
@@ -138,7 +129,7 @@ impl ServerHandler for PlumbServer {
 
     fn list_tools(
         &self,
-        _request: Option<PaginatedRequestParam>,
+        _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<ListToolsResult, ErrorData>> + Send + '_ {
         let tools = vec![
@@ -166,18 +157,9 @@ where
 
 fn tool_descriptor<T>(name: &'static str, description: &'static str) -> Tool
 where
-    T: JsonSchema,
+    T: JsonSchema + 'static,
 {
-    Tool {
-        name: Cow::Borrowed(name),
-        title: None,
-        description: Some(Cow::Borrowed(description)),
-        input_schema: Arc::new(schema_for_type::<T>()),
-        output_schema: None,
-        annotations: None,
-        icons: None,
-        meta: None,
-    }
+    Tool::new(name, description, schema_for_type::<T>())
 }
 
 /// Run the MCP server on stdin/stdout until EOF.
