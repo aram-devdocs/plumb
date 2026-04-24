@@ -92,6 +92,26 @@ pub trait BrowserDriver: Send + Sync {
         &self,
         target: Target,
     ) -> impl std::future::Future<Output = Result<PlumbSnapshot, CdpError>> + Send;
+
+    /// Snapshot a list of targets, reusing a single browser session
+    /// for the whole batch. The default implementation calls
+    /// [`snapshot`](BrowserDriver::snapshot) per target and is suitable
+    /// for cheap drivers (e.g. [`FakeDriver`]). Real drivers MUST
+    /// override this to launch the browser exactly once per batch.
+    ///
+    /// Snapshots are returned in the same order as `targets`.
+    fn snapshot_all(
+        &self,
+        targets: Vec<Target>,
+    ) -> impl std::future::Future<Output = Result<Vec<PlumbSnapshot>, CdpError>> + Send {
+        async move {
+            let mut out = Vec::with_capacity(targets.len());
+            for target in targets {
+                out.push(self.snapshot(target).await?);
+            }
+            Ok(out)
+        }
+    }
 }
 
 /// Configuration for [`ChromiumDriver`].
@@ -136,13 +156,35 @@ impl ChromiumDriver {
 
 impl BrowserDriver for ChromiumDriver {
     async fn snapshot(&self, target: Target) -> Result<PlumbSnapshot, CdpError> {
-        let config = self.browser_config(&target)?;
+        let mut snapshots = self.snapshot_all(vec![target]).await?;
+        snapshots.pop().ok_or_else(|| {
+            // Unreachable in practice: `snapshot_all` returns one snapshot per
+            // input target on the success path. Treat a violation of that
+            // contract as an internal driver fault rather than panicking.
+            CdpError::Driver(Box::new(io::Error::other(
+                "ChromiumDriver::snapshot_all returned no snapshot for a single target",
+            )))
+        })
+    }
+
+    async fn snapshot_all(&self, targets: Vec<Target>) -> Result<Vec<PlumbSnapshot>, CdpError> {
+        if targets.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Use the first target's dimensions for the initial launch. Once
+        // #15 lands, subsequent viewports will be applied via CDP
+        // `Page.setViewport` between per-target captures.
+        let first = &targets[0];
+        let config = self.browser_config(first)?;
         let mut session = ChromiumSession::launch(config).await?;
 
-        let result = match validate_browser_version(&session.browser).await {
-            Ok(()) => Err(CdpError::NotImplemented),
-            Err(err) => Err(err),
-        };
+        let result: Result<Vec<PlumbSnapshot>, CdpError> =
+            match validate_browser_version(&session.browser).await {
+                // TODO(#15): per-target snapshot via DOMSnapshot.captureSnapshot.
+                Ok(()) => Err(CdpError::NotImplemented),
+                Err(err) => Err(err),
+            };
 
         if let Err(cleanup_err) = session.shutdown().await {
             tracing::debug!(error = %cleanup_err, "failed to clean up Chromium session");
@@ -165,7 +207,11 @@ impl BrowserDriver for FakeDriver {
     #[allow(clippy::unused_async)]
     async fn snapshot(&self, target: Target) -> Result<PlumbSnapshot, CdpError> {
         if target.url == "plumb-fake://hello" {
-            Ok(PlumbSnapshot::canned())
+            let mut snap = PlumbSnapshot::canned();
+            snap.viewport = target.viewport.clone();
+            snap.viewport_width = target.width;
+            snap.viewport_height = target.height;
+            Ok(snap)
         } else {
             Err(CdpError::UnknownFakeUrl(target.url))
         }
