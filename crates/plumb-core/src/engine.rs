@@ -32,8 +32,8 @@ pub fn run(snapshot: &PlumbSnapshot, config: &Config) -> Vec<Violation> {
 /// Output is byte-identical regardless of input order. The merge is
 /// re-sorted by [`Violation::sort_key`] —
 /// `(rule_id, viewport, selector, dom_order)`, the same key the
-/// single-snapshot path uses (see [`run_rules`])
-/// — so a `desktop`-first config and a `mobile`-first config yield
+/// single-snapshot path uses — so a `desktop`-first config and a
+/// `mobile`-first config yield
 /// the same `Vec<Violation>`. Like [`run`], this function performs no
 /// I/O, no RNG, and no clock reads.
 #[must_use]
