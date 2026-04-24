@@ -263,28 +263,157 @@ def compute_gates(spec: Spec) -> list[list[Batch]]:
     return gates
 
 
+def _effort_rank(e: str) -> int:
+    return {"XS": 0, "S": 1, "M": 2, "L": 3, "XL": 4}.get(e, 2)
+
+
+def _needs_security(issue: Issue) -> bool:
+    return "06-security-auditor" in issue.reviewers
+
+
+def recommend_strategy(batch: Batch) -> tuple[str, str]:
+    """Suggest split | bundle | cluster | single for a batch.
+
+    Heuristic documented in `.agents/rules/dispatch-strategy.md`.
+    Returns (strategy, one-line rationale).
+    """
+    issues = batch.issues
+    n = len(issues)
+    if n == 1:
+        return ("single", "only one ticket in this batch")
+
+    crates = {i.crate for i in issues if i.crate}
+    efforts = [i.effort for i in issues]
+    any_large = any(_effort_rank(e) >= 3 for e in efforts)
+    all_small = all(_effort_rank(e) <= 1 for e in efforts)
+    any_security = any(_needs_security(i) for i in issues)
+    same_crate = len(crates) <= 1
+    small = [i for i in issues if _effort_rank(i.effort) <= 2]
+    large = [i for i in issues if _effort_rank(i.effort) >= 3]
+
+    if same_crate and all_small and n >= 3 and not any_security:
+        return ("bundle", f"{n} same-crate low-effort tickets — shared pattern and fixtures; one PR saves review cycles")
+    if small and large and same_crate:
+        return ("cluster", f"mix of small and large — bundle {len(small)} small, split {len(large)} large to keep review <400 LOC")
+    if same_crate and not any_large and n >= 2:
+        return ("bundle", "same crate, similar effort — bundling keeps related changes atomic")
+    if not same_crate:
+        return ("split", f"touches {len(crates)} crates — split so each gets focused review")
+    return ("split", "effort diversity — split for review isolation")
+
+
+def _child_var(slug: str) -> str:
+    return "CHILD_" + slug.upper().replace("-", "_")
+
+
+def _child_num_token(slug: str) -> str:
+    """Placeholder that create-issues.sh substitutes with the real issue number."""
+    return "{{ISSUE_NUM_" + slug + "}}"
+
+
+def render_batch_dispatch(batch: Batch) -> str:
+    """Render one batch's block: ticket table + recommendation + strategy commands."""
+    n = len(batch.issues)
+    strategy, rationale = recommend_strategy(batch)
+
+    lines: list[str] = []
+    lines.append(f"#### Batch `{batch.id}` — {batch.description}")
+    lines.append("")
+
+    # Ticket table.
+    lines.append("| # | Ticket | Crate | Effort | Extras |")
+    lines.append("|---|--------|-------|--------|--------|")
+    for i in batch.issues:
+        subject = i.title.split(":", 1)[-1].strip() if ":" in i.title else i.title
+        extras = []
+        if _needs_security(i):
+            extras.append("security")
+        extra = ", ".join(extras) or "—"
+        crate = f"`{i.crate}`" if i.crate else "—"
+        lines.append(f"| #{_child_num_token(i.slug)} | {subject} | {crate} | {i.effort} | {extra} |")
+    lines.append("")
+
+    # Recommendation annotation.
+    lines.append(f"**Recommended: {strategy}** — {rationale}.")
+    lines.append("")
+
+    # Strategy command blocks.
+    if strategy == "single":
+        i = batch.issues[0]
+        lines.append("```")
+        lines.append(f"/gh-issue {_child_num_token(i.slug)} --worktree")
+        lines.append("```")
+        return "\n".join(lines)
+
+    all_nums = " ".join(_child_num_token(i.slug) for i in batch.issues)
+    per_ticket = "\n".join(
+        f"/gh-issue {_child_num_token(i.slug)} --worktree" for i in batch.issues
+    )
+
+    def render_cluster() -> str:
+        small = [i for i in batch.issues if _effort_rank(i.effort) <= 2]
+        large = [i for i in batch.issues if _effort_rank(i.effort) >= 3]
+        lines_ = []
+        if len(small) > 1:
+            args = " ".join(_child_num_token(i.slug) for i in small)
+            lines_.append(f"/gh-issue {args} --worktree   # {len(small)} small: bundle")
+        elif len(small) == 1:
+            lines_.append(f"/gh-issue {_child_num_token(small[0].slug)} --worktree   # small: {small[0].slug}")
+        for i in large:
+            lines_.append(f"/gh-issue {_child_num_token(i.slug)} --worktree   # L: {i.slug}")
+        return "\n".join(lines_)
+
+    # Always show recommended first, then the alternates.
+    def block(title: str, body: str) -> list[str]:
+        return [f"**{title}**", "```", body, "```", ""]
+
+    shown = set()
+
+    if strategy == "bundle":
+        lines.extend(block(f"Bundle — 1 session, 1 PR closing all {n} issues", f"/gh-issue {all_nums} --worktree"))
+        shown.add("bundle")
+        lines.extend(block(f"Or split — {n} sessions, {n} PRs", per_ticket))
+        shown.add("split")
+    elif strategy == "cluster":
+        lines.extend(block("Cluster — bundle small, split large", render_cluster()))
+        shown.add("cluster")
+        lines.extend(block("Or bundle all in one PR", f"/gh-issue {all_nums} --worktree"))
+        shown.add("bundle")
+        lines.extend(block(f"Or split per ticket ({n} PRs)", per_ticket))
+        shown.add("split")
+    else:  # split
+        lines.extend(block(f"Split — {n} sessions, {n} PRs", per_ticket))
+        shown.add("split")
+        if n >= 3:
+            lines.extend(block("Or bundle all in one PR", f"/gh-issue {all_nums} --worktree"))
+            shown.add("bundle")
+
+    return "\n".join(lines).rstrip()
+
+
 def render_batches_section(spec: Spec) -> str:
-    """Render the gate-based progression section:
+    """Render the gate-based progression:
 
-    1. A summary table per gate: `| Gate | Batches | Tickets | After |`.
-    2. Per-gate section with every batch rendered flat so the reader
-       sees every ticket available at that gate. Dispatch is one
-       `/gh-issue <N> --worktree` command per ticket — open one session
-       per ticket, fire them in parallel.
+    1. Gate summary table.
+    2. Per-gate section with per-batch ticket table, a recommended
+       dispatch strategy (split | bundle | cluster | single), and
+       command blocks for every viable alternate so the user can pick.
 
-    Within a gate, batches are parallel. Between gates, sequential
-    (every PR in gate N must merge before gate N+1 starts).
+    Within a gate, batches are parallel. Between gates, sequential.
+    See `.agents/rules/dispatch-strategy.md` for the heuristic.
     """
     gates = compute_gates(spec)
 
     lines: list[str] = []
     lines.append(
-        "Gates run sequentially. Within a gate, every batch's tickets run in parallel — "
-        "open one `/gh-issue <N> --worktree` session per ticket and fire them all concurrently."
+        "Gates run sequentially (every PR in Gate N must merge before Gate N+1 starts). "
+        "Within a gate, batches are parallel. For each batch, a recommended dispatch "
+        "strategy is shown — you can always pick a different shape if it fits. "
+        "See `.agents/rules/dispatch-strategy.md` for the heuristic."
     )
     lines.append("")
 
-    # Summary table.
+    # Gate summary table.
     lines.append("| Gate | Batches | Tickets | After |")
     lines.append("|------|---------|---------|-------|")
     for gi, gate in enumerate(gates, start=1):
@@ -296,7 +425,7 @@ def render_batches_section(spec: Spec) -> str:
     lines.append("---")
     lines.append("")
 
-    # Per-gate sections, with batches flat inside.
+    # Per-gate sections.
     for gi, gate in enumerate(gates, start=1):
         suffix = f"  _after Gate {gi - 1}_" if gi > 1 else ""
         lines.append(f"### Gate {gi}{suffix}")
@@ -304,23 +433,17 @@ def render_batches_section(spec: Spec) -> str:
         if len(gate) > 1:
             batch_list = ", ".join(f"`{b.id}`" for b in gate)
             lines.append(
-                f"**{len(gate)} parallel batches at this gate** ({batch_list}) — "
-                f"fire every ticket below as its own session."
+                f"**{len(gate)} parallel batches** ({batch_list}) — every batch below "
+                f"can run concurrently. Each batch still has its own recommended shape."
             )
             lines.append("")
         for batch in gate:
-            lines.append(f"#### Batch `{batch.id}` — {batch.description}")
-            lines.append("")
-            lines.append(f"{{{{CHILD_ISSUE_LINES_{batch.id}}}}}")
-            lines.append("")
-            lines.append("```")
-            lines.append(f"{{{{GH_ISSUE_COMMANDS_{batch.id}}}}}")
-            lines.append("```")
+            lines.append(render_batch_dispatch(batch))
             lines.append("")
         if gi < len(gates):
             lines.append(f"**Advance to Gate {gi + 1} when:** every PR in Gate {gi} is merged.")
         else:
-            lines.append("**Phase gate follows — see the section below.**")
+            lines.append("**Phase gate follows — see below.**")
         lines.append("")
 
     return "\n".join(lines).rstrip()
@@ -580,49 +703,27 @@ def render_create_issues_script(
         f'  PARENT_BODY=$(cat {shlex.quote(parent_filename)})',
     ]
 
+    # Per-ticket ISSUE_NUM_<slug> substitution — the new single-placeholder
+    # shape used by render_batch_dispatch. Every use of #{{ISSUE_NUM_slug}} or
+    # /gh-issue {{ISSUE_NUM_slug}} expands to the real issue number.
+    for c in children:
+        slug = c["slug"]
+        var = f"CHILD_{slug.upper().replace('-', '_')}"
+        lines.append(
+            f'  PARENT_BODY="${{PARENT_BODY//\\{{\\{{ISSUE_NUM_{slug}\\}}\\}}/${var}}}"'
+        )
+
+    # Legacy per-batch substitutions (kept for the top-of-body gate table).
     for batch in spec.batches:
         batch_children = [c for c in children if c["batch"] == batch.id]
         bid = batch.id
-        # CHILD_ISSUE_LINES_<ID> — checklist of "- [ ] title (#N)".
-        # Titles with backticks break bash literal strings (command
-        # substitution) — escape them via `printf '%q'`-equivalent.
-        lines.append(f'  LINES_{bid}=""')
-        for c in batch_children:
-            var = f"CHILD_{c['slug'].upper().replace('-', '_')}"
-            # Quote the title as a bash single-quoted literal to neutralize
-            # backticks, dollar signs, and double-quotes. shlex.quote
-            # handles single-quote escapes via the '\''…'\'' idiom.
-            quoted_title = shlex.quote(c["title"])
-            lines.append(
-                f'  LINES_{bid}+="- [ ] "{quoted_title}" (#${var})"$\'\\n\''
-            )
-        lines.append(
-            f'  PARENT_BODY="${{PARENT_BODY//\\{{\\{{CHILD_ISSUE_LINES_{bid}\\}}\\}}/$LINES_{bid}}}"'
-        )
-        # BATCH_NUMBERS_<ID> — "#11 #12 #13" for the summary table.
+        # BATCH_NUMBERS_<ID> — "#11 #12 #13" for the gate summary table.
         lines.append(f'  NUMS_{bid}=""')
         for c in batch_children:
             var = f"CHILD_{c['slug'].upper().replace('-', '_')}"
             lines.append(f'  NUMS_{bid}+="#${var} "')
         lines.append(
             f'  PARENT_BODY="${{PARENT_BODY//\\{{\\{{BATCH_NUMBERS_{bid}\\}}\\}}/${{NUMS_{bid}% }}}}"'
-        )
-        # GH_ISSUE_COMMANDS_<ID> — one "/gh-issue <N> --worktree" line per
-        # ticket in the batch. Open one session per ticket and fire them
-        # in parallel. Also retains GH_ISSUE_ARGS_<ID> ("11 12 13") for
-        # advanced users who want a single bundled-PR session.
-        lines.append(f'  CMDS_{bid}=""')
-        lines.append(f'  ARGS_{bid}=""')
-        for c in batch_children:
-            var = f"CHILD_{c['slug'].upper().replace('-', '_')}"
-            lines.append(f'  CMDS_{bid}+="/gh-issue ${var} --worktree"$\'\\n\'')
-            lines.append(f'  ARGS_{bid}+="${var} "')
-        # Trim trailing newline / trailing space for clean rendering.
-        lines.append(
-            f'  PARENT_BODY="${{PARENT_BODY//\\{{\\{{GH_ISSUE_COMMANDS_{bid}\\}}\\}}/${{CMDS_{bid}%$\'\\n\'}}}}"'
-        )
-        lines.append(
-            f'  PARENT_BODY="${{PARENT_BODY//\\{{\\{{GH_ISSUE_ARGS_{bid}\\}}\\}}/${{ARGS_{bid}% }}}}"'
         )
 
     lines += [

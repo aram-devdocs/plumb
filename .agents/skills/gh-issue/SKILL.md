@@ -70,14 +70,15 @@ investigating > planning > bootstrapped > implementing > verifying > reviewing >
 
 1. Determine issue type from labels: `feat`, `fix`, `refactor`, `test`, `chore`, `docs`, `perf`, `ci`, `build`, `style`, `revert`.
 2. Branch name: `codex/<primary>-<type>-<slug>` (e.g., `codex/17-feat-cdp-chromium-launch`).
-3. Identify:
+3. If this invocation addresses **multiple issues** (`/gh-issue 66 67 69 70 …`), the intent is one bundled PR closing every issue. Read `.agents/rules/dispatch-strategy.md` to confirm the bundle is appropriate for these tickets (same crate, pattern similarity, combined diff under ~400 LOC). If bundling is a mistake, stop and re-dispatch per ticket.
+4. Identify:
    - Target crate(s) and files.
    - Required subagent(s) from Plumb's set: `01-implementer`, `08-rule-author` (for new rules), `09-mcp-tool-author` (for MCP tools), `10-quick-fix` (for trivial fixes).
    - Review gates — always `02-spec-reviewer` → `03-code-quality-reviewer` → `05-architecture-validator` → `04-test-runner`. Add `06-security-auditor` in parallel when the change touches `plumb-cdp`, `plumb-mcp`, URL handling, or dependency-graph changes.
    - Whether a local `/gh-review --local-diff main...HEAD` pass is required before opening the PR.
    - Whether user-facing docs need a humanizer pass (any PR touching `docs/src/**`).
-4. Write the plan to `.agents/runs/gh-issue/<primary>-<slug>/plan.md` using `.agents/skills/gh-issue/assets/plan-template.md`.
-5. Present the plan to the user for approval before proceeding.
+5. Write the plan to `.agents/runs/gh-issue/<primary>-<slug>/plan.md` using `.agents/skills/gh-issue/assets/plan-template.md`.
+6. Present the plan to the user for approval before proceeding.
 
 ### Phase 3 — bootstrapped
 

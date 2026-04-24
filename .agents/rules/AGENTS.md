@@ -29,6 +29,7 @@ discussion.
 - `mcp-tool-patterns.md` — how to add an MCP tool.
 - `testing.md` — nextest + insta + proptest conventions.
 - `documentation.md` — humanizer + RFC 2119 + anti-AI-writing list.
+- `dispatch-strategy.md` — when to split vs bundle vs cluster `/gh-issue` sessions.
 
 ## Anti-patterns
 
