@@ -17,10 +17,42 @@ use rayon::prelude::*;
 ///
 /// This function is pure — no wall-clock, no RNG, no environment access.
 /// Running it twice with the same inputs yields byte-identical output.
+///
+/// This is a thin wrapper over [`run_many`] for the single-snapshot case.
 #[must_use]
 pub fn run(snapshot: &PlumbSnapshot, config: &Config) -> Vec<Violation> {
+    run_many([snapshot], config)
+}
+
+/// Run every built-in rule against each snapshot in `snapshots` and
+/// return their merged, sorted, deduplicated violation list.
+///
+/// # Determinism
+///
+/// Output is byte-identical regardless of input order. The merge is
+/// re-sorted by [`Violation::sort_key`] —
+/// `(rule_id, viewport, selector, dom_order)`, the same key the
+/// single-snapshot path uses (see [`run_rules`])
+/// — so a `desktop`-first config and a `mobile`-first config yield
+/// the same `Vec<Violation>`. Like [`run`], this function performs no
+/// I/O, no RNG, and no clock reads.
+#[must_use]
+pub fn run_many<'a, I>(snapshots: I, config: &Config) -> Vec<Violation>
+where
+    I: IntoIterator<Item = &'a PlumbSnapshot>,
+{
     let rules = register_builtin();
-    run_rules(snapshot, config, &rules)
+    let mut buffer: Vec<Violation> = snapshots
+        .into_iter()
+        .flat_map(|snapshot| run_rules(snapshot, config, &rules))
+        .collect();
+
+    // Re-sort across snapshots; `run_rules` already sorts within one
+    // snapshot, but the cross-snapshot merge still needs an outer pass.
+    buffer.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
+    buffer.dedup();
+
+    buffer
 }
 
 fn run_rules(snapshot: &PlumbSnapshot, config: &Config, rules: &[Box<dyn Rule>]) -> Vec<Violation> {
