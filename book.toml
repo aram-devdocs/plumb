@@ -2,7 +2,6 @@
 title = "The Plumb Book"
 authors = ["Aram Hammoudeh"]
 language = "en"
-multilingual = false
 src = "docs/src"
 
 [build]
