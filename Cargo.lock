@@ -1329,6 +1329,7 @@ dependencies = [
  "chromiumoxide",
  "futures-util",
  "plumb-core",
+ "serde_json",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
