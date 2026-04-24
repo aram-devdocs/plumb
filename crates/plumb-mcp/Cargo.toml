@@ -19,7 +19,6 @@ categories.workspace = true
 plumb-core = { workspace = true, features = ["test-fake"] }
 plumb-format = { workspace = true }
 rmcp = { workspace = true }
-schemars = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

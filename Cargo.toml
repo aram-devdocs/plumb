@@ -42,8 +42,9 @@ plumb-mcp = { path = "crates/plumb-mcp", version = "0.0.1" }
 # CDP driver.
 chromiumoxide = { version = "0.7", default-features = false, features = ["tokio-runtime"] }
 
-# MCP SDK. rmcp 0.2.x pairs with its own rmcp-macros proc-macro crate.
-rmcp = { version = "0.2", features = ["server", "macros", "transport-io", "schemars"] }
+# MCP SDK. rmcp 0.10 moved its macro stack from unmaintained `paste`
+# to maintained `pastey`.
+rmcp = { version = "0.10", default-features = false, features = ["base64", "macros", "server", "transport-io", "schemars"] }
 
 # Async runtime.
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "io-std", "sync", "time", "fs", "process"] }

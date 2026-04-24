@@ -122,7 +122,7 @@ impl PlumbSnapshot {
 ///
 /// Keeping this a distinct type (rather than handing `&PlumbSnapshot`
 /// directly) lets us extend the engine with cross-cutting context (e.g.
-/// precomputed selector indexes) without breaking the [`Rule`] trait.
+/// precomputed selector indexes) without breaking the [`crate::rules::Rule`] trait.
 #[derive(Debug)]
 pub struct SnapshotCtx<'a> {
     snapshot: &'a PlumbSnapshot,

@@ -10,7 +10,7 @@
 //! `docs/local/prd.md` §13:
 //!
 //! - [`pretty`] — human-readable TTY output.
-//! - [`json`] — canonical machine-readable format.
+//! - [`json()`] — canonical machine-readable format.
 //! - [`sarif`] — SARIF 2.1.0 for GitHub code-scanning and IDEs.
 //! - [`mcp_compact`] — token-efficient output for the MCP server; returns
 //!   a `(text, structured)` pair matching PRD §14.2.
