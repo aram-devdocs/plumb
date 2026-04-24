@@ -17,12 +17,6 @@
     { "type": "build", "hidden": true },
     { "type": "style", "hidden": true }
   ],
-  "plugins": [
-    {
-      "type": "cargo-workspace",
-      "merge": true
-    }
-  ],
   "packages": {
     ".": {
       "component": "plumb",
