@@ -31,7 +31,7 @@ jobs:
       val: ${{ steps.plan.outputs.manifest }}
       tag: ${{ (github.ref_type == 'tag' && github.ref_name) || '' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: cargo-bins/cargo-binstall@main
       - name: Install cargo-dist
         run: cargo binstall --no-confirm --force --locked cargo-dist@0.28.0
@@ -44,7 +44,7 @@ jobs:
           echo "manifest<<EOF" >> "$GITHUB_OUTPUT"
           echo "$manifest" >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: artifacts-plan
           path: dist-manifest.json
@@ -72,7 +72,7 @@ jobs:
             os: windows-latest
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
@@ -88,10 +88,10 @@ jobs:
       - name: cargo dist build
         shell: bash
         run: cargo dist build --tag "${{ github.ref_name }}" --target ${{ matrix.target }}
-      - uses: actions/attest-build-provenance@v1
+      - uses: actions/attest-build-provenance@v4
         with:
           subject-path: target/distrib/*
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: artifacts-${{ matrix.target }}
           path: target/distrib/
@@ -102,8 +102,8 @@ jobs:
     needs: [plan, build]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v8
         with:
           path: target/distrib/
           pattern: artifacts-*
@@ -113,7 +113,7 @@ jobs:
       - run: cargo binstall --no-confirm --force --locked cargo-dist@0.28.0
       - name: cargo dist build installers
         run: cargo dist build --tag "${{ github.ref_name }}" --artifacts=global
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: artifacts-installers
           path: target/distrib/
@@ -123,8 +123,8 @@ jobs:
     needs: [plan, build, installers]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v8
         with:
           path: target/distrib/
           pattern: artifacts-*
