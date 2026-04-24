@@ -30,7 +30,7 @@ pub mod snapshot;
 pub mod telemetry;
 
 pub use config::Config;
-pub use engine::run;
+pub use engine::{run, run_many};
 pub use report::{
     Confidence, Fix, FixKind, Rect, RunId, Severity, ViewportKey, Violation, ViolationSink,
 };
