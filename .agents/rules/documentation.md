@@ -2,7 +2,7 @@
 
 Plumb's docs live in two places:
 
-- **`docs/src/`** — the user-facing Book rendered at `plumb.dev` by mdBook.
+- **`docs/src/`** — the user-facing Book rendered at `plumb.aramhammoudeh.com` by mdBook.
 - **Rustdoc** — the API reference rendered at `docs.rs/plumb-core` (etc.).
 
 Both must be human-readable, specific, and concise.

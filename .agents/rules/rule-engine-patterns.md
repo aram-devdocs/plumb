@@ -62,7 +62,7 @@ File: `docs/src/rules/<category>-<id>.md`. `plumb explain
 
 ### 5. Wire `doc_url`
 
-Point at `https://plumb.dev/rules/<category>-<id>`. Consistency matters —
+Point at `https://plumb.aramhammoudeh.com/rules/<category>-<id>`. Consistency matters —
 the MCP server's `explain_rule` tool resolves URLs via the same slug.
 
 ## What NOT to do

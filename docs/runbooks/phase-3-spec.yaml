@@ -1,4 +1,4 @@
-schema: https://plumb.dev/schemas/runbook-spec.json
+schema: https://plumb.aramhammoudeh.com/schemas/runbook-spec.json
 name: "Phase 3 — MCP surface expansion"
 phase_number: 3
 repo: aram-devdocs/plumb
@@ -16,7 +16,7 @@ parent:
     resource so agents can read the resolved spec without a tool call.
   acceptance_criteria:
     - "6 MCP tools exposed: echo, lint_url, explain_rule, list_rules, get_config, resource `plumb.toml`."
-    - "A real MCP client (Claude Code, Cursor) uses lint_url + explain_rule + list_rules end-to-end against https://plumb.dev."
+    - "A real MCP client (Claude Code, Cursor) uses lint_url + explain_rule + list_rules end-to-end against https://plumb.aramhammoudeh.com."
     - "Persistent browser reused across calls; each lint_url call gets its own incognito context."
     - "Every built-in rule has a doc page; `cargo xtask sync-rules-index` green."
     - "All 8 child PRs merged."
@@ -163,6 +163,6 @@ phase_gate:
   criterion: |
     `just validate` green AND a real MCP client connects to `plumb mcp`
     and successfully calls lint_url + explain_rule + list_rules against
-    https://plumb.dev AND `cargo xtask sync-rules-index` green AND
+    https://plumb.aramhammoudeh.com AND `cargo xtask sync-rules-index` green AND
     `cargo xtask pre-release` green.
   unblocks: "phase-4"

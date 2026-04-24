@@ -41,7 +41,7 @@ python3 .agents/skills/gh-runbook/scripts/generate_runbook.py \
 See `references/spec-format.md` for the full YAML grammar. A minimal skeleton:
 
 ```yaml
-schema: https://plumb.dev/schemas/runbook-spec.json
+schema: https://plumb.aramhammoudeh.com/schemas/runbook-spec.json
 name: "Phase N — <headline>"
 phase_number: N
 repo: aram-devdocs/plumb

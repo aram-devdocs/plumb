@@ -4,7 +4,7 @@ See `/AGENTS.md` for repo-wide rules. This file scopes to `docs/`.
 
 ## Structure
 
-- `docs/src/` — mdBook source for <https://plumb.dev>.
+- `docs/src/` — mdBook source for <https://plumb.aramhammoudeh.com>.
 - `docs/src/rules/` — one file per built-in rule (naming: `<category>-<id>.md`).
 - `docs/adr/` — architecture decision records. Numbered `NNNN-<slug>.md`.
 - `docs/runbooks/` — YAML runbook specs consumed by `/gh-runbook`.

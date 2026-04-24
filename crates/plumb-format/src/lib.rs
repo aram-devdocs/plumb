@@ -106,7 +106,7 @@ pub fn sarif(violations: &[Violation]) -> Result<String, serde_json::Error> {
             "tool": {
                 "driver": {
                     "name": "plumb",
-                    "informationUri": "https://plumb.dev",
+                    "informationUri": "https://plumb.aramhammoudeh.com",
                     "rules": [],
                 }
             },

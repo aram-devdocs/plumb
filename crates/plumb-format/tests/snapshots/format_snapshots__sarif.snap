@@ -27,14 +27,14 @@ expression: out
             "text": "`body` has off-scale padding 13px; expected a value from the spacing token set."
           },
           "properties": {
-            "docUrl": "https://plumb.dev/rules/placeholder-hello-world"
+            "docUrl": "https://plumb.aramhammoudeh.com/rules/placeholder-hello-world"
           },
           "ruleId": "placeholder/hello-world"
         }
       ],
       "tool": {
         "driver": {
-          "informationUri": "https://plumb.dev",
+          "informationUri": "https://plumb.aramhammoudeh.com",
           "name": "plumb",
           "rules": []
         }

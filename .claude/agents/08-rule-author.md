@@ -39,7 +39,7 @@ is tested, documented, registered, and byte-identical across runs.
    - See also
 
 7. **Wire `doc_url`.** Point at
-   `https://plumb.dev/rules/<category>-<id>`.
+   `https://plumb.aramhammoudeh.com/rules/<category>-<id>`.
 
 8. **Run the full gate:**
    - `cargo fmt --all`

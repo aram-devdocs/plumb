@@ -1,7 +1,7 @@
 # Plumb configuration — starter file.
 #
 # Every field here is optional. Remove anything you don't need; add
-# `$schema = "https://plumb.dev/schemas/plumb.toml.json"` to a wrapper
+# `$schema = "https://plumb.aramhammoudeh.com/schemas/plumb.toml.json"` to a wrapper
 # `plumb.json` if you prefer JSON.
 
 [viewports.mobile]

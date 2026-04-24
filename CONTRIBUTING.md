@@ -72,7 +72,7 @@ See `.agents/rules/rule-engine-patterns.md`. The short version:
 2. Register it in `crates/plumb-core/src/rules/mod.rs::register_builtin`.
 3. Add a golden snapshot test under `crates/plumb-core/tests/`.
 4. Document it at `docs/src/rules/<category>-<id>.md` — this is what `plumb explain` reads.
-5. Wire `doc_url` in the rule to point at `https://plumb.dev/rules/<category>-<id>`.
+5. Wire `doc_url` in the rule to point at `https://plumb.aramhammoudeh.com/rules/<category>-<id>`.
 
 ## Adding an MCP tool
 

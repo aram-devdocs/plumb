@@ -49,6 +49,6 @@ async fn real_driver_is_not_implemented_yet() {
 #[test]
 fn fake_url_detector() {
     assert!(is_fake_url("plumb-fake://hello"));
-    assert!(!is_fake_url("https://plumb.dev"));
+    assert!(!is_fake_url("https://plumb.aramhammoudeh.com"));
     assert!(!is_fake_url(""));
 }

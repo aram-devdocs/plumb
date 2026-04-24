@@ -94,7 +94,7 @@ def main() -> None:
         except json.JSONDecodeError as exc:
             errors.append(f"runbook-spec.json invalid JSON: {exc}")
         else:
-            if schema.get("$id") != "https://plumb.dev/schemas/runbook-spec.json":
+            if schema.get("$id") != "https://plumb.aramhammoudeh.com/schemas/runbook-spec.json":
                 errors.append("runbook-spec.json $id mismatch")
 
     self_path = Path(__file__).resolve()

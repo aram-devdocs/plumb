@@ -1,4 +1,4 @@
-schema: https://plumb.dev/schemas/runbook-spec.json
+schema: https://plumb.aramhammoudeh.com/schemas/runbook-spec.json
 name: "Phase 2 — MVP rule set + token adapters"
 phase_number: 2
 repo: aram-devdocs/plumb

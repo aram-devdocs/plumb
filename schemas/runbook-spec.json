@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://plumb.dev/schemas/runbook-spec.json",
+  "$id": "https://plumb.aramhammoudeh.com/schemas/runbook-spec.json",
   "title": "Plumb runbook spec",
   "description": "Describes one parent tracking issue plus its child workstreams, grouped into sequential batches with a phase gate. Consumed by /gh-runbook to generate issue drafts.",
   "type": "object",
@@ -9,7 +9,7 @@
   "properties": {
     "schema": {
       "type": "string",
-      "const": "https://plumb.dev/schemas/runbook-spec.json"
+      "const": "https://plumb.aramhammoudeh.com/schemas/runbook-spec.json"
     },
     "name": {
       "type": "string",

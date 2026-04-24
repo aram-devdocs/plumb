@@ -26,6 +26,6 @@ expression: json
       "description": "Snap `body` padding to the nearest spacing token (16px).",
       "confidence": "medium"
     },
-    "doc_url": "https://plumb.dev/rules/placeholder-hello-world"
+    "doc_url": "https://plumb.aramhammoudeh.com/rules/placeholder-hello-world"
   }
 ]

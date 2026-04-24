@@ -11,7 +11,7 @@ expression: structured
   },
   "violations": [
     {
-      "doc_url": "https://plumb.dev/rules/placeholder-hello-world",
+      "doc_url": "https://plumb.aramhammoudeh.com/rules/placeholder-hello-world",
       "dom_order": 2,
       "fix": {
         "confidence": "medium",

@@ -1,4 +1,4 @@
-schema: https://plumb.dev/schemas/runbook-spec.json
+schema: https://plumb.aramhammoudeh.com/schemas/runbook-spec.json
 name: "Phase 1 — Real CDP driver + foundational rules"
 phase_number: 1
 repo: aram-devdocs/plumb
@@ -19,7 +19,7 @@ parent:
     extension follows: Rule trait + golden test + docs page +
     register_builtin; Chromium launch + DOMSnapshot + viewport multi-run.
   acceptance_criteria:
-    - "`plumb lint https://plumb.dev --format json` renders a real page via Chromium and emits ≥1 violation from a real rule."
+    - "`plumb lint https://plumb.aramhammoudeh.com --format json` renders a real page via Chromium and emits ≥1 violation from a real rule."
     - "3x byte-diff determinism check holds on the new rules (`just determinism-check`)."
     - "`cargo xtask pre-release` green — rule docs in sync, schema current."
     - "All 9 child PRs merged."
@@ -188,7 +188,7 @@ batches:
 
 phase_gate:
   criterion: |
-    `just validate` green AND `plumb lint https://plumb.dev --format json`
+    `just validate` green AND `plumb lint https://plumb.aramhammoudeh.com --format json`
     renders a real page via Chromium and emits ≥1 violation from a real
     rule AND `just determinism-check` passes on the new rules AND
     `cargo xtask pre-release` passes (rule docs in sync, schema current).

@@ -59,7 +59,7 @@ impl Rule for HelloWorld {
                     description: "Snap `body` padding to the nearest spacing token (16px).".into(),
                     confidence: Confidence::Medium,
                 }),
-                doc_url: "https://plumb.dev/rules/placeholder-hello-world".into(),
+                doc_url: "https://plumb.aramhammoudeh.com/rules/placeholder-hello-world".into(),
                 metadata: indexmap::IndexMap::new(),
             });
         }

@@ -6,7 +6,7 @@ A runbook spec is a YAML file that describes one parent tracking issue and its c
 
 | Field | Required | Type | Purpose |
 |-------|----------|------|---------|
-| `schema` | yes | URL | Fixed: `https://plumb.dev/schemas/runbook-spec.json`. |
+| `schema` | yes | URL | Fixed: `https://plumb.aramhammoudeh.com/schemas/runbook-spec.json`. |
 | `name` | yes | string | Human-readable phase name (≤80 chars). |
 | `phase_number` | no | integer | 1–7 for PRD phases, omit for umbrella. |
 | `repo` | yes | string | `aram-devdocs/plumb` by default. |

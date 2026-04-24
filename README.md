@@ -32,7 +32,7 @@ After the first release:
 
 ```bash
 # macOS / Linux / Windows
-curl -LsSf https://plumb.dev/install.sh | sh
+curl -LsSf https://plumb.aramhammoudeh.com/install.sh | sh
 
 # Cargo
 cargo install plumb-cli
@@ -43,7 +43,7 @@ brew install plumb-dev/tap/plumb
 
 ## Documentation
 
-- [The Plumb Book](https://plumb.dev) (coming soon — built from `docs/src/`)
+- [The Plumb Book](https://plumb.aramhammoudeh.com) (coming soon — built from `docs/src/`)
 - [Contributing](CONTRIBUTING.md)
 - [Security policy](SECURITY.md)
 - [Code of conduct](CODE_OF_CONDUCT.md)

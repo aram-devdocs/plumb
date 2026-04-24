@@ -1,4 +1,4 @@
-schema: https://plumb.dev/schemas/runbook-spec.json
+schema: https://plumb.aramhammoudeh.com/schemas/runbook-spec.json
 name: "Plumb V0 → V1 roadmap"
 repo: aram-devdocs/plumb
 
@@ -21,7 +21,7 @@ parent:
     deferred.
   acceptance_criteria:
     - "All 6 V0 phase-parent issues closed with their phase gates satisfied."
-    - "`plumb lint https://plumb.dev` produces deterministic output from 8 MVP rules with zero false positives."
+    - "`plumb lint https://plumb.aramhammoudeh.com` produces deterministic output from 8 MVP rules with zero false positives."
     - "`plumb` installable via cargo / brew / npm / curl, each verified."
     - "Phase 7 parent either closed or tracked as the V1 milestone with clear acceptance criteria."
   related_prd_sections: ["§6", "§7", "§10", "§11", "§12", "§13", "§14", "§15", "§16"]

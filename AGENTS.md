@@ -21,7 +21,7 @@ The complete product specification lives at `docs/local/prd.md`. **Read the PRD 
 - `crates/plumb-cdp/` — Chromium DevTools Protocol driver. Only crate permitted to use `unsafe`.
 - `crates/plumb-config/` — config file loading + JSON Schema emission.
 - `crates/plumb-format/` — output formatters (pretty, JSON, SARIF, MCP-compact).
-- `docs/src/` — mdBook source for <https://plumb.dev>.
+- `docs/src/` — mdBook source for <https://plumb.aramhammoudeh.com>.
 - `docs/adr/` — architecture decision records.
 - `docs/local/` — gitignored scratch space for local-only docs (PRD lives here until extracted).
 - `.agents/` — tool-agnostic AI library (rules, skills, role specs).

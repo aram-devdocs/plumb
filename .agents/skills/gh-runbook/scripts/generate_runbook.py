@@ -172,7 +172,7 @@ def _structural_validate(data: dict, path: Path) -> None:
     for key in required_top:
         if key not in data:
             raise RuntimeError(f"spec {path} missing required field: {key}")
-    if data["schema"] != "https://plumb.dev/schemas/runbook-spec.json":
+    if data["schema"] != "https://plumb.aramhammoudeh.com/schemas/runbook-spec.json":
         raise RuntimeError(f"spec {path} has wrong schema URL")
     for batch in data["batches"]:
         for i in batch["issues"]:
@@ -312,7 +312,13 @@ def _child_num_token(slug: str) -> str:
 
 
 def render_batch_dispatch(batch: Batch) -> str:
-    """Render one batch's block: ticket table + recommendation + strategy commands."""
+    """Render one batch's block: ticket table + the recommended dispatch.
+
+    Picks a single strategy (split / bundle / cluster / single) via
+    `recommend_strategy`. Only that shape's commands are rendered —
+    clean, concise, one path. Override by editing the spec if the
+    heuristic picks wrong for a particular batch.
+    """
     n = len(batch.issues)
     strategy, rationale = recommend_strategy(batch)
 
@@ -333,60 +339,36 @@ def render_batch_dispatch(batch: Batch) -> str:
         lines.append(f"| #{_child_num_token(i.slug)} | {subject} | {crate} | {i.effort} | {extra} |")
     lines.append("")
 
-    # Recommendation annotation.
-    lines.append(f"**Recommended: {strategy}** — {rationale}.")
+    lines.append(f"**Dispatch ({strategy}):** {rationale}.")
     lines.append("")
 
-    # Strategy command blocks.
     if strategy == "single":
         i = batch.issues[0]
         lines.append("```")
         lines.append(f"/gh-issue {_child_num_token(i.slug)} --worktree")
         lines.append("```")
-        return "\n".join(lines)
-
-    all_nums = " ".join(_child_num_token(i.slug) for i in batch.issues)
-    per_ticket = "\n".join(
-        f"/gh-issue {_child_num_token(i.slug)} --worktree" for i in batch.issues
-    )
-
-    def render_cluster() -> str:
+    elif strategy == "bundle":
+        all_nums = " ".join(_child_num_token(i.slug) for i in batch.issues)
+        lines.append("```")
+        lines.append(f"/gh-issue {all_nums} --worktree")
+        lines.append("```")
+    elif strategy == "cluster":
         small = [i for i in batch.issues if _effort_rank(i.effort) <= 2]
         large = [i for i in batch.issues if _effort_rank(i.effort) >= 3]
-        lines_ = []
+        lines.append("```")
         if len(small) > 1:
             args = " ".join(_child_num_token(i.slug) for i in small)
-            lines_.append(f"/gh-issue {args} --worktree   # {len(small)} small: bundle")
+            lines.append(f"/gh-issue {args} --worktree   # {len(small)} small: one bundled PR")
         elif len(small) == 1:
-            lines_.append(f"/gh-issue {_child_num_token(small[0].slug)} --worktree   # small: {small[0].slug}")
+            lines.append(f"/gh-issue {_child_num_token(small[0].slug)} --worktree")
         for i in large:
-            lines_.append(f"/gh-issue {_child_num_token(i.slug)} --worktree   # L: {i.slug}")
-        return "\n".join(lines_)
-
-    # Always show recommended first, then the alternates.
-    def block(title: str, body: str) -> list[str]:
-        return [f"**{title}**", "```", body, "```", ""]
-
-    shown = set()
-
-    if strategy == "bundle":
-        lines.extend(block(f"Bundle — 1 session, 1 PR closing all {n} issues", f"/gh-issue {all_nums} --worktree"))
-        shown.add("bundle")
-        lines.extend(block(f"Or split — {n} sessions, {n} PRs", per_ticket))
-        shown.add("split")
-    elif strategy == "cluster":
-        lines.extend(block("Cluster — bundle small, split large", render_cluster()))
-        shown.add("cluster")
-        lines.extend(block("Or bundle all in one PR", f"/gh-issue {all_nums} --worktree"))
-        shown.add("bundle")
-        lines.extend(block(f"Or split per ticket ({n} PRs)", per_ticket))
-        shown.add("split")
+            lines.append(f"/gh-issue {_child_num_token(i.slug)} --worktree   # {i.effort}: {i.slug}")
+        lines.append("```")
     else:  # split
-        lines.extend(block(f"Split — {n} sessions, {n} PRs", per_ticket))
-        shown.add("split")
-        if n >= 3:
-            lines.extend(block("Or bundle all in one PR", f"/gh-issue {all_nums} --worktree"))
-            shown.add("bundle")
+        lines.append("```")
+        for i in batch.issues:
+            lines.append(f"/gh-issue {_child_num_token(i.slug)} --worktree")
+        lines.append("```")
 
     return "\n".join(lines).rstrip()
 

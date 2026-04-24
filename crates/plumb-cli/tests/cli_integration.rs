@@ -27,7 +27,7 @@ fn lint_fake_url_json_format() {
 fn lint_real_url_is_not_implemented() {
     Command::cargo_bin("plumb")
         .expect("plumb binary")
-        .args(["lint", "https://plumb.dev"])
+        .args(["lint", "https://plumb.aramhammoudeh.com"])
         .assert()
         .code(2)
         .stderr(contains("walking skeleton"));

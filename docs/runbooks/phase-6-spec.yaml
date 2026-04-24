@@ -1,4 +1,4 @@
-schema: https://plumb.dev/schemas/runbook-spec.json
+schema: https://plumb.aramhammoudeh.com/schemas/runbook-spec.json
 name: "Phase 6 — Docs + dogfooding"
 phase_number: 6
 repo: aram-devdocs/plumb
@@ -8,15 +8,15 @@ parent:
   labels: ["phase-6", "kind:rfc"]
   milestone: "v0.6-phase-6"
   summary: |
-    Finish the user-facing story: publish the mdBook at plumb.dev, run
+    Finish the user-facing story: publish the mdBook at plumb.aramhammoudeh.com, run
     Plumb against its own site until it passes clean, publish baseline
     performance benchmarks, and capture the V0 architectural decisions
     as ADRs. Adds the landing site and enables GitHub Discussions.
 
     This is the phase that flips Plumb from "works" to "launchable."
   acceptance_criteria:
-    - "plumb.dev live and indexed, with install / quick-start / config / rule / MCP / FAQ chapters."
-    - "`plumb lint https://plumb.dev` emits zero violations (dogfooding clean)."
+    - "plumb.aramhammoudeh.com live and indexed, with install / quick-start / config / rule / MCP / FAQ chapters."
+    - "`plumb lint https://plumb.aramhammoudeh.com` emits zero violations (dogfooding clean)."
     - "Benchmarks published showing cold-start, warm-run, per-rule cost across DOM sizes."
     - "Landing site live with 90%-UI problem framing + quick demo + install CTA."
     - "GitHub Discussions enabled; roadmap umbrella pinned."
@@ -79,17 +79,17 @@ batches:
     depends_on_batch: "6A"
     issues:
       - slug: dogfood-demo-site-lint
-        title: "test(dogfood): plumb.dev demo fixture + clean lint"
+        title: "test(dogfood): plumb.aramhammoudeh.com demo fixture + clean lint"
         labels: ["phase-6", "area:docs", "kind:test"]
         crate: docs
         effort: L
         summary: |
-          Build or reuse a minimal plumb.dev demo fixture, then iterate:
+          Build or reuse a minimal plumb.aramhammoudeh.com demo fixture, then iterate:
           run `plumb lint`, fix findings (either the fixture or, if
           warranted, a rule tolerance), commit, repeat until clean with
           zero false positives.
         acceptance_criteria:
-          - "`plumb lint https://plumb.dev` → 0 violations."
+          - "`plumb lint https://plumb.aramhammoudeh.com` → 0 violations."
           - "Every false-positive fixed in the appropriate layer (rule vs fixture)."
           - "Dogfood CI job runs `plumb lint` on the deployed site daily."
         reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner"]
@@ -129,7 +129,7 @@ batches:
     depends_on_batch: "6B"
     issues:
       - slug: docs-landing-site
-        title: "docs: plumb.dev landing site (90%-UI problem + demo + CTA)"
+        title: "docs: plumb.aramhammoudeh.com landing site (90%-UI problem + demo + CTA)"
         labels: ["phase-6", "area:docs", "kind:docs"]
         crate: docs
         effort: L
@@ -139,7 +139,7 @@ batches:
           positioning per PRD §4.1, a 30-second demo animation, and
           install CTAs for all 4 channels.
         acceptance_criteria:
-          - "Landing page deployed at plumb.dev/ root."
+          - "Landing page deployed at plumb.aramhammoudeh.com/ root."
           - "Demo animation ≤ 2 MB total."
           - "Install CTAs work — each has been verified clicking through."
           - "Humanizer run; anti-AI-writing pass strict."
@@ -161,7 +161,7 @@ batches:
 
 phase_gate:
   criterion: |
-    plumb.dev live AND `plumb lint https://plumb.dev` emits 0 violations
+    plumb.aramhammoudeh.com live AND `plumb lint https://plumb.aramhammoudeh.com` emits 0 violations
     AND benchmarks published AND landing page live AND
     `cargo xtask pre-release` green.
   unblocks: "phase-7"
