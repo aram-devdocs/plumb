@@ -228,18 +228,56 @@ def _display_spec_path(spec_path: Path) -> str:
         return str(spec_path.resolve())
 
 
+def _batch_short(description: str) -> str:
+    """Return the short headline from a batch description (before the em-dash)."""
+    if "—" in description:
+        return description.split("—", 1)[0].strip()
+    return description
+
+
 def render_batches_section(spec: Spec) -> str:
-    lines = []
+    """Render the GoudEngine-style parent body batches section:
+
+    1. A summary table (Batch | Issues | Focus | Parallel).
+    2. One sub-section per batch with:
+       - `{{CHILD_ISSUE_LINES_<ID>}}` placeholder filled in by create-issues.sh.
+       - Two fenced `/gh-issue N M O --worktree` + `$gh-issue …` dispatch blocks
+         rendered with `{{GH_ISSUE_CMD_<ID>}}` placeholders.
+    """
+    # Summary table.
+    lines = [
+        "| Batch | Issues | Focus | Parallel |",
+        "|-------|--------|-------|----------|",
+    ]
     for batch in spec.batches:
-        lines.append(f"### Batch `{batch.id}` — {batch.description}")
-        lines.append("")
-        lines.append(f"- **Parallel:** {'yes' if batch.parallel else 'no'}")
+        short = _batch_short(batch.description)
+        deps = ""
         if batch.depends_on_batch:
-            deps = ", ".join(f"`{b}`" for b in batch.depends_on_batch)
-            lines.append(f"- **Depends on:** {deps}")
+            deps = f" (after {', '.join(batch.depends_on_batch)})"
+        parallel = "yes" if batch.parallel else "no"
+        # The create-issues.sh fills `{{BATCH_NUMBERS_<ID>}}` with `#N #M #O`.
+        lines.append(
+            f"| `{batch.id}`{deps} | {{{{BATCH_NUMBERS_{batch.id}}}}} | {short} | {parallel} |"
+        )
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+
+    # Per-batch sections.
+    for batch in spec.batches:
+        deps_suffix = ""
+        if batch.depends_on_batch:
+            deps_suffix = "  _after " + ", ".join(f"`{b}`" for b in batch.depends_on_batch) + "_"
+        lines.append(f"### Batch `{batch.id}` — {batch.description}{deps_suffix}")
         lines.append("")
-        lines.append("Child issues:")
         lines.append(f"{{{{CHILD_ISSUE_LINES_{batch.id}}}}}")
+        lines.append("")
+        lines.append("```")
+        lines.append(f"/gh-issue {{{{GH_ISSUE_ARGS_{batch.id}}}}} --worktree")
+        lines.append("```")
+        lines.append("```")
+        lines.append(f"$gh-issue {{{{GH_ISSUE_ARGS_{batch.id}}}}} --worktree")
+        lines.append("```")
         lines.append("")
     return "\n".join(lines).rstrip()
 
@@ -500,15 +538,38 @@ def render_create_issues_script(
 
     for batch in spec.batches:
         batch_children = [c for c in children if c["batch"] == batch.id]
-        lines.append(f'  LINES_{batch.id}=""')
+        bid = batch.id
+        # CHILD_ISSUE_LINES_<ID> — checklist of "- [ ] title (#N)".
+        # Titles with backticks break bash literal strings (command
+        # substitution) — escape them via `printf '%q'`-equivalent.
+        lines.append(f'  LINES_{bid}=""')
         for c in batch_children:
             var = f"CHILD_{c['slug'].upper().replace('-', '_')}"
-            title = c["title"].replace('"', '\\"')
+            # Quote the title as a bash single-quoted literal to neutralize
+            # backticks, dollar signs, and double-quotes. shlex.quote
+            # handles single-quote escapes via the '\''…'\'' idiom.
+            quoted_title = shlex.quote(c["title"])
             lines.append(
-                f'  LINES_{batch.id}+="- [ ] {title} (#${var})"$\'\\n\''
+                f'  LINES_{bid}+="- [ ] "{quoted_title}" (#${var})"$\'\\n\''
             )
         lines.append(
-            f'  PARENT_BODY="${{PARENT_BODY//\\{{\\{{CHILD_ISSUE_LINES_{batch.id}\\}}\\}}/$LINES_{batch.id}}}"'
+            f'  PARENT_BODY="${{PARENT_BODY//\\{{\\{{CHILD_ISSUE_LINES_{bid}\\}}\\}}/$LINES_{bid}}}"'
+        )
+        # BATCH_NUMBERS_<ID> — "#11 #12 #13" for the summary table.
+        lines.append(f'  NUMS_{bid}=""')
+        for c in batch_children:
+            var = f"CHILD_{c['slug'].upper().replace('-', '_')}"
+            lines.append(f'  NUMS_{bid}+="#${var} "')
+        lines.append(
+            f'  PARENT_BODY="${{PARENT_BODY//\\{{\\{{BATCH_NUMBERS_{bid}\\}}\\}}/${{NUMS_{bid}% }}}}"'
+        )
+        # GH_ISSUE_ARGS_<ID> — "11 12 13" for `/gh-issue …` dispatch commands.
+        lines.append(f'  ARGS_{bid}=""')
+        for c in batch_children:
+            var = f"CHILD_{c['slug'].upper().replace('-', '_')}"
+            lines.append(f'  ARGS_{bid}+="${var} "')
+        lines.append(
+            f'  PARENT_BODY="${{PARENT_BODY//\\{{\\{{GH_ISSUE_ARGS_{bid}\\}}\\}}/${{ARGS_{bid}% }}}}"'
         )
 
     lines += [
