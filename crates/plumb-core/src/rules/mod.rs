@@ -53,6 +53,7 @@ pub fn register_builtin() -> Vec<Box<dyn Rule>> {
         vec![
             Box::new(placeholder::HelloWorld),
             Box::new(spacing::grid_conformance::GridConformance),
+            Box::new(spacing::scale_conformance::ScaleConformance),
         ]
     }
 }

@@ -74,8 +74,7 @@ pub(crate) fn nearest_multiple(value: f64, base: u32) -> i64 {
 /// `value.abs()` is the comparison axis — negative inputs are treated
 /// like their positive counterparts, since spacing scales are
 /// non-negative by convention.
-// Used by sibling rules in subsequent commits.
-#[allow(dead_code, clippy::float_cmp)]
+#[allow(clippy::float_cmp)]
 #[must_use]
 pub(crate) fn nearest_in_scale(value: f64, scale: &[u32]) -> Option<u32> {
     if scale.is_empty() {

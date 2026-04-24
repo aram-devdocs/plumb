@@ -1,13 +1,16 @@
 //! Spacing rules.
 //!
-//! Currently exposes:
+//! Two checks live here:
 //!
 //! - [`grid_conformance`] — values must be multiples of `spacing.base_unit`.
+//! - [`scale_conformance`] — values must be members of the discrete
+//!   `spacing.scale` set.
 //!
-//! Every rule in this category iterates the same physical-longhand
-//! spacing properties and skips values that do not parse as `<n>px`.
+//! Both rules iterate the same set of physical-longhand spacing
+//! properties and skip values that do not parse as `<n>px`.
 
 pub mod grid_conformance;
+pub mod scale_conformance;
 
 /// Physical-longhand spacing properties the rules in this category
 /// inspect.
