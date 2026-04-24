@@ -7,6 +7,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/_lib.sh"
 
 input="$(hook_read_input)"
+hook_init "$input"
 mkdir -p "$HOOK_STATE_DIR"
 log="$HOOK_STATE_DIR/sessions.log"
 

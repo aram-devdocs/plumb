@@ -8,6 +8,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/_lib.sh"
 
+input="$(hook_read_input)"
+hook_init "$input"
+
 HOOK="plan-completion-guard"
 override="$HOOK_STATE_DIR/${HOOK_SESSION_ID}.plan-guard-override"
 
