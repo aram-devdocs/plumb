@@ -20,6 +20,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+REPO = 'aram-devdocs/plumb'
 RUNS_DIR = Path('.agents/runs/gh-issue')
 
 VALID_PHASES = [
@@ -35,7 +36,7 @@ VALID_PHASES = [
     'done',
 ]
 
-REVIEW_GATES = ['spec', 'quality', 'architecture', 'security']
+REVIEW_GATES = ['spec', 'quality', 'architecture', 'test', 'security']
 VALID_VERDICTS = ['pass', 'fail', 'not_required']
 
 BRANCH_PATTERN = 'codex/<primary>-<type>-<slug>'
@@ -95,6 +96,7 @@ def cmd_init_run(primary: int, slug: str, issues: list[int], worktree: bool) -> 
             'spec': None,
             'quality': None,
             'architecture': None,
+            'test': None,
             'security': 'not_required',
         },
         'worktree': worktree,
@@ -170,10 +172,13 @@ def cmd_validate_resume(primary: int, slug: str) -> None:
         errors.append(f'Branch "{branch}" does not match pattern {BRANCH_PATTERN}')
 
     reviews = state.get('reviews', {})
-    spec = reviews.get('spec')
-    quality = reviews.get('quality')
-    if quality == 'pass' and spec != 'pass':
-        errors.append('code-quality-reviewer passed but spec-reviewer did not - invalid order')
+    # Review-gate ordering invariant: spec → quality → architecture → test.
+    if reviews.get('quality') == 'pass' and reviews.get('spec') != 'pass':
+        errors.append('code-quality-reviewer passed but spec-reviewer did not — invalid order')
+    if reviews.get('architecture') == 'pass' and reviews.get('quality') != 'pass':
+        errors.append('architecture-validator passed but code-quality-reviewer did not — invalid order')
+    if reviews.get('test') == 'pass' and reviews.get('architecture') != 'pass':
+        errors.append('test-runner passed but architecture-validator did not — invalid order')
 
     plan_file = run_dir(primary, slug) / 'plan.md'
     if not plan_file.exists() and state.get('phase') not in ('investigating',):
@@ -201,7 +206,7 @@ def cmd_poll_pr(primary: int, slug: str) -> None:
     print(f'Polling CI for PR #{pr}...')
     try:
         result = subprocess.run(
-            ['gh', 'pr', 'checks', str(pr), '--repo', 'aram-devdocs/omnifol'],
+            ['gh', 'pr', 'checks', str(pr), '--repo', REPO],
             capture_output=True,
             text=True,
             timeout=30,
@@ -226,7 +231,9 @@ def cmd_cleanup_worktree(primary: int, slug: str) -> None:
     if not branch:
         print('ERROR: No branch in state', file=sys.stderr)
         sys.exit(1)
-    worktree_path = Path('..') / f'omnifol-{branch}'
+    # Worktrees live next to the repo: `../plumb-<branch-slugified>`.
+    wt_name = 'plumb-' + branch.replace('/', '-')
+    worktree_path = Path('..') / wt_name
     if worktree_path.exists():
         print(f'Removing worktree at {worktree_path}')
         subprocess.run(['git', 'worktree', 'remove', str(worktree_path), '--force'], check=False)

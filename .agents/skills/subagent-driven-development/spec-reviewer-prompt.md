@@ -1,118 +1,129 @@
-# Spec Compliance Reviewer Prompt Template
+# Spec-reviewer dispatch template
 
-Use this template when dispatching a spec compliance reviewer subagent.
+Use this template when dispatching `02-spec-reviewer` against a completed task or batch.
 
-**Purpose:** Verify implementer built what was requested (nothing more, nothing less)
+**Purpose:** verify the implementer built what was requested (nothing more, nothing less).
 
 ```
-Task tool (general-purpose):
+Task tool:
+  subagent_type: 02-spec-reviewer
   description: "Review spec compliance for Task N"
   prompt: |
-    You are reviewing whether an implementation matches its specification.
+    You are reviewing whether an implementation matches its specification
+    in the Plumb Rust workspace.
 
-    ## What Was Requested
+    ## What was requested
 
-    [FULL TEXT of task requirements]
+    [FULL TEXT of task requirements from the plan]
 
-    ## What Implementer Claims They Built
+    ## What implementer claims they built
 
-    [From implementer's report]
+    [FROM implementer's report]
 
-    ## CRITICAL: Do Not Trust the Report
+    ## Commits to inspect
 
-    The implementer finished suspiciously quickly. Their report may be incomplete,
-    inaccurate, or optimistic. You MUST verify everything independently.
+    [List of commit SHAs, with `git show <sha>` the authority, not the report]
 
-    **DO NOT:**
-    - Take their word for what they implemented
-    - Trust their claims about completeness
-    - Accept their interpretation of requirements
+    ## Critical: do not trust the report
 
-    **DO:**
-    - Read the actual code they wrote
-    - Compare actual implementation to requirements line by line
-    - Check for missing pieces they claimed to implement
-    - Look for extra features they didn't mention
+    The implementer's report may be incomplete, inaccurate, or optimistic.
+    Verify everything independently.
 
-    ## Your Job
+    DO NOT:
+    - Take their word for what they implemented.
+    - Accept their interpretation of requirements.
 
-    Read the implementation code and verify:
+    DO:
+    - Read the actual code they wrote (`git show`, `git diff`).
+    - Compare implementation to requirements line by line.
+    - Check for missing pieces they claimed to implement.
+    - Look for scope creep — extras they didn't mention.
+
+    ## Your job
+
+    Verify by reading code:
 
     **Missing requirements:**
-    - Did they implement everything that was requested?
-    - Are there requirements they skipped or missed?
-    - Did they claim something works but didn't actually implement it?
+    - Did they implement everything specified?
+    - Are any acceptance criteria unmet?
+    - Do the tests actually cover the specified behavior?
 
-    **Extra/unneeded work:**
-    - Did they build things that weren't requested?
-    - Did they over-engineer or add unnecessary features?
-    - Did they add "nice to haves" that weren't in spec?
+    **Scope creep:**
+    - Did they build things not requested?
+    - Did they add "nice to haves"?
 
     **Misunderstandings:**
-    - Did they interpret requirements differently than intended?
+    - Did they interpret the requirement differently than intended?
     - Did they solve the wrong problem?
-    - Did they implement the right feature but wrong way?
 
-    **Verify by reading code, not by trusting report.**
+    ## Output format
 
-    Report:
-    - ✅ Spec compliant (if everything matches after code inspection)
-    - ❌ Issues found: [list specifically what's missing or extra, with file:line references]
+    End with exactly one line:
+
+        Verdict: APPROVE
+        Verdict: REQUEST_CHANGES
+        Verdict: BLOCK
+
+    Above the verdict, give a punch list with `file:line` references. Do
+    not rubber-stamp — if nothing is wrong, say what you checked.
+
+    `APPROVE` = spec fully met, no scope creep.
+    `REQUEST_CHANGES` = specific gaps with a clear fix path.
+    `BLOCK` = fundamental misread of the spec; redo.
 ```
 
-## Batch Review Variant
+## Batch review variant
 
-Use this template when reviewing a parallel batch (multiple tasks completed in one batch).
+For a parallel batch of N tasks, adapt the prompt:
 
 ```
-Task tool (general-purpose):
+Task tool:
+  subagent_type: 02-spec-reviewer
   description: "Review spec compliance for Batch N"
   prompt: |
     You are reviewing spec compliance for a parallel batch of implementations.
 
-    ## Tasks in This Batch
+    ## Tasks in this batch
 
     ### Task A: [name]
-    **Specification:** [FULL TEXT of task requirements]
-    **Implementer Report:** [from implementer's report]
-    **Commit SHA:** [SHA]
-    **Files Modified:** [file manifest]
+    **Spec:** [FULL TEXT]
+    **Implementer report:** [...]
+    **Commit SHA:** [...]
+    **Files modified:** [manifest]
 
     ### Task B: [name]
-    **Specification:** [FULL TEXT of task requirements]
-    **Implementer Report:** [from implementer's report]
-    **Commit SHA:** [SHA]
-    **Files Modified:** [file manifest]
+    **Spec:** [FULL TEXT]
+    ...
 
-    [Repeat for each task in the batch]
+    ## Your job
 
-    ## CRITICAL: Do Not Trust the Reports
+    ### Per-task review
 
-    Verify everything independently by reading the actual code.
-
-    ## Your Job
-
-    ### Per-Task Review
     For each task, verify:
-    - Everything specified was implemented
-    - Nothing extra was added beyond the spec
-    - No misunderstandings of requirements
+    - Everything specified was implemented.
+    - Nothing extra was added.
+    - No misunderstandings.
 
-    ### Cross-Task Review
-    Check for issues across the batch:
-    - Conflicting patterns between tasks (e.g., different naming conventions)
-    - Missing integration points (task A produces something task B should consume)
-    - Duplicate code or logic across tasks
+    ### Cross-task review
 
-    Report:
-    ### Per-Task Results
-    - Task A: [pass/fail with file:line references]
-    - Task B: [pass/fail with file:line references]
+    - Conflicting patterns between tasks (e.g., different error-type conventions).
+    - Missing integration points (task A's output should feed task B but doesn't).
+    - Duplicate logic across tasks.
 
-    ### Cross-Task Issues
+    ## Output format
+
+    End with exactly one line for the batch:
+
+        Verdict: APPROVE
+        Verdict: REQUEST_CHANGES
+        Verdict: BLOCK
+
+    Above the verdict:
+
+    #### Per-task results
+    - Task A: [pass/fail with file:line]
+    - Task B: [pass/fail with file:line]
+
+    #### Cross-task issues
     - [any integration or consistency issues]
-
-    ### Batch Verdict
-    - BATCH COMPLIANT: All tasks pass, no cross-task issues
-    - ISSUES FOUND: [list per-task and cross-task issues]
 ```

@@ -1,92 +1,102 @@
-# Implementer Subagent Prompt Template
+# Implementer dispatch template
 
-Use this template when dispatching an implementer subagent.
+Use this template when dispatching `01-implementer` (or the specialized variants `08-rule-author`, `09-mcp-tool-author`, `10-quick-fix`) against a single task in a plan.
 
 ```
-Task tool (general-purpose):
+Task tool:
+  subagent_type: 01-implementer   # or 08-rule-author, 09-mcp-tool-author, 10-quick-fix
   description: "Implement Task N: [task name]"
   prompt: |
-    You are implementing Task N: [task name]
+    You are implementing Task N: [task name] in the Plumb Rust workspace (`aram-devdocs/plumb`).
 
-    ## Task Description
+    ## Task description
 
-    [FULL TEXT of task from plan - paste it here, don't make subagent read file]
+    [FULL TEXT of task from plan — paste it here; do not make the subagent read the plan file]
 
     ## Context
 
-    [Scene-setting: where this fits, dependencies, architectural context]
+    [Scene-setting: where this fits in the PRD phase, which crate owns it,
+    which public API it touches, which invariants apply.]
 
-    ## Batch Context (parallel dispatch only)
+    ## Target crate(s)
+
+    - Primary: [crates/plumb-<name>]
+    - Dependent crates (if any): [e.g., plumb-cli consuming a new plumb-core API]
+
+    Read the scoped `AGENTS.md` in each target crate before touching code.
+
+    ## Batch context (parallel dispatch only)
 
     - Batch ID: [batch-N]
     - Position: [M of T]
-    - File Scope: [list of files you are authorized to modify]
-    - Peer Agents: [other agents and their scopes]
+    - File scope: [list of files this agent is authorized to modify]
+    - Peer agents: [peer batch agents and their scopes]
 
-    **Scope Rule:** You MUST only modify files listed in File Scope. If you need a file
-    outside scope, STOP and report it as a blocker. Do not modify it.
+    **Scope rule:** modify only files in File scope. If a file outside scope
+    needs changing, STOP and report it as a blocker. Do not modify it.
 
-    ## Before You Begin
+    ## Before you begin
 
-    If you have questions about:
-    - The requirements or acceptance criteria
-    - The approach or implementation strategy
-    - Dependencies or assumptions
-    - Anything unclear in the task description
+    If anything is unclear (requirements, acceptance criteria, approach,
+    test strategy), ask now. Raise concerns before starting.
 
-    **Ask them now.** Raise any concerns before starting work.
+    ## Your job
 
-    ## Your Job
+    1. Write the failing test first (TDD):
+       - Rule → `crates/plumb-core/tests/golden_<slug>.rs` with an `insta::assert_snapshot!`.
+       - MCP tool → case in `crates/plumb-cli/tests/mcp_stdio.rs`.
+       - CLI behavior → integration test in `crates/plumb-cli/tests/cli_integration.rs`.
+       - Pure fn → unit test in a `#[cfg(test)] mod tests` block.
+    2. Implement the minimum code to pass the test.
+    3. Refactor with the green test as the safety net.
+    4. Run the narrow gate:
+       ```bash
+       cargo fmt --all -- --check
+       cargo clippy -p <crate> --all-targets --all-features -- -D warnings
+       cargo nextest run -p <crate>
+       ```
+    5. Accept intentional snapshot changes: `cargo insta review`.
+    6. Commit atomically with a Conventional Commits message:
+       `<type>(<scope>): <imperative description>`.
 
-    Once you're clear on requirements:
-    1. Implement exactly what the task specifies
-    2. Write tests (following TDD if task says to)
-    3. Verify implementation works
-    4. Commit your work
-    5. Self-review (see below)
-    6. Report back
+    Work from the repo root: `/Users/aramhammoudeh/dev/plumb`.
 
-    Work from: [directory]
+    ## Plumb non-negotiables
 
-    **While you work:** If you encounter something unexpected or unclear, **ask questions**.
-    It's always OK to pause and clarify. Don't guess or make assumptions.
+    - No `unwrap`/`expect`/`panic!` in library crates — return `Result`
+      with a `thiserror`-derived enum.
+    - `anyhow::Error` is permitted only in `plumb-cli::main`.
+    - No `println!`/`eprintln!` outside `plumb-cli`; use `tracing` macros.
+    - No `SystemTime::now`/`Instant::now` in `plumb-core`.
+    - No `HashMap`/`HashSet` in observable output paths — use `IndexMap`/`IndexSet`.
+    - No `unsafe` outside `plumb-cdp`; every `unsafe` block there carries a
+      `// SAFETY:` comment.
+    - No `todo!`/`unimplemented!`/`dbg!` anywhere.
+    - Every `#[allow(...)]` is local (item- or expression-level) with a
+      one-line rationale comment directly above.
 
-    ## Before Reporting Back: Self-Review
+    ## While you work
 
-    Review your work with fresh eyes. Ask yourself:
+    If anything unexpected surfaces, ask. Don't guess.
 
-    **Completeness:**
-    - Did I fully implement everything in the spec?
-    - Did I miss any requirements?
-    - Are there edge cases I didn't handle?
+    ## Before reporting back — self-review
 
-    **Quality:**
-    - Is this my best work?
-    - Are names clear and accurate (match what things do, not how they work)?
-    - Is the code clean and maintainable?
+    - Did I implement exactly what the task asks for, nothing more?
+    - Does the test actually verify behavior (not just mock it)?
+    - Are all public items documented? Fallible public fns have `# Errors`?
+    - Does `cargo clippy -p <crate> -- -D warnings` pass clean?
+    - If I touched `docs/src/**`, did I run the humanizer skill?
 
-    **Discipline:**
-    - Did I avoid overbuilding (YAGNI)?
-    - Did I only build what was requested?
-    - Did I follow existing patterns in the codebase?
+    Fix anything you find before reporting.
 
-    **Testing:**
-    - Do tests actually verify behavior (not just mock behavior)?
-    - Did I follow TDD if required?
-    - Are tests comprehensive?
-
-    If you find issues during self-review, fix them now before reporting.
-
-    ## Report Format
+    ## Report format
 
     When done, report:
-    - What you implemented
-    - What you tested and test results
-    - Files changed
-    - Self-review findings (if any)
-    - Any issues or concerns
+    - What you implemented.
+    - What you tested and the test results.
     - File manifest:
-      - [path]: [created | modified | deleted]
-    - Commit SHA: [from git log --oneline -1]
-    - Batch ID: [batch-N or "none"]
+      - `<path>`: created | modified | deleted
+    - Commit SHA: `git log --oneline -1`.
+    - Batch ID: [batch-N or "none"].
+    - Any issues or open questions.
 ```

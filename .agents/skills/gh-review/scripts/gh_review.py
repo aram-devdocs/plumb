@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-Local PR review helper for the Omnifol repository.
+Local PR review helper for the Plumb repository.
 
-Generates a structured markdown review body that mirrors the GitHub review workflow.
+Generates a structured markdown review body that mirrors the GitHub
+review workflow's rules.
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ from pathlib import Path
 SKILL_ROOT = Path(__file__).resolve().parents[1]
 WORKSPACE_ROOT = SKILL_ROOT.parents[2]
 REVIEW_TEMPLATE = SKILL_ROOT / "assets" / "review-template.md"
-DEFAULT_REPO = "aram-devdocs/omnifol"
+DEFAULT_REPO = "aram-devdocs/plumb"
 
 
 @dataclass
@@ -79,113 +80,224 @@ def added_lines_from_diff(diff_text: str) -> list[tuple[str, str, str]]:
 
 
 def classify_files(files: list[str]) -> dict[str, bool]:
-    lowered = [file.lower() for file in files]
+    """Classify changed files by Plumb crate / area."""
     return {
-        "schema": any("schema.prisma" in file for file in lowered),
-        "ui": any(file.endswith(".tsx") or "packages/web/ui/" in file or "apps/web/" in file for file in lowered),
-        "api": any("apps/server/src/trpc/" in file for file in lowered),
-        "config": any(".env" in file or "config" in file or ".github/workflows/" in file for file in lowered),
-        "migration": any("/migrations/" in file or "prisma/migrations/" in file for file in lowered),
-        "strategy": any(
-            "packages/shared/omniscript/" in file or "packages/backend/strategy-engine/" in file
-            for file in lowered
-        ),
-        "trading": any(
-            token in file
-            for file in lowered
-            for token in ("trading", "orders", "positions", "balances", "exchange")
-        ),
+        "core": any(f.startswith("crates/plumb-core/") for f in files),
+        "format": any(f.startswith("crates/plumb-format/") for f in files),
+        "cdp": any(f.startswith("crates/plumb-cdp/") for f in files),
+        "config": any(f.startswith("crates/plumb-config/") for f in files),
+        "mcp": any(f.startswith("crates/plumb-mcp/") for f in files),
+        "cli": any(f.startswith("crates/plumb-cli/") for f in files),
+        "xtask": any(f.startswith("xtask/") for f in files),
+        "docs": any(f.startswith("docs/") for f in files),
+        "ci": any(f.startswith(".github/") or f == "lefthook.yml" or f == "justfile" for f in files),
+        "deps": any(f.endswith("Cargo.toml") or f == "Cargo.lock" or f == "deny.toml" for f in files),
+        "rules": any(f.startswith("crates/plumb-core/src/rules/") for f in files),
+        "mcp_tools": any("crates/plumb-mcp/src/lib.rs" == f for f in files),
+        "schema": any(f == "schemas/plumb.toml.json" or f.startswith("schemas/") for f in files),
     }
 
 
-def detect_findings(diff_text: str, files: list[str], categories: dict[str, bool]) -> tuple[list[Finding], list[Finding], list[tuple[str, str, str]]]:
+def detect_findings(
+    diff_text: str,
+    files: list[str],
+    categories: dict[str, bool],
+) -> tuple[list[Finding], list[Finding], list[tuple[str, str, str]]]:
     blockers: list[Finding] = []
     warnings: list[Finding] = []
     anti_patterns: list[tuple[str, str, str]] = []
     added_lines = added_lines_from_diff(diff_text)
 
-    blocker_patterns = [
+    # Blocker regex patterns against ADDED LINES in .rs files.
+    #
+    # Each entry: (regex, severity, issue-label, suggestion, predicate_on_file)
+    blocker_patterns: list[tuple[str, str, str, str, callable]] = [
         (
-            r"(?:\bas any\b|:\s*any(?:[\s,)\]>;]|$)|<any>|any\[\]|Promise<any>|Record<[^>]+,\s*any>)",
-            "P1",
-            "`any` type usage",
-            "Replace with a precise type or generic.",
-        ),
-        (
-            r"^\s*(?://|/\*+|\*)\s*@ts-ignore|^\s*(?://|/\*+|\*)\s*@ts-expect-error",
+            r"^\s*unsafe\s*(\{|fn\b)",
             "P0",
-            "Type-check suppression directive",
-            "Remove the directive and fix the underlying type issue.",
+            "New `unsafe` block",
+            "Only `plumb-cdp` may use `unsafe`; each block must carry a `// SAFETY:` comment.",
+            lambda f: not f.startswith("crates/plumb-cdp/"),
         ),
-        (r"\bconsole\.log\(", "P0", "`console.log` in committed code", "Use `@omnifol/logger` instead."),
-        (r"<(?:div|span)[^>]*onClick=", "P1", "Non-semantic clickable element", "Use semantic interactive HTML with keyboard support."),
+        (
+            r"\.unwrap\(\)|\.expect\(",
+            "P0",
+            "`unwrap` / `expect` in library crate",
+            "Return `Result<_, E>` with a `thiserror`-derived variant. `anyhow` and `expect` are only permitted in `plumb-cli::main` / tests.",
+            lambda f: f.startswith("crates/plumb-")
+            and not f.startswith("crates/plumb-cli/")
+            and "/tests/" not in f,
+        ),
+        (
+            r"\bprintln!\(|\beprintln!\(",
+            "P0",
+            "`println!`/`eprintln!` outside plumb-cli",
+            "Only `plumb-cli` may print to stdout/stderr. Use `tracing` macros elsewhere.",
+            lambda f: f.startswith("crates/plumb-")
+            and not f.startswith("crates/plumb-cli/")
+            and "/tests/" not in f,
+        ),
+        (
+            r"\btodo!\(|\bunimplemented!\(|\bdbg!\(",
+            "P0",
+            "`todo!`/`unimplemented!`/`dbg!` macro",
+            "Remove before merge. Open a tracking issue and return a typed error instead.",
+            lambda f: f.endswith(".rs"),
+        ),
+        (
+            r"SystemTime::now|Instant::now",
+            "P0",
+            "Wall-clock call in plumb-core",
+            "Forbidden by `clippy::disallowed-methods`. Replace with a content-hashed derivation or move the call to `plumb-cli`.",
+            lambda f: f.startswith("crates/plumb-core/"),
+        ),
+        (
+            r"\bHashMap<|\bHashSet<",
+            "P1",
+            "`HashMap`/`HashSet` may leak nondeterminism",
+            "Use `IndexMap`/`IndexSet` when iteration order is observable.",
+            lambda f: f.startswith("crates/plumb-core/"),
+        ),
+        (
+            r"panic!\(",
+            "P0",
+            "`panic!` in library crate",
+            "Return a typed error instead; `panic!` is denied workspace-wide.",
+            lambda f: f.startswith("crates/plumb-")
+            and not f.startswith("crates/plumb-cli/")
+            and "/tests/" not in f,
+        ),
     ]
 
-    warning_patterns = [
+    warning_patterns: list[tuple[str, str, str, str, callable]] = [
         (
             r"^\s*(?://|/\*+|\*)\s*TODO\b(?!.*#\d+)",
             "P2",
             "TODO without issue reference",
-            "Reference a tracking issue or remove the TODO.",
+            "Reference a tracking issue (`TODO(#42): …`) or remove the TODO.",
+            lambda f: f.endswith(".rs"),
         ),
-        (r"\b(?:delve|tapestry|landscape|leverage|robust)\b", "P3", "AI-flavored wording", "Rewrite in plain technical language."),
-        (r"\bIn conclusion\b|\bIt's important to note\b", "P3", "Stilted documentation phrasing", "Shorten and rewrite in direct language."),
+        (
+            r"#\[allow\(.+\)\]",
+            "P2",
+            "Local `#[allow(...)]` without rationale comment",
+            "Every suppression needs a one-line comment explaining why it's safe.",
+            lambda f: f.endswith(".rs"),
+        ),
+        (
+            r"\b(?:delve|tapestry|landscape|leverage|robust|seamless|comprehensive)\b",
+            "P3",
+            "AI-flavored wording in docs",
+            "Rewrite in plain technical language — run the humanizer skill.",
+            lambda f: f.endswith((".md", ".mdx", ".txt")) and f.startswith("docs/"),
+        ),
+        (
+            r"\bIn conclusion\b|\bIt's important to note\b|\bDive in\b",
+            "P3",
+            "Stilted documentation phrasing",
+            "Shorten; run the humanizer skill.",
+            lambda f: f.endswith((".md", ".mdx", ".txt")),
+        ),
     ]
 
     for file, line, content in added_lines:
-        is_code = file.endswith((".ts", ".tsx", ".js", ".jsx"))
-        is_docs = file.endswith((".md", ".mdx", ".txt"))
-        for pattern, severity, issue, suggestion in blocker_patterns:
-            if not is_code and issue != "Non-semantic clickable element":
+        for pattern, severity, issue, suggestion, predicate in blocker_patterns:
+            if not predicate(file):
                 continue
             if re.search(pattern, content):
                 blockers.append(Finding(severity, file or "-", line, issue, suggestion))
-        for pattern, severity, issue, suggestion in warning_patterns:
-            if issue == "TODO without issue reference" and not is_code:
+        for pattern, severity, issue, suggestion, predicate in warning_patterns:
+            if not predicate(file):
                 continue
-            if issue in {"AI-flavored wording", "Stilted documentation phrasing"} and not is_docs:
-                continue
-            if re.search(pattern, content, flags=re.IGNORECASE):
+            flags = re.IGNORECASE if "AI-flavored" in issue or "Stilted" in issue else 0
+            if re.search(pattern, content, flags=flags):
                 warnings.append(Finding(severity, file or "-", line, issue, suggestion))
 
-    if categories["schema"] and not categories["migration"]:
-        blockers.append(
+    # Rule / MCP tool / schema contract checks.
+    if categories["rules"]:
+        # New rule? Expect a docs page and golden test in the same diff.
+        rule_files = [f for f in files if f.startswith("crates/plumb-core/src/rules/") and f.endswith(".rs")]
+        new_rule_files = [f for f in rule_files if "placeholder" not in f and "mod.rs" not in f]
+        for rf in new_rule_files:
+            slug = Path(rf).stem
+            doc_expected = f"docs/src/rules/"
+            if not any(f.startswith(doc_expected) and slug.replace("_", "-") in f for f in files):
+                blockers.append(
+                    Finding(
+                        "P0",
+                        rf,
+                        "-",
+                        "Rule added without docs/src/rules/<slug>.md",
+                        "Every new rule needs a docs page — `cargo xtask sync-rules-index` enforces this pre-release.",
+                    )
+                )
+            if not any("tests/golden_" in f and slug.replace("_", "-") in f for f in files):
+                warnings.append(
+                    Finding(
+                        "P1",
+                        rf,
+                        "-",
+                        "Rule added without a golden test",
+                        "Add `crates/plumb-core/tests/golden_<slug>.rs` with an insta snapshot.",
+                    )
+                )
+
+    if categories["mcp_tools"] and not any("crates/plumb-cli/tests/mcp_stdio.rs" in f for f in files):
+        warnings.append(
             Finding(
-                "P0",
-                "schema.prisma",
+                "P1",
+                "crates/plumb-mcp/src/lib.rs",
                 "-",
-                "Schema change without migration files",
-                "Add and commit the matching migration.",
+                "MCP tool change without protocol test update",
+                "Add a case to `crates/plumb-cli/tests/mcp_stdio.rs` that exercises the new tool.",
             )
         )
 
-    if any(file.startswith("apps/server/src/trpc/") for file in files):
-        anti_patterns.append(("Business logic in tRPC procedures", "Manual check", "Review changed procedures for service delegation."))
-    else:
-        anti_patterns.append(("Business logic in tRPC procedures", "N/A", "No tRPC files changed."))
+    if categories["schema"] and not any(f == "schemas/plumb.toml.json" for f in files):
+        # Config changed but schema blob not regenerated.
+        if any(f.startswith("crates/plumb-config/") for f in files):
+            blockers.append(
+                Finding(
+                    "P0",
+                    "crates/plumb-config/",
+                    "-",
+                    "Config shape changed without schema regeneration",
+                    "Run `cargo xtask schema` and commit `schemas/plumb.toml.json`.",
+                )
+            )
 
+    # Anti-pattern summary for the review table.
     anti_patterns.extend(
         [
-            ("`any` type usage", "Fail" if any(f.issue == "`any` type usage" for f in blockers) else "Pass", "Diff scan on added lines."),
             (
-                "`console.log`",
-                "Fail" if any(f.issue == "`console.log` in committed code" for f in blockers) else "Pass",
-                "Diff scan on added lines.",
+                "New `unsafe` outside plumb-cdp",
+                "Fail" if any(f.issue == "New `unsafe` block" for f in blockers) else "Pass",
+                "Scan of added lines against crate layer.",
             ),
             (
-                "Type-check suppressions",
-                "Fail" if any(f.issue == "Type-check suppression directive" for f in blockers) else "Pass",
-                "Diff scan on added lines.",
+                "`unwrap`/`expect` in library crates",
+                "Fail" if any("unwrap" in f.issue for f in blockers) else "Pass",
+                "Scan of added lines.",
             ),
             (
-                "Non-semantic click targets",
-                "Fail" if any(f.issue == "Non-semantic clickable element" for f in blockers) else "Pass",
-                "Diff scan on added lines.",
+                "`println!`/`eprintln!` outside plumb-cli",
+                "Fail" if any("println" in f.issue for f in blockers) else "Pass",
+                "Scan of added lines.",
             ),
             (
-                "AI-written or stilted docs",
-                "Warn" if any(f.issue in {"AI-flavored wording", "Stilted documentation phrasing"} for f in warnings) else "Pass",
-                "Language scan on added lines.",
+                "Wall-clock in plumb-core",
+                "Fail" if any("Wall-clock" in f.issue for f in blockers) else "Pass",
+                "`clippy::disallowed-methods` also enforces this.",
+            ),
+            (
+                "`todo!`/`unimplemented!`/`dbg!`",
+                "Fail" if any("todo!" in f.issue for f in blockers) else "Pass",
+                "Scan of added lines.",
+            ),
+            (
+                "AI-flavored wording in docs",
+                "Warn" if any("AI-flavored" in f.issue or "Stilted" in f.issue for f in warnings) else "Pass",
+                "Language scan of added doc lines.",
             ),
         ]
     )
@@ -231,33 +343,39 @@ def build_quality_assessment(
     notes = [
         f"- Reviewed {len(files)} changed file(s) across: {', '.join(category_names) if category_names else 'uncategorized changes'}.",
         f"- Blocking findings: {len(blockers)}. Warning findings: {len(warnings)}.",
-        "- This draft mirrors the workflow structure; high-risk files still need human inspection before posting.",
+        "- This draft mirrors the GitHub review workflow structure; high-risk files still need human inspection before posting.",
     ]
     if instructions:
         notes.append(f"- Extra reviewer focus: {instructions}.")
-    if categories["trading"] or categories["api"] or categories["schema"]:
-        notes.append("- Financial, API, or schema-touching work is present; verify security and migration handling explicitly.")
-    if categories["ui"]:
-        notes.append("- UI work is present; confirm semantic HTML, keyboard support, and smallest-breakpoint behavior manually.")
+    if categories["cdp"] or categories["mcp"]:
+        notes.append("- `plumb-cdp` / `plumb-mcp` changes present — run security-auditor in parallel.")
+    if categories["deps"]:
+        notes.append("- Dependency graph changed — confirm `cargo deny check` and `cargo audit` pass.")
+    if categories["docs"]:
+        notes.append("- Docs changed — run the humanizer skill before approving.")
+    if categories["rules"]:
+        notes.append("- Rule definition touched — confirm `docs/src/rules/` and golden test accompany the change; `cargo xtask sync-rules-index` must pass.")
     return "\n".join(notes)
 
 
 def review_verdict(blockers: list[Finding], warnings: list[Finding]) -> str:
     if blockers:
-        return "CHANGES REQUESTED"
+        return "BLOCK" if any(f.severity == "P0" for f in blockers) else "REQUEST_CHANGES"
     if warnings:
-        return "NEEDS DISCUSSION"
-    return "APPROVED"
+        return "REQUEST_CHANGES"
+    return "APPROVE"
 
 
 def compliance_flags(categories: dict[str, bool], blockers: list[Finding]) -> dict[str, str]:
     issues = {finding.issue for finding in blockers}
+    def tick(ok: bool) -> str:
+        return "x" if ok else " "
     return {
-        "LAYER_IMPORTS": " " if not categories["api"] else " ",
-        "BOUNDARIES": " " if not categories["ui"] else " ",
-        "BUSINESS_LOGIC": " " if "Business logic in tRPC procedures" not in issues else "x",
-        "DATABASE_ACCESS": " " if not categories["schema"] else " ",
-        "TYPES": " " if "`any` type usage" in issues else "x",
+        "LAYER_IMPORTS": tick("New `unsafe` block" not in issues),
+        "ERROR_TYPES": tick(not any("unwrap" in i for i in issues)),
+        "OUTPUT_DISCIPLINE": tick(not any("println" in i for i in issues)),
+        "DETERMINISM": tick(not any("Wall-clock" in i for i in issues) and not any("HashMap" in i for i in issues)),
+        "NO_DEBUG_MACROS": tick(not any("todo!" in i for i in issues)),
     }
 
 
@@ -283,7 +401,9 @@ def gather_from_pr(pr_number: int, repo: str) -> tuple[dict[str, str], list[str]
             ]
         )
     )
-    files = [line for line in run(["gh", "pr", "diff", str(pr_number), "--repo", repo, "--name-only"]).splitlines() if line]
+    files = [
+        line for line in run(["gh", "pr", "diff", str(pr_number), "--repo", repo, "--name-only"]).splitlines() if line
+    ]
     diff_text = run(["gh", "pr", "diff", str(pr_number), "--repo", repo])
     header = {
         "PR": f"#{metadata['number']} - {metadata['title']}",
@@ -318,10 +438,10 @@ def post_review(pr_number: int, repo: str, body: str) -> None:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Generate a local Omnifol PR review draft.")
+    parser = argparse.ArgumentParser(description="Generate a local Plumb PR review draft.")
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--pr", type=int, help="PR number to review")
-    source.add_argument("--local-diff", help="Local git diff range, for example dev...HEAD")
+    source.add_argument("--local-diff", help="Local git diff range, for example main...HEAD")
     parser.add_argument("--repo", default=DEFAULT_REPO, help="GitHub repository in owner/name format")
     parser.add_argument("--instructions", help="Additional reviewer instructions")
     parser.add_argument("--output", help="Write markdown output to a file")
@@ -351,10 +471,10 @@ def main() -> None:
         "SCOPE_CREEP": "Manual check required" if files else "No files changed",
         "VERDICT": verdict,
         "LAYER_IMPORTS": flags["LAYER_IMPORTS"],
-        "BOUNDARIES": flags["BOUNDARIES"],
-        "BUSINESS_LOGIC": flags["BUSINESS_LOGIC"],
-        "DATABASE_ACCESS": flags["DATABASE_ACCESS"],
-        "TYPES": flags["TYPES"],
+        "ERROR_TYPES": flags["ERROR_TYPES"],
+        "OUTPUT_DISCIPLINE": flags["OUTPUT_DISCIPLINE"],
+        "DETERMINISM": flags["DETERMINISM"],
+        "NO_DEBUG_MACROS": flags["NO_DEBUG_MACROS"],
     }
 
     body = template_for_review(context)

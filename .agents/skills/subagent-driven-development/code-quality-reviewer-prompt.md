@@ -1,60 +1,118 @@
-# Code Quality Reviewer Dispatch Template
+# Code-quality-reviewer dispatch template
 
-**Purpose:** Verify implementation is well-built (clean, tested, maintainable)
-**Only dispatch after spec compliance review passes.**
+Use this template when dispatching `03-code-quality-reviewer` against a task that has already cleared `02-spec-reviewer`.
 
-## Dispatch Format
+**Purpose:** verify the Rust code is idiomatic, error shapes are clean, layering holds, and every lint suppression is justified.
 
-Dispatch the `code-quality-reviewer` agent (defined in `.claude/agents/code-quality-reviewer.md`) with:
+**Only dispatch after `02-spec-reviewer` returned `Verdict: APPROVE`.** The `review-gate-guard` hook blocks out-of-order dispatch.
 
-```
-Review the implementation for code quality.
-
-WHAT_WAS_IMPLEMENTED: [from implementer's report]
-PLAN_OR_REQUIREMENTS: Task N from [plan-file]
-BASE_SHA: [commit SHA before task started]
-HEAD_SHA: [current commit SHA]
-DESCRIPTION: [task summary]
-
-Focus areas:
-1. Architecture: L1-L6 layer compliance, import boundaries
-2. Type safety: Zod schemas, no `any`, exhaustive switches
-3. Code quality: No console.log, no magic numbers, proper extraction
-4. Test quality: TDD (tests written first), AAA pattern, coverage
-5. Accessibility: Semantic HTML, ARIA labels, keyboard navigation
-```
-
-**Reviewer returns:** Strengths, Issues (Critical/Important/Minor), Assessment
-
-## Batch Review Variant
-
-Use this template when reviewing code quality for a parallel batch.
+## Dispatch format
 
 ```
-Review the implementation quality for a parallel batch.
+Task tool:
+  subagent_type: 03-code-quality-reviewer
+  description: "Code quality review for Task N"
+  prompt: |
+    Review the implementation of Task N for code quality in the Plumb
+    Rust workspace.
 
-BATCH_SCOPE:
-- Task A: [summary], SHA: [sha], Files: [list]
-- Task B: [summary], SHA: [sha], Files: [list]
+    WHAT_WAS_IMPLEMENTED: [from implementer's report]
+    PLAN_OR_REQUIREMENTS: Task N from [plan file]
+    BASE_SHA: [commit SHA before task started]
+    HEAD_SHA: [current commit SHA]
+    DESCRIPTION: [task summary]
 
-PLAN_OR_REQUIREMENTS: [batch plan reference]
-DESCRIPTION: Batch N quality review
+    Focus areas (in order):
 
-Focus areas:
-1. Per-task quality: Architecture, type safety, code quality, test quality per task
-2. Cross-task consistency: Naming conventions, patterns, approaches match across tasks
-3. Integration quality: Cross-package imports correct, no circular dependencies introduced
-4. Batch-level assessment: Overall quality of the combined changeset
+    1. **Error handling.**
+       - Library crates use `thiserror`-derived enums; `anyhow` only in `plumb-cli::main`.
+       - Public fallible fns have `# Errors` sections in their rustdoc.
+       - No new `unwrap`/`expect`/`panic!` in library code.
+       - Errors are typed, not stringified early.
 
-Report format:
-### Per-Task Assessment
-- Task A: Strengths, Issues (Critical/Important/Minor)
-- Task B: Strengths, Issues (Critical/Important/Minor)
+    2. **Layering + unsafe.**
+       - Imports respect the crate graph (`plumb-core` has no internal deps; `plumb-cdp` is the only crate allowed `unsafe`).
+       - Any new `unsafe` block has a `// SAFETY:` comment.
+       - `forbid(unsafe_code)` still holds outside `plumb-cdp`.
 
-### Cross-Task Assessment
-- Pattern consistency: [pass/issues]
-- Integration quality: [pass/issues]
+    3. **Determinism.**
+       - No new `SystemTime::now`/`Instant::now` in `plumb-core`.
+       - No new `HashMap`/`HashSet` in observable output paths.
+       - Sort key `(rule_id, viewport, selector, dom_order)` unchanged.
 
-### Batch Verdict
-APPROVED / CHANGES REQUESTED / APPROVED WITH NOTES
+    4. **Lint suppression.**
+       - Every `#[allow(...)]` is local (expression- or item-level).
+       - Every suppression has a one-line rationale comment on the line above.
+
+    5. **Naming + docs.**
+       - Types `UpperCamel`, fns/values `snake_case`, constants `SCREAMING_SNAKE`.
+       - Every new public item has at least a one-line rustdoc.
+       - Constructors named `new`, `with_*`.
+
+    6. **Test quality.**
+       - Tests actually verify behavior (not mocking stubs).
+       - Snapshots under `tests/snapshots/` are intentional (no `.snap.new`).
+       - TDD evidence: test was green before implementation landed.
+
+    7. **Docs hygiene** (if `docs/src/**` touched).
+       - Humanizer skill run — no "delve", "tapestry", "landscape", "seamless", "leverage" in added prose.
+       - RFC 2119 keywords used where contracts are documented.
+
+    Report format:
+
+    **Strengths:**
+    - [2–4 specific bullets of what's done well]
+
+    **Issues (Critical / Important / Minor):**
+    - Critical: [must-fix before merge, with file:line]
+    - Important: [should-fix before merge]
+    - Minor: [optional improvement]
+
+    End with exactly one line:
+
+        Verdict: APPROVE
+        Verdict: REQUEST_CHANGES
+        Verdict: BLOCK
+```
+
+## Batch review variant
+
+For a parallel batch:
+
+```
+Task tool:
+  subagent_type: 03-code-quality-reviewer
+  description: "Code quality review for Batch N"
+  prompt: |
+    Review code quality for a parallel batch in the Plumb workspace.
+
+    BATCH_SCOPE:
+    - Task A: [summary], SHA: [sha], files: [list]
+    - Task B: [summary], SHA: [sha], files: [list]
+
+    PLAN_OR_REQUIREMENTS: [batch plan reference]
+
+    Focus areas:
+    1. Per-task quality (same 7 areas as the single-task variant).
+    2. Cross-task consistency — error-type conventions, naming, pattern alignment.
+    3. Integration quality — no circular deps introduced; public API shape coherent across tasks.
+    4. Batch-level lint output — run mentally against `cargo clippy --workspace -- -D warnings`.
+
+    Report:
+
+    ### Per-task assessment
+    - Task A: Strengths + Issues (Critical / Important / Minor)
+    - Task B: Strengths + Issues (Critical / Important / Minor)
+
+    ### Cross-task assessment
+    - Pattern consistency: pass | issues
+    - Integration quality: pass | issues
+
+    ### Batch verdict
+
+    End with exactly one line:
+
+        Verdict: APPROVE
+        Verdict: REQUEST_CHANGES
+        Verdict: BLOCK
 ```

@@ -1,60 +1,79 @@
-# CI Polling Prompt
+# CI polling prompt
 
-Monitor CI status for PR #{{PR}} on branch `{{BRANCH}}`.
+Monitor CI for PR #{{PR}} on branch `{{BRANCH}}`.
 
-## Poll Command
+## Poll command
 
 ```bash
 python3 .agents/skills/gh-issue/scripts/gh_issue_run.py poll-pr {{PRIMARY}} {{SLUG}}
 ```
 
 Or directly:
+
 ```bash
-gh pr checks {{PR}} --repo aram-devdocs/omnifol
+gh pr checks {{PR}} --repo aram-devdocs/plumb
 ```
 
-## CI Workflows
+## CI workflows
 
-The Omnifol CI runs:
-1. Lint (Biome check)
-2. Type check (tsc)
-3. Tests (per package)
-4. Build (turbo)
+Plumb CI (`.github/workflows/ci.yml`) runs:
 
-## On Failure
+1. **preflight** — `cargo fmt --check`, `cargo clippy -D warnings`, `cargo check`.
+2. **test** matrix — Linux / macOS / Windows × stable, `cargo nextest`.
+3. **msrv** — `cargo check` on exact toolchain 1.85.0.
+4. **determinism** — `just determinism-check` (3× byte-diff fixture run).
+5. **coverage** — `cargo llvm-cov` → Codecov.
+6. **size-guard** — strip release binary, assert < 25 MiB.
+7. **deny** — `cargo deny check`.
+8. **docs** — `mdbook build docs/` + `cargo doc --no-deps`.
 
-1. Read the failure details:
+Also: `claude-code-review.yml` runs the automated Claude reviewer on every non-draft PR.
+
+## On failure
+
+1. Read failure details:
+
    ```bash
-   gh pr checks {{PR}} --repo aram-devdocs/omnifol --fail-fast
-   gh run view <run-id> --log-failed
+   gh pr checks {{PR}} --repo aram-devdocs/plumb --fail-fast
+   gh run view <run-id> --repo aram-devdocs/plumb --log-failed
    ```
-2. Identify the failing step and package
-3. Dispatch `debugger` for root cause analysis if not obvious
-4. Dispatch appropriate fix agent
-5. Push fix:
+
+2. Identify the failing step and crate.
+
+3. Dispatch:
+   - `07-debugger` for root-cause diagnosis if the failure is non-obvious.
+   - `01-implementer` (or `10-quick-fix` for a one-liner) to apply the fix.
+
+4. Push the fix:
+
    ```bash
    git push origin {{BRANCH}}
    ```
-6. Update run state with fix commit:
+
+5. Record the fix commit:
+
    ```bash
    python3 .agents/skills/gh-issue/scripts/gh_issue_run.py update-state {{PRIMARY}} {{SLUG}} --commit <sha>
    ```
-7. Poll again
 
-## On Pass
+6. Poll again.
+
+## On pass
 
 Update run state:
+
 ```bash
 python3 .agents/skills/gh-issue/scripts/gh_issue_run.py update-state {{PRIMARY}} {{SLUG}} --phase cleanup
 ```
 
-Proceed to cleanup phase.
+Proceed to cleanup.
 
 ## Timeout
 
-If CI has not completed after 15 minutes, check for queued runners:
+If CI has not completed after 20 minutes, check for queued runners:
+
 ```bash
-gh run list --repo aram-devdocs/omnifol --branch {{BRANCH}}
+gh run list --repo aram-devdocs/plumb --branch {{BRANCH}}
 ```
 
-The CI uses a self-hosted Raspberry Pi runner - allow extra time if the runner is busy.
+GitHub-hosted runners usually complete the test matrix in 10–15 minutes. If the determinism or size-guard jobs are queued beyond that, re-trigger with `gh workflow run`.

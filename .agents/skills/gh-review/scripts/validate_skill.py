@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Validate gh-review skill structure.
+Validate gh-review skill structure for Plumb.
 """
 
 from __future__ import annotations
@@ -10,6 +10,8 @@ import sys
 from pathlib import Path
 
 SKILL_ROOT = Path(__file__).resolve().parents[1]
+WORKSPACE_ROOT = SKILL_ROOT.parents[2]
+
 REQUIRED_FILES = [
     SKILL_ROOT / "SKILL.md",
     SKILL_ROOT / "assets/review-template.md",
@@ -17,43 +19,81 @@ REQUIRED_FILES = [
     SKILL_ROOT / "scripts/gh_review.py",
     SKILL_ROOT / "scripts/validate_skill.py",
 ]
-REQUIRED_SECTIONS = [
-    "### Code Review Summary",
+
+REQUIRED_TEMPLATE_SECTIONS = [
+    "### Code review summary",
     "#### Blockers",
     "#### Warnings",
-    "#### Architecture Compliance",
-    "#### Anti-Pattern Scan",
-    "#### Quality Assessment",
-    "#### Scope Check",
+    "#### Architecture compliance",
+    "#### Anti-pattern scan",
+    "#### Quality assessment",
+    "#### Scope check",
     "**Verdict:** {{VERDICT}}",
 ]
-REQUIRED_PHRASES = [
+
+REQUIRED_SKILL_PHRASES = [
     "claude-code-review.yml",
-    "--pr <number>",
+    "--pr",
     "--local-diff",
-    "APPROVED",
-    "CHANGES REQUESTED",
-    "NEEDS DISCUSSION",
+    "aram-devdocs/plumb",
+    "APPROVE",
+    "REQUEST_CHANGES",
+    "BLOCK",
+    "plumb-cdp",
+    "plumb-mcp",
+]
+
+FORBIDDEN_PHRASES = [
+    "omnifol",
+    "omniscript",
+    "@omnifol",
+    "trpc",
+    "pnpm",
+    "--base dev",
+    "target dev",
+    "git checkout dev",
 ]
 
 
 def main() -> None:
     errors: list[str] = []
+
     for path in REQUIRED_FILES:
         if not path.exists():
-            errors.append(f"missing required file: {path}")
+            errors.append(f"missing required file: {path.relative_to(WORKSPACE_ROOT)}")
 
-    if (SKILL_ROOT / "assets/review-template.md").exists():
-        content = (SKILL_ROOT / "assets/review-template.md").read_text()
-        for section in REQUIRED_SECTIONS:
+    template_path = SKILL_ROOT / "assets/review-template.md"
+    if template_path.exists():
+        content = template_path.read_text()
+        for section in REQUIRED_TEMPLATE_SECTIONS:
             if section not in content:
                 errors.append(f"review-template.md missing section: {section}")
 
-    if (SKILL_ROOT / "SKILL.md").exists():
-        content = (SKILL_ROOT / "SKILL.md").read_text()
-        for phrase in REQUIRED_PHRASES:
+    skill_path = SKILL_ROOT / "SKILL.md"
+    if skill_path.exists():
+        content = skill_path.read_text()
+        for phrase in REQUIRED_SKILL_PHRASES:
             if phrase not in content:
                 errors.append(f"SKILL.md missing phrase: {phrase}")
+
+    # Forbidden-phrase scan across skill files. Skip this validator itself.
+    self_path = Path(__file__).resolve()
+    for path in SKILL_ROOT.rglob("*"):
+        if not path.is_file():
+            continue
+        if path.resolve() == self_path:
+            continue
+        if path.suffix not in {".md", ".py", ".json", ".yml", ".yaml"}:
+            continue
+        try:
+            content = path.read_text()
+        except UnicodeDecodeError:
+            continue
+        for phrase in FORBIDDEN_PHRASES:
+            if phrase.lower() in content.lower():
+                errors.append(
+                    f"omnifol residue: {path.relative_to(WORKSPACE_ROOT)} contains '{phrase}'"
+                )
 
     try:
         result = subprocess.run(

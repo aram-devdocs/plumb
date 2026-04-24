@@ -1,30 +1,31 @@
 ---
 name: gh-issue
-description: Strict issue-to-PR lifecycle for GitHub issues. Investigates, plans, implements (TDD), verifies, reviews, creates PR, waits for CI, and cleans up. Supports worktree isolation and durable run state for session resumption.
+description: Strict issue-to-PR lifecycle for GitHub issues in the Plumb Rust workspace. Investigates, plans, implements (TDD), verifies, reviews, creates PR, waits for CI, and cleans up. Supports worktree isolation and durable run state for session resumption.
 user_invocable: true
 ---
 
-# /gh-issue - GitHub Issue Delivery Lifecycle
+# /gh-issue — GitHub issue delivery lifecycle for Plumb
 
-Strict delivery lifecycle that takes one or more GitHub issues from investigation through merged PR.
-Use `/gh-runbook` first when the source material is still an audit, research report, or release review that needs grouped implementation issues.
+Strict delivery lifecycle that drives one or more GitHub issues from
+investigation through merged PR against `aram-devdocs/plumb`.
+
+Use `/gh-runbook` first when the source is a runbook spec that still
+needs to be fanned out into grouped issues.
 
 ## Usage
 
 ```
-/gh-issue 375                    # Single issue
-/gh-issue 375 376 377            # Multiple related issues (single PR)
-/gh-issue 375 --worktree         # Isolated worktree
-/gh-issue 375 --resume           # Resume after compaction
+/gh-issue 17                     # Single issue
+/gh-issue 17 18 19               # Multiple related issues (single PR)
+/gh-issue 17 --worktree          # Isolated worktree
+/gh-issue 17 --resume            # Resume after compaction
 ```
 
-## State Management
-
-All run state is managed via `python3 .agents/skills/gh-issue/scripts/gh_issue_run.py`:
+## State management
 
 ```bash
 # Initialize a new run
-python3 .agents/skills/gh-issue/scripts/gh_issue_run.py init-run <primary> <slug> [--issues 375 376 377] [--worktree]
+python3 .agents/skills/gh-issue/scripts/gh_issue_run.py init-run <primary> <slug> [--issues 17 18 19] [--worktree]
 
 # Update phase or field
 python3 .agents/skills/gh-issue/scripts/gh_issue_run.py update-state <primary> <slug> --phase implementing
@@ -50,221 +51,196 @@ investigating > planning > bootstrapped > implementing > verifying > reviewing >
 
 ## Lifecycle
 
-### Phase 1: Investigating
+### Phase 1 — investigating
 
-1. Fetch issue(s) from GitHub:
+1. Fetch issue(s):
    ```bash
-   gh issue view <N> --repo aram-devdocs/omnifol --json number,title,body,labels,milestone,assignees,comments
+   gh issue view <N> --repo aram-devdocs/plumb --json number,title,body,labels,milestone,assignees,comments
    ```
-2. Identify affected packages, layers, and files via codebase exploration
-3. Check for blocking dependencies (issues referenced in body)
-4. Read relevant `AGENTS.md`, scoped `CLAUDE.md`, and package rules
-5. If the issue originated from an audit or report, verify its grouping and dependency model against `/gh-runbook`
-5. Initialize run state:
+2. Identify affected crates, layers, and files via codebase exploration.
+3. Read the root `AGENTS.md`, the scoped `AGENTS.md` for any crate touched (`crates/plumb-*/AGENTS.md`), and `.agents/rules/` — the Plumb invariants live there.
+4. Check for blocking dependencies (issues referenced in body).
+5. If the issue came from a runbook spec, re-read the spec in `docs/runbooks/` to confirm batch and gate context.
+6. Initialize run state:
    ```bash
    python3 .agents/skills/gh-issue/scripts/gh_issue_run.py init-run <primary> <slug> --issues <N> [<M>...]
    ```
 
-### Phase 2: Planning
+### Phase 2 — planning
 
-1. Determine issue type from labels: `feat`, `fix`, `refactor`, `test`, `chore`, `docs`
-2. Create branch name: `codex/<primary>-<type>-<slug>` (e.g., `codex/375-feat-idor-fix`)
+1. Determine issue type from labels: `feat`, `fix`, `refactor`, `test`, `chore`, `docs`, `perf`, `ci`, `build`, `style`, `revert`.
+2. Branch name: `codex/<primary>-<type>-<slug>` (e.g., `codex/17-feat-cdp-chromium-launch`).
 3. Identify:
-   - Target packages and files
-   - Required subagents (implementer, database-migration, trpc-procedure, etc.)
-   - Domain expert consultation needed (trading-domain-expert, omniscript-domain-expert)
-   - Review gates needed (always spec + quality + architecture; security if auth/exchange/financial)
-   - Whether a local `/gh-review --local-diff dev...HEAD` pass is required before opening the PR
-   - Whether user-facing text needs a humanizer pass before review or PR creation
-4. Write plan to `.agents/runs/gh-issue/<primary>-<slug>/plan.md` using `.agents/skills/gh-issue/assets/plan-template.md`
-5. Present plan to user for approval before proceeding
+   - Target crate(s) and files.
+   - Required subagent(s) from Plumb's set: `01-implementer`, `08-rule-author` (for new rules), `09-mcp-tool-author` (for MCP tools), `10-quick-fix` (for trivial fixes).
+   - Review gates — always `02-spec-reviewer` → `03-code-quality-reviewer` → `05-architecture-validator` → `04-test-runner`. Add `06-security-auditor` in parallel when the change touches `plumb-cdp`, `plumb-mcp`, URL handling, or dependency-graph changes.
+   - Whether a local `/gh-review --local-diff main...HEAD` pass is required before opening the PR.
+   - Whether user-facing docs need a humanizer pass (any PR touching `docs/src/**`).
+4. Write the plan to `.agents/runs/gh-issue/<primary>-<slug>/plan.md` using `.agents/skills/gh-issue/assets/plan-template.md`.
+5. Present the plan to the user for approval before proceeding.
 
-### Phase 3: Bootstrapped
+### Phase 3 — bootstrapped
 
-1. Create branch from `dev`:
+1. Create the branch from `main`:
    ```bash
-   git checkout dev && git pull origin dev
+   git checkout main && git pull origin main
    git checkout -b <branch-name>
    ```
-2. If `--worktree` flag: use `EnterWorktree` instead
+2. If `--worktree` flag: use `EnterWorktree` instead.
 3. Update run state:
    ```bash
    python3 .agents/skills/gh-issue/scripts/gh_issue_run.py update-state <primary> <slug> --phase bootstrapped --branch <branch-name>
    ```
 
-### Phase 4: Implementing
+### Phase 4 — implementing
 
-1. Consult domain expert if required (trading or omniscript work)
-2. Dispatch appropriate subagent(s) per the plan:
-   - Single agent for focused work
-   - Parallel batch for independent changes (per parallel-orchestration rules)
-3. Subagent follows TDD: scaffold failing tests first, then implement
-4. Respect Omnifol constraints:
-   - L1 -> L6 import direction only
-   - stateless UI pattern: route wrapper -> page hook -> stateless page -> UI primitives
-   - typed feature flags instead of hardcoded config
-   - humanizer pass for user-facing docs, comments, and interface copy
-5. Subagent commits atomically with conventional commit messages
+1. Dispatch the right subagent per the plan:
+   - `01-implementer` for general work.
+   - `08-rule-author` for new rule + golden test + doc.
+   - `09-mcp-tool-author` for new MCP tool + protocol test.
+   - `10-quick-fix` only for trivial, single-commit work — otherwise use `01-implementer`.
+2. TDD: write the failing test first (golden snapshot, integration test, or unit test), then the minimum code to pass.
+3. Honor Plumb invariants (`.agents/rules/`):
+   - Layer discipline — `plumb-core` depends on nothing internal; `unsafe` only in `plumb-cdp` with `// SAFETY:`; `println!`/`eprintln!` only in `plumb-cli`.
+   - Determinism — no `SystemTime::now`/`Instant::now` in `plumb-core`; `IndexMap` for observable output; sort key `(rule_id, viewport, selector, dom_order)`.
+   - No `unwrap`/`expect`/`panic!` in library crates; `thiserror`-derived enums for errors; `anyhow` only in `plumb-cli::main`.
+   - No `todo!`/`unimplemented!`/`dbg!`.
+4. Commit atomically with Conventional Commits: `<type>(<scope>): <description>`.
 5. Update run state after each commit:
    ```bash
    python3 .agents/skills/gh-issue/scripts/gh_issue_run.py update-state <primary> <slug> --commit <sha>
    ```
 
-### Phase 5: Verifying
+### Phase 5 — verifying
 
-1. Run full verification:
+1. Run the full gate:
    ```bash
-   pnpm typecheck && pnpm lint && pnpm --filter @omnifol/<package> test
+   just validate
    ```
-2. If failures: dispatch fix agent, loop back to implementing
-3. If user-facing copy changed: run a humanizer pass before review
+   Or the narrow equivalent while iterating:
+   ```bash
+   cargo fmt --all -- --check && \
+     cargo clippy --workspace --all-targets --all-features -- -D warnings && \
+     cargo nextest run --workspace --all-features
+   ```
+2. If failures: dispatch `07-debugger` to diagnose, then `01-implementer` to fix, then loop back to verifying.
+3. If docs under `docs/src/**` changed: run the humanizer skill before review.
 4. Update run state:
    ```bash
    python3 .agents/skills/gh-issue/scripts/gh_issue_run.py update-state <primary> <slug> --phase verifying
    ```
 
-### Phase 6: Reviewing
+### Phase 6 — reviewing
 
-Sequential review gates (per subagent-workflow rules):
+Sequential gates (review-gate-guard hook enforces the order):
 
-1. **spec-reviewer** (sonnet): Verify implementation matches issue spec exactly
-   - Dispatch with prompt from `.agents/skills/gh-issue/assets/prompts/review-dispatch.md`
-   - If issues found: dispatch implementer fixes, re-verify, re-review
-   - Record result: `python3 .agents/skills/gh-issue/scripts/gh_issue_run.py update-state <primary> <slug> --review spec pass`
-2. **code-quality-reviewer** (sonnet): Quality, patterns, maintainability
-   - Only runs AFTER spec-reviewer passes
-   - Record result: `--review quality pass`
-3. **architecture-validator** (haiku): Run validation scripts
-   - Record result: `--review architecture pass`
-4. **security-auditor** (opus): Only if auth/exchange/financial code touched
-   - NEVER parallel with other agents
-   - Block on critical findings
-   - Record result: `--review security pass`
-5. **gh-review** (local dry run): Mirror `.github/workflows/claude-code-review.yml`
-   - Run:
-     ```bash
-     python3 .agents/skills/gh-review/scripts/gh_review.py --local-diff dev...HEAD
-     ```
-   - If the PR already exists, prefer:
-     ```bash
-     python3 .agents/skills/gh-review/scripts/gh_review.py --pr <number>
-     ```
-   - Treat blocker findings as a return to implementation
+1. **`02-spec-reviewer`** — does the change satisfy the spec exactly, nothing more?
+   - Record: `--review spec pass` (or `fail`).
+2. **`03-code-quality-reviewer`** — idiomatic Rust, error shapes, lint suppression justified? Only runs after spec passes.
+   - Record: `--review quality pass`.
+3. **`05-architecture-validator`** — layering, unsafe boundary, deny-lints respected?
+   - Record: `--review architecture pass`.
+4. **`04-test-runner`** — runs `just validate` + `just determinism-check` + `cargo deny check`.
+   - Record: `--review test pass`.
+5. **`06-security-auditor`** (parallel with any of the above when triggered) — required when the change touches `plumb-cdp`, `plumb-mcp`, URL/config parsing, or deps.
+   - Record: `--review security pass` or `not_required`.
+6. **`/gh-review` local dry-run** — mirror of `.github/workflows/claude-code-review.yml`:
+   ```bash
+   python3 .agents/skills/gh-review/scripts/gh_review.py --local-diff main...HEAD
+   ```
+   If the PR already exists, prefer `--pr <number>`. Any blocker finding sends you back to `implementing`.
 
-### Phase 7: PR
+### Phase 7 — pr
 
-1. Push branch:
+1. Push the branch:
    ```bash
    git push -u origin <branch-name>
    ```
-2. Create the PR body from `.agents/skills/gh-issue/assets/pr-body-template.md`, which mirrors `.github/pull_request_template.md` section-for-section.
-3. Create PR targeting `dev`:
+2. Render the PR body from `.agents/skills/gh-issue/assets/pr-body-template.md` — it mirrors `.github/PULL_REQUEST_TEMPLATE.md` section-for-section.
+3. Create the PR targeting `main`:
    ```bash
-   gh pr create --base dev --title "<type>: <description>" --body-file /tmp/<primary>-pr-body.md
+   gh pr create --repo aram-devdocs/plumb --base main \
+     --title "<type>(<scope>): <description>" \
+     --body-file /tmp/<primary>-pr-body.md
    ```
 4. Update run state:
    ```bash
    python3 .agents/skills/gh-issue/scripts/gh_issue_run.py update-state <primary> <slug> --phase pr --pr <number>
    ```
 
-### Phase 8: Waiting CI
+### Phase 8 — waiting-ci
 
-1. Poll CI:
+1. Poll:
    ```bash
    python3 .agents/skills/gh-issue/scripts/gh_issue_run.py poll-pr <primary> <slug>
    ```
-2. If CI fails:
-   - Read failure logs: `gh pr checks <PR-number> --repo aram-devdocs/omnifol`
-   - Dispatch debugger or implementer to fix
-   - Push fix, loop back to waiting-ci
-3. If CI passes: proceed to cleanup
+2. On CI failure: `gh pr checks <PR> --repo aram-devdocs/plumb --fail-fast`, dispatch `07-debugger` → `01-implementer`, push fix, loop.
+3. On pass: advance to cleanup.
 
-### Phase 9: Cleanup
+### Phase 9 — cleanup
 
-1. Update run state:
+1. Update run state to `cleanup`.
+2. If `--worktree`: `cleanup-worktree`.
+3. Return to `main`:
    ```bash
-   python3 .agents/skills/gh-issue/scripts/gh_issue_run.py update-state <primary> <slug> --phase cleanup
-   ```
-2. If worktree:
-   ```bash
-   python3 .agents/skills/gh-issue/scripts/gh_issue_run.py cleanup-worktree <primary> <slug>
-   ```
-3. Clean up local branch if merged:
-   ```bash
-   git checkout dev && git pull origin dev
+   git checkout main && git pull origin main
    ```
 
-### Phase 10: Done
+### Phase 10 — done
 
-1. Update run state:
-   ```bash
-   python3 .agents/skills/gh-issue/scripts/gh_issue_run.py update-state <primary> <slug> --phase done
-   ```
-2. Report summary: PR URL, issues addressed, review findings resolved
+1. `--phase done`.
+2. Report: PR URL, issues addressed, review verdicts, CI outcome.
 
-## Durable Run State
+## Durable run state
 
-Each invocation creates a run directory at `.agents/runs/gh-issue/<primary>-<slug>/`.
+Per invocation: `.agents/runs/gh-issue/<primary>-<slug>/`.
 
 ### state.json
 
 ```json
 {
-  "primary": 375,
-  "issues": [375, 376, 377],
-  "slug": "idor-fix",
+  "primary": 17,
+  "issues": [17],
+  "slug": "cdp-chromium-launch",
   "phase": "implementing",
-  "branch": "codex/375-feat-idor-fix",
+  "branch": "codex/17-feat-cdp-chromium-launch",
   "pr": null,
-  "commits": ["abc1234", "def5678"],
+  "commits": ["abc1234"],
   "reviews": {
     "spec": "pass",
     "quality": null,
     "architecture": null,
+    "test": null,
     "security": "not_required"
   },
   "worktree": false,
-  "created": "2026-03-16T22:00:00Z",
-  "updated": "2026-03-16T22:30:00Z"
+  "created": "2026-04-23T22:00:00Z",
+  "updated": "2026-04-23T22:30:00Z"
 }
 ```
 
 ### plan.md
 
-Written during planning phase using `.agents/skills/gh-issue/assets/plan-template.md`. Contains:
-- Issue summary and acceptance criteria
-- Affected packages and files
-- Implementation approach
-- Subagent dispatch plan
-- Review gates needed
-- Adjacent skill usage (`/gh-runbook`, `/gh-review`, humanizer) when applicable
+Written during planning from `assets/plan-template.md`. Covers: issue summary, acceptance criteria, affected crates, implementation approach, subagent dispatch plan, review gates, adjacent skill usage (`/gh-runbook`, `/gh-review`, humanizer).
 
-## Resuming After Compaction
+## Resuming after compaction
 
-When resuming a `/gh-issue` run after session compaction:
+```bash
+ls .agents/runs/gh-issue/
+python3 .agents/skills/gh-issue/scripts/gh_issue_run.py validate-resume <primary> <slug>
+```
 
-1. Check for active runs:
-   ```bash
-   ls .agents/runs/gh-issue/
-   ```
-2. Validate the run:
-   ```bash
-   python3 .agents/skills/gh-issue/scripts/gh_issue_run.py validate-resume <primary> <slug>
-   ```
-3. Read the run's `state.json` to determine current phase
-4. Read `plan.md` for full context
-5. Resume from the current phase
-
-The `save-session` PreCompact hook automatically surfaces active run state.
+Then read `state.json` and `plan.md` and resume from the recorded phase. The `save-session` Stop hook writes a per-session summary so context survives compaction.
 
 ## Rules
 
-- Branch MUST target `dev`, never `main`
-- Branch pattern: `codex/<primary>-<type>-<slug>` (e.g., `codex/375-feat-idor-fix`)
-- Commits MUST use conventional format: `<type>: <description>`
-- TDD is mandatory: tests before implementation
-- Review gates are mandatory and sequential: spec -> quality -> architecture -> security
-- Domain expert consultation is mandatory for trading/omniscript work
-- Never bypass pre-commit hooks
-- All implementation goes through subagents, never direct orchestrator edits
-- Use `python3 .agents/skills/gh-issue/scripts/gh_issue_run.py` for all state transitions
+- Branch MUST target `main`. Plumb has no `dev` branch.
+- Branch pattern: `codex/<primary>-<type>-<slug>`.
+- Commits use Conventional Commits — the `commit-msg` lefthook validator enforces it.
+- TDD is mandatory: test first, implementation second.
+- Review gates are mandatory and sequential: spec → quality → architecture → test; security-auditor in parallel when triggered.
+- Never bypass pre-commit or pre-push hooks — no `--no-verify`.
+- All implementation goes through subagents; the root orchestrator never edits `crates/*/src/*.rs` directly (`delegation-guard` hook enforces this).
+- Every state transition goes through `gh_issue_run.py`.
+
+See also: `AGENTS.md`, `.agents/rules/`, `/gh-review`, `/gh-runbook`, humanizer skill.

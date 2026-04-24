@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Validate gh-issue skill structure.
+Validate gh-issue skill structure for Plumb.
 """
 
 from __future__ import annotations
@@ -32,12 +32,12 @@ REQUIRED_FILES = [
 ]
 
 PLAN_TEMPLATE_SECTIONS = [
-    "## Issue Summary",
-    "## Acceptance Criteria",
-    "## Affected Packages",
-    "## Implementation Approach",
-    "## Subagent Dispatch Plan",
-    "## Review Gates",
+    "## Issue summary",
+    "## Acceptance criteria",
+    "## Affected crates",
+    "## Implementation approach",
+    "## Subagent dispatch plan",
+    "## Review gates",
     "## Verification",
     "## Branch",
 ]
@@ -56,33 +56,42 @@ STATE_TEMPLATE_KEYS = [
     "updated",
 ]
 
-STATE_REVIEW_KEYS = ["spec", "quality", "architecture", "security"]
+STATE_REVIEW_KEYS = ["spec", "quality", "architecture", "test", "security"]
 
 PR_TEMPLATE_SECTIONS = [
-    "## Target Branch",
-    "## Type of Change",
+    "## Target branch",
     "## Summary",
-    "## Related Issues",
-    "## Changes",
-    "## Affected Layers",
-    "## System Impact",
-    "## Architectural Compliance",
-    "## Testing",
-    "## Code Quality",
-    "## Documentation",
-    "## Breaking Changes",
-    "## Deployment Considerations",
-    "## Security Implications",
-    "## Performance Impact",
-    "## Screenshots",
-    "## Reviewer Notes",
+    "## Spec",
+    "## Crates touched",
+    "## Test plan",
+    "## Breaking change?",
+    "## Checklist",
+]
+
+# Phrases that must NOT appear — residue from the omnifol port.
+FORBIDDEN_PHRASES = [
+    "omnifol",
+    "omniscript",
+    "@omnifol",
+    "trpc-procedure",
+    "ui-component",
+    "hook-query",
+    "trading-domain-expert",
+    "omniscript-domain-expert",
+    "database-migration",
+    "pnpm typecheck",
+    "pnpm lint",
+    "pnpm --filter",
+    "--base dev",
+    "target dev",
+    "git checkout dev",
 ]
 
 
 def check_files(errors: list[str]) -> None:
     for path in REQUIRED_FILES:
         if not path.exists():
-            errors.append(f"missing required file: {path}")
+            errors.append(f"missing required file: {path.relative_to(WORKSPACE_ROOT)}")
 
 
 def check_plan_template(errors: list[str]) -> None:
@@ -130,10 +139,14 @@ def check_skill_md(errors: list[str]) -> None:
         "poll-pr",
         "cleanup-worktree",
         "<primary>-<type>-<slug>",
-        "security-auditor",
-        "spec-reviewer",
-        "code-quality-reviewer",
-        "architecture-validator",
+        "aram-devdocs/plumb",
+        "01-implementer",
+        "02-spec-reviewer",
+        "03-code-quality-reviewer",
+        "04-test-runner",
+        "05-architecture-validator",
+        "06-security-auditor",
+        "just validate",
         "/gh-review",
         "/gh-runbook",
         "humanizer",
@@ -152,6 +165,28 @@ def check_pr_template_asset(errors: list[str]) -> None:
     for section in PR_TEMPLATE_SECTIONS:
         if section not in content:
             errors.append(f"pr-body-template.md missing section: {section}")
+
+
+def check_forbidden_phrases(errors: list[str]) -> None:
+    # Skip this validator itself — FORBIDDEN_PHRASES above literally contains
+    # the patterns we're hunting for.
+    self_path = Path(__file__).resolve()
+    for path in SKILL_ROOT.rglob("*"):
+        if not path.is_file():
+            continue
+        if path.resolve() == self_path:
+            continue
+        if path.suffix not in {".md", ".py", ".json", ".yml", ".yaml"}:
+            continue
+        try:
+            content = path.read_text()
+        except UnicodeDecodeError:
+            continue
+        for phrase in FORBIDDEN_PHRASES:
+            if phrase.lower() in content.lower():
+                errors.append(
+                    f"omnifol residue: {path.relative_to(WORKSPACE_ROOT)} contains '{phrase}'"
+                )
 
 
 def check_script_help(errors: list[str]) -> None:
@@ -173,6 +208,7 @@ def main() -> None:
     check_state_template(errors)
     check_skill_md(errors)
     check_pr_template_asset(errors)
+    check_forbidden_phrases(errors)
     check_script_help(errors)
 
     if errors:

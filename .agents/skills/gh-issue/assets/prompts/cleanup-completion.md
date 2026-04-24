@@ -1,47 +1,49 @@
-# Cleanup and Completion Prompt
+# Cleanup and completion prompt
 
-CI has passed for PR #{{PR}}. Complete the gh-issue run for issue #{{PRIMARY}}.
+CI has passed for PR #{{PR}}. Complete the `/gh-issue` run for issue #{{PRIMARY}}.
 
 ## Steps
 
-### 1. Worktree Cleanup (if applicable)
+### 1. Worktree cleanup (if applicable)
 
 If the run used `--worktree`:
+
 ```bash
 python3 .agents/skills/gh-issue/scripts/gh_issue_run.py cleanup-worktree {{PRIMARY}} {{SLUG}}
 ```
 
-### 2. Return to dev
+### 2. Return to main
 
 ```bash
-git checkout dev && git pull origin dev
+git checkout main && git pull origin main
 ```
 
-### 3. Mark Done
+### 3. Mark done
 
 ```bash
 python3 .agents/skills/gh-issue/scripts/gh_issue_run.py update-state {{PRIMARY}} {{SLUG}} --phase done
 ```
 
-### 4. Final Report
+### 4. Final report
 
 Provide a summary:
 
 ```
-## Run Complete: Issue #{{PRIMARY}}
+## Run complete: issue #{{PRIMARY}}
 
-PR: #{{PR}} - <title>
+PR: #{{PR}} — <title>
 Branch: {{BRANCH}}
 Issues addressed: {{ISSUES}}
 
 Commits:
-<list commit SHAs and messages>
+<list commit SHAs + subjects>
 
 Review gates:
-- spec-reviewer: pass
-- code-quality-reviewer: pass
-- architecture-validator: pass
-- security-auditor: <pass | not_required>
+- 02-spec-reviewer: pass
+- 03-code-quality-reviewer: pass
+- 05-architecture-validator: pass
+- 04-test-runner: pass
+- 06-security-auditor: <pass | not_required>
 
 CI: passed
 Status: merged / awaiting merge
@@ -49,6 +51,7 @@ Status: merged / awaiting merge
 
 ## Notes
 
-- The run directory `.agents/runs/gh-issue/{{PRIMARY}}-{{SLUG}}/` is preserved for audit
-- The `.agents/runs/` directory is git-ignored, state is local only
-- If the PR is not auto-merged, remind the user to merge via GitHub
+- The run directory `.agents/runs/gh-issue/{{PRIMARY}}-{{SLUG}}/` is preserved for audit.
+- `.agents/runs/*/` is gitignored; state is local only.
+- If the PR has not auto-merged, remind the user to merge via GitHub.
+- If this issue was part of a runbook batch, check whether the batch is complete (all sibling PRs merged) before unblocking the next batch in `docs/runbooks/<phase>-spec.yaml`.
