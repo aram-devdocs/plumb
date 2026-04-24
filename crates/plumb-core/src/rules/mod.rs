@@ -10,6 +10,7 @@
 
 pub mod placeholder;
 pub mod spacing;
+pub mod type_;
 
 mod util;
 
@@ -54,6 +55,7 @@ pub fn register_builtin() -> Vec<Box<dyn Rule>> {
             Box::new(placeholder::HelloWorld),
             Box::new(spacing::grid_conformance::GridConformance),
             Box::new(spacing::scale_conformance::ScaleConformance),
+            Box::new(type_::scale_conformance::ScaleConformance),
         ]
     }
 }
