@@ -1,0 +1,176 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://plumb.dev/schemas/runbook-spec.json",
+  "title": "Plumb runbook spec",
+  "description": "Describes one parent tracking issue plus its child workstreams, grouped into sequential batches with a phase gate. Consumed by /gh-runbook to generate issue drafts.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "name", "repo", "parent", "batches", "phase_gate"],
+  "properties": {
+    "schema": {
+      "type": "string",
+      "const": "https://plumb.dev/schemas/runbook-spec.json"
+    },
+    "name": {
+      "type": "string",
+      "maxLength": 120
+    },
+    "phase_number": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 7
+    },
+    "repo": {
+      "type": "string",
+      "pattern": "^[^/]+/[^/]+$"
+    },
+    "parent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title", "labels", "summary", "acceptance_criteria"],
+      "properties": {
+        "title": { "type": "string", "maxLength": 200 },
+        "labels": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" }
+        },
+        "milestone": { "type": "string" },
+        "summary": { "type": "string" },
+        "acceptance_criteria": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" }
+        },
+        "related_prd_sections": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "batches": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/definitions/batch" }
+    },
+    "phase_gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["criterion"],
+      "properties": {
+        "criterion": { "type": "string" },
+        "unblocks": { "type": "string" }
+      }
+    }
+  },
+  "definitions": {
+    "batch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "description", "parallel", "issues"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Z0-9]+$",
+          "maxLength": 6
+        },
+        "description": { "type": "string", "maxLength": 160 },
+        "parallel": { "type": "boolean" },
+        "depends_on_batch": {
+          "oneOf": [
+            { "type": "string" },
+            {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          ]
+        },
+        "issues": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": { "$ref": "#/definitions/issue" }
+        }
+      }
+    },
+    "issue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["slug", "title", "labels", "effort", "summary", "acceptance_criteria", "reviewers"],
+      "properties": {
+        "slug": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$",
+          "maxLength": 80
+        },
+        "title": {
+          "type": "string",
+          "pattern": "^(feat|fix|refactor|docs|test|chore|perf|ci|build|style|revert)(\\([a-zA-Z0-9/_-]+\\))?: .+",
+          "maxLength": 200
+        },
+        "labels": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" }
+        },
+        "crate": {
+          "type": "string",
+          "enum": [
+            "plumb-core",
+            "plumb-format",
+            "plumb-cdp",
+            "plumb-config",
+            "plumb-mcp",
+            "plumb-cli",
+            "xtask",
+            "docs",
+            "ci",
+            "deps",
+            "release"
+          ]
+        },
+        "effort": {
+          "type": "string",
+          "enum": ["XS", "S", "M", "L", "XL"]
+        },
+        "prd_refs": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "summary": { "type": "string" },
+        "acceptance_criteria": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" }
+        },
+        "dependencies": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "reviewers": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "enum": [
+              "01-implementer",
+              "02-spec-reviewer",
+              "03-code-quality-reviewer",
+              "04-test-runner",
+              "05-architecture-validator",
+              "06-security-auditor",
+              "07-debugger",
+              "08-rule-author",
+              "09-mcp-tool-author",
+              "10-quick-fix"
+            ]
+          }
+        },
+        "suggested_delivery": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    }
+  }
+}

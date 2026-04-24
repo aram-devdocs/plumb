@@ -2,7 +2,21 @@
 
 {{SUMMARY}}
 
-## Acceptance Criteria
+## Crate / area
+
+**{{CRATE}}** — {{CRATE_ROLE}}
+
+## Phase / batch
+
+Part of **{{PARENT_ISSUE}}** → Batch `{{BATCH_ID}}` ({{BATCH_DESCRIPTION}}).
+
+Effort: **{{EFFORT}}**
+
+## PRD references
+
+{{PRD_REFS}}
+
+## Acceptance criteria
 
 {{ACCEPTANCE_CRITERIA}}
 
@@ -10,10 +24,12 @@
 
 {{DEPENDENCIES}}
 
-## Effort Estimate
+## Review gates
 
-{{EFFORT}}
+{{REVIEWERS}}
 
-## Implementation Notes
+## How to deliver
 
-{{IMPLEMENTATION_NOTES}}
+Dispatch `/gh-issue <this-issue-number>`. See the root `AGENTS.md` and the scoped `{{CRATE}}/AGENTS.md` for the invariants that apply.
+
+Suggested delivery: {{SUGGESTED_DELIVERY}}

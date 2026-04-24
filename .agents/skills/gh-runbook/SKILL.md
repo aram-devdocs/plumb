@@ -1,62 +1,109 @@
 ---
 name: gh-runbook
-description: Convert an Omnifol audit or research report into a parent runbook issue, grouped workstream issue drafts, a manifest, and a dry-run gh CLI creation script. Uses the repo structured task format and reuses issue-enrichment conventions for acceptance criteria, dependencies, effort, and milestone suggestions.
+description: Convert a Plumb runbook spec (YAML) into a parent tracking issue plus grouped child workstream issues organized into sequential batches with phase gates. Generates markdown drafts and an idempotent `gh issue create` script; never creates GitHub issues without explicit approval.
 user_invocable: true
 ---
 
-# /gh-runbook - Audit to Issue Runbook
+# /gh-runbook — spec-driven runbook generator
 
-Turn a report into a release runbook with grouped GitHub issues instead of one issue per finding.
+Turn a PRD-phase spec into a parent tracking issue + N child workstream issues + an idempotent `gh issue create` script. Target repo: `aram-devdocs/plumb`.
+
+Use `/gh-issue` afterwards to drive each child issue through the delivery lifecycle.
 
 ## Usage
 
 ```bash
-/gh-runbook reports/ui-audit/2026-04-23/omnifol-release-ui-ux-audit.md --dry-run
-/gh-runbook /absolute/path/to/report.md --dry-run
+/gh-runbook docs/runbooks/phase-1-spec.yaml --dry-run
+/gh-runbook docs/runbooks/phase-1-spec.yaml --output-dir .agents/runs/gh-runbook/phase-1/
+/gh-runbook docs/runbooks/roadmap-spec.yaml --output-dir .agents/runs/gh-runbook/roadmap/
+```
+
+The underlying script:
+
+```bash
+python3 .agents/skills/gh-runbook/scripts/generate_runbook.py \
+    docs/runbooks/phase-1-spec.yaml \
+    --output-dir .agents/runs/gh-runbook/phase-1/ \
+    --dry-run
 ```
 
 ## Workflow
 
-1. Read the source report.
-2. Read `.github/ISSUE_TEMPLATE/structured-task.yml`.
-3. Reuse Omnifol issue-enrichment conventions:
-   - acceptance criteria
-   - dependency notes
-   - effort labels
-   - milestone suggestions
-4. Generate drafts with:
-   ```bash
-   python3 .agents/skills/gh-runbook/scripts/generate_runbook.py <report> --dry-run --output-dir /tmp/gh-runbook
-   ```
-5. Review the output:
-   - `manifest.json`
-   - `runbook-summary.md`
-   - parent issue draft
-   - child issue drafts
-   - `create-issues.sh`
-6. Present the drafts and script to the user. Do not create issues without approval.
+1. Read the spec YAML. Validate it against `schemas/runbook-spec.json` (via `cargo xtask validate-runbooks` if available, or via the generator's `--validate-only` mode).
+2. Render the parent issue body from `assets/parent-issue-template.md` with all batches laid out as sub-sections.
+3. Render one child issue body per child from `assets/child-issue-template.md`.
+4. Emit `manifest.json`, `summary.md`, `create-issues.sh` in the output directory.
+5. Review `summary.md`.
+6. Only execute `create-issues.sh` after approval — it creates the real GitHub issues and updates the parent body with real issue numbers.
 
-## Default topology
+## Spec schema
 
-The first-pass Omnifol audit uses grouped workstreams defined in `references/workstream-topology.md`:
+See `references/spec-format.md` for the full YAML grammar. A minimal skeleton:
 
-1. parent release-readiness runbook
-2. trading / export correctness
-3. trading safety and order-entry gating
-4. DLQ / schema incident resolution
-5. admin orchestration health or hide
-6. onboarding / help / what's-new consolidation
-7. feedback / support / bug-report consolidation
-8. dashboard / analytics scope rationalization
-9. auth invite / token fallback states
-10. Storybook runtime gate and page-state coverage
-11. launch-scope cleanup and admin IA follow-up
+```yaml
+schema: https://plumb.dev/schemas/runbook-spec.json
+name: "Phase N — <headline>"
+phase_number: N
+repo: aram-devdocs/plumb
+
+parent:
+  title: "[RUNBOOK] Phase N — <headline>"
+  labels: [phase-N, kind:rfc]
+  milestone: "v0.N"
+  summary: |
+    <1–3 paragraph description>
+  acceptance_criteria:
+    - <objective gate for unlocking next phase>
+  related_prd_sections: ["§10.3"]
+
+batches:
+  - id: "NA"
+    description: "Foundation — independent, parallel"
+    parallel: true
+    issues:
+      - slug: cdp-chromium-launch
+        title: "feat(cdp): Chromium detection, launch, BYO-Chromium"
+        labels: ["area:cdp", "kind:feat", "phase-N"]
+        crate: plumb-cdp
+        effort: M
+        prd_refs: ["§10.6"]
+        summary: |
+          <purpose>
+        acceptance_criteria:
+          - bullet 1
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "06-security-auditor"]
+
+phase_gate:
+  criterion: |
+    `just validate` passes AND <phase-specific check>.
+  unblocks: "phase-(N+1)"
+```
+
+## Batches and gates
+
+- **Issues inside a batch** are parallel-dispatch safe — disjoint file scope, no cross-dep.
+- **Batches are sequential** — a batch cannot start until its `depends_on_batch` chain is merged.
+- **Phase gate** is a single objective criterion that must hold before the next phase unlocks.
+
+## Outputs
+
+Each run writes:
+
+| File | Purpose |
+|------|---------|
+| `00-parent-<slug>.md` | Parent issue body with batch sub-sections + phase-gate text. |
+| `NN-<batch>-<slug>.md` | One per child. Frontmatter: `title`, `labels`, `milestone`, `batch`, `reviewers`. |
+| `manifest.json` | Full metadata keyed by slug. |
+| `summary.md` | Human-readable TOC. |
+| `create-issues.sh` | Idempotent `gh issue create` + parent-body rewrite. |
+
+Run `create-issues.sh --dry-run` to see the planned `gh` commands without executing them.
 
 ## Rules
 
-- Dry run is the default; only generate drafts and scripts.
-- Group findings into workstreams with clear ownership and dependencies.
-- Use the structured issue body shape from `.github/ISSUE_TEMPLATE/structured-task.yml`.
-- Prefer existing labels and milestones when they already exist in GitHub.
-- If the report cites prior issues or PRs, note whether the new issue is follow-up work or a net-new tracking item.
-- Keep generated output outside git unless the user explicitly asks to save it in the repo.
+- **Dry-run is the default.** The generator emits markdown + a script; it never touches GitHub directly.
+- **Output lives under `.agents/runs/gh-runbook/<phase>/`** — gitignored. Specs go under `docs/runbooks/` and ARE committed.
+- **Re-running is safe**: the generator refuses to overwrite an existing output dir without `--force`. `create-issues.sh` is idempotent via the manifest.
+- **No intra-batch dependencies.** If A must land before B, they go in different batches.
+- **Every child issue names its reviewers.** Default is the four Plumb gates. Add `06-security-auditor` for `plumb-cdp` / `plumb-mcp` / URL / dep changes.
+- **Labels include `phase-N`** so runbook progress is trivially queryable: `gh issue list --repo aram-devdocs/plumb --label phase-1 --state open`.

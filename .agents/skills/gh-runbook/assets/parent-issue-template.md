@@ -2,22 +2,33 @@
 
 {{SUMMARY}}
 
-## Acceptance Criteria
+## PRD references
+
+{{PRD_REFS}}
+
+## Acceptance criteria
 
 {{ACCEPTANCE_CRITERIA}}
 
-## Dependencies
+## Batches
 
-{{DEPENDENCIES}}
+{{BATCHES}}
 
-## Effort Estimate
+## Phase gate
 
-{{EFFORT}}
+{{PHASE_GATE_CRITERION}}
 
-## Implementation Notes
+**Unblocks:** {{UNBLOCKS}}
 
-{{IMPLEMENTATION_NOTES}}
+## How to execute
 
-### Child Workstreams
+1. Create GitHub milestone `{{MILESTONE}}` if it doesn't already exist.
+2. Run `bash create-issues.sh` from this directory to create all child issues.
+3. Dispatch `/gh-issue <child-number>` for each batch in order; sessions within a batch run in parallel.
+4. Close this parent issue when every child is merged and the phase gate holds.
 
-{{CHILD_ISSUES}}
+## Generated
+
+- Generated at: {{GENERATED_AT}}
+- Source spec: `{{SPEC_PATH}}`
+- Repo: `{{REPO}}`
