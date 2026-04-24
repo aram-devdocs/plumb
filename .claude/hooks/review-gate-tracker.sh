@@ -9,6 +9,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/_lib.sh"
 
 input="$(hook_read_input)"
+hook_init "$input"
 transcript="$(printf '%s' "$input" | jq -r '.transcript_path // empty' 2>/dev/null || true)"
 subagent="$(printf '%s' "$input" | jq -r '.subagent // empty' 2>/dev/null || true)"
 

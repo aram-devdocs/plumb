@@ -6,6 +6,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/_lib.sh"
 
+input="$(hook_read_input)"
+hook_init "$input"
+
 if [ ! -d "$HOOK_STATE_DIR" ]; then
     exit 0
 fi
