@@ -99,9 +99,9 @@ fn schema_uses_prd_names_and_drops_old_aliases() {
     assert!(properties.contains_key("type"));
     assert!(!properties.contains_key("type_scale"));
 
-    let definitions = schema_json["definitions"]
+    let definitions = schema_json["$defs"]
         .as_object()
-        .expect("schema definitions should be an object");
+        .expect("schema $defs should be an object");
     let spacing_props = definitions["SpacingSpec"]["properties"]
         .as_object()
         .expect("spacing properties should be an object");

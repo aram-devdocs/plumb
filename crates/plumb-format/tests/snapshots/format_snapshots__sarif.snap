@@ -1,14 +1,27 @@
 ---
 source: crates/plumb-format/tests/format_snapshots.rs
+assertion_line: 27
 expression: out
 ---
 {
   "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "version": "2.1.0",
   "runs": [
     {
+      "tool": {
+        "driver": {
+          "name": "plumb",
+          "informationUri": "https://plumb.aramhammoudeh.com",
+          "rules": []
+        }
+      },
       "results": [
         {
+          "ruleId": "placeholder/hello-world",
           "level": "warning",
+          "message": {
+            "text": "`body` has off-scale padding 13px; expected a value from the spacing token set."
+          },
           "locations": [
             {
               "logicalLocations": [
@@ -18,28 +31,16 @@ expression: out
                 }
               ],
               "properties": {
-                "domOrder": 2,
-                "viewport": "desktop"
+                "viewport": "desktop",
+                "domOrder": 2
               }
             }
           ],
-          "message": {
-            "text": "`body` has off-scale padding 13px; expected a value from the spacing token set."
-          },
           "properties": {
             "docUrl": "https://plumb.aramhammoudeh.com/rules/placeholder-hello-world"
-          },
-          "ruleId": "placeholder/hello-world"
+          }
         }
-      ],
-      "tool": {
-        "driver": {
-          "informationUri": "https://plumb.aramhammoudeh.com",
-          "name": "plumb",
-          "rules": []
-        }
-      }
+      ]
     }
-  ],
-  "version": "2.1.0"
+  ]
 }

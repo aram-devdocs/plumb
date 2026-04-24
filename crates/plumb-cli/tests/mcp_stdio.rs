@@ -54,9 +54,9 @@ fn send_and_read(requests: Vec<Value>) -> Vec<Value> {
         if trimmed.is_empty() {
             continue;
         }
-        match serde_json::from_str::<Value>(trimmed) {
-            Ok(v) => responses.push(v),
-            Err(_) => continue, // log lines from tracing
+        if let Ok(v) = serde_json::from_str::<Value>(trimmed) {
+            // log lines from tracing are skipped silently
+            responses.push(v);
         }
     }
 

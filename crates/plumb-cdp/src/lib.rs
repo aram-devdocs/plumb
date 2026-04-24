@@ -246,10 +246,10 @@ impl ChromiumSession {
 
     async fn abort_handler(&mut self) {
         self.handler_task.abort();
-        if let Err(join_err) = (&mut self.handler_task).await {
-            if !join_err.is_cancelled() {
-                tracing::debug!(error = %join_err, "Chromium handler task failed");
-            }
+        if let Err(join_err) = (&mut self.handler_task).await
+            && !join_err.is_cancelled()
+        {
+            tracing::debug!(error = %join_err, "Chromium handler task failed");
         }
     }
 }

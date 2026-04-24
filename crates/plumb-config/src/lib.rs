@@ -59,7 +59,7 @@ pub enum ConfigError {
         path: String,
         /// Underlying parse error.
         #[source]
-        source: ConfigParseSource,
+        source: Box<ConfigParseSource>,
         /// Source text for span-annotated diagnostics.
         #[source_code]
         source_code: Option<NamedSource<String>>,
@@ -109,7 +109,7 @@ fn extract_config(figment: &Figment, path: &Path) -> Result<Config, ConfigError>
         .extract::<Config>()
         .map_err(|source| ConfigError::Parse {
             path: config_error_path(&source).unwrap_or_else(|| path.display().to_string()),
-            source: ConfigParseSource::Figment(source),
+            source: Box::new(ConfigParseSource::Figment(source)),
             source_code: None,
             span: None,
         })
@@ -125,7 +125,7 @@ fn load_toml(path: &Path) -> Result<Config, ConfigError> {
         let span = source.span().and_then(source_span);
         ConfigError::Parse {
             path: path.display().to_string(),
-            source: ConfigParseSource::Toml(source),
+            source: Box::new(ConfigParseSource::Toml(source)),
             source_code: Some(
                 NamedSource::new(path.display().to_string(), contents).with_language("toml"),
             ),

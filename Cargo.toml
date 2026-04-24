@@ -60,7 +60,7 @@ toml = "1"
 serde_yaml = "0.9"
 
 # Schema emission.
-schemars = { version = "0.8", features = ["indexmap2", "preserve_order"] }
+schemars = { version = "1", features = ["indexmap2", "preserve_order"] }
 
 # Config loading.
 figment = { version = "0.10", features = ["toml", "yaml", "json", "env"] }

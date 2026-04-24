@@ -1,39 +1,40 @@
 ---
 source: crates/plumb-format/tests/format_snapshots.rs
+assertion_line: 34
 expression: structured
 ---
 {
-  "counts": {
-    "error": 0,
-    "info": 0,
-    "total": 1,
-    "warning": 1
-  },
   "violations": [
     {
-      "doc_url": "https://plumb.aramhammoudeh.com/rules/placeholder-hello-world",
+      "rule_id": "placeholder/hello-world",
+      "severity": "warning",
+      "message": "`body` has off-scale padding 13px; expected a value from the spacing token set.",
+      "selector": "html > body",
+      "viewport": "desktop",
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 1280,
+        "height": 800
+      },
       "dom_order": 2,
       "fix": {
-        "confidence": "medium",
-        "description": "Snap `body` padding to the nearest spacing token (16px).",
         "kind": {
-          "from": "13px",
           "kind": "css_property_replace",
           "property": "padding",
+          "from": "13px",
           "to": "16px"
-        }
+        },
+        "description": "Snap `body` padding to the nearest spacing token (16px).",
+        "confidence": "medium"
       },
-      "message": "`body` has off-scale padding 13px; expected a value from the spacing token set.",
-      "rect": {
-        "height": 800,
-        "width": 1280,
-        "x": 0,
-        "y": 0
-      },
-      "rule_id": "placeholder/hello-world",
-      "selector": "html > body",
-      "severity": "warning",
-      "viewport": "desktop"
+      "doc_url": "https://plumb.aramhammoudeh.com/rules/placeholder-hello-world"
     }
-  ]
+  ],
+  "counts": {
+    "error": 0,
+    "warning": 1,
+    "info": 0,
+    "total": 1
+  }
 }
