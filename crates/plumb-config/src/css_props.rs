@@ -779,8 +779,13 @@ fn strip_inline_comments(value: &str) -> String {
     let bytes = value.as_bytes();
     let mut out = String::with_capacity(value.len());
     let mut i = 0;
+    let mut run_start = 0;
     while i < bytes.len() {
         if i + 1 < bytes.len() && bytes[i] == b'/' && bytes[i + 1] == b'*' {
+            // Flush the non-comment run as a UTF-8 string slice rather than
+            // pushing bytes one at a time — bytes[i] as char would corrupt
+            // multi-byte codepoints (e.g. unicode font names).
+            out.push_str(&value[run_start..i]);
             i += 2;
             while i + 1 < bytes.len() && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
                 i += 1;
@@ -788,13 +793,14 @@ fn strip_inline_comments(value: &str) -> String {
             if i + 1 < bytes.len() {
                 i += 2;
             } else {
-                break;
+                i = bytes.len();
             }
+            run_start = i;
         } else {
-            out.push(bytes[i] as char);
             i += 1;
         }
     }
+    out.push_str(&value[run_start..]);
     out.trim().to_owned()
 }
 
