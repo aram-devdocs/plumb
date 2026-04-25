@@ -77,6 +77,16 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 indexmap = { version = "2", features = ["serde"] }
 ahash = "0.8"
 
+# Subprocess discovery (Tailwind adapter).
+which = "8"
+
+# Content hashing (Tailwind cache key).
+sha2 = "0.10"
+
+# Path canonicalization that strips `\\?\` UNC prefix on Windows
+# (Tailwind adapter — node's `require()` doesn't handle the prefix).
+dunce = "1"
+
 # Color distance (CIEDE2000, D65).
 palette = { version = "0.7", default-features = false, features = ["std"] }
 
