@@ -1363,6 +1363,7 @@ dependencies = [
 name = "plumb-config"
 version = "0.0.1"
 dependencies = [
+ "dunce",
  "figment",
  "indexmap",
  "miette",

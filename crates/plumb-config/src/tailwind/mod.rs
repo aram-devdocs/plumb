@@ -178,7 +178,7 @@ fn validate_config_path(path: &Path, cwd_override: Option<&Path>) -> Result<Path
             ),
         });
     }
-    let canonical = std::fs::canonicalize(path).map_err(|err| ConfigError::TailwindBadPath {
+    let canonical = dunce::canonicalize(path).map_err(|err| ConfigError::TailwindBadPath {
         path: path.display().to_string(),
         reason: format!("could not resolve path: {err}"),
     })?;
@@ -197,7 +197,7 @@ fn validate_config_path(path: &Path, cwd_override: Option<&Path>) -> Result<Path
             reason: format!("could not read current working directory: {err}"),
         })?
     };
-    let cwd_canonical = std::fs::canonicalize(&cwd).unwrap_or(cwd);
+    let cwd_canonical = dunce::canonicalize(&cwd).unwrap_or(cwd);
 
     if !is_under_or_ancestor(&canonical, &cwd_canonical) {
         return Err(ConfigError::TailwindBadPath {
