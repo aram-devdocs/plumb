@@ -16,7 +16,7 @@ use plumb_cdp::{BrowserDriver, ChromiumDriver, ChromiumOptions, FakeDriver, Targ
 use plumb_core::{Config, Severity, ViewportKey};
 use thiserror::Error;
 
-use crate::commands::OutputFormat;
+use crate::commands::{OutputFormat, selector as selector_filter};
 
 /// CLI-side errors that never need to leak across the
 /// `commands::lint` boundary. Bubbles up to `main` via `anyhow::Error`,
@@ -50,8 +50,9 @@ pub async fn run(
     executable_path: Option<PathBuf>,
     format: OutputFormat,
     viewports: Vec<String>,
+    selector: Option<String>,
 ) -> Result<ExitCode> {
-    tracing::debug!(url = %url, format = %format, viewports = ?viewports, "lint");
+    tracing::debug!(url = %url, format = %format, viewports = ?viewports, selector = ?selector, "lint");
 
     let config = load_config(config_path.as_deref())?;
     let targets = resolve_targets(&url, &config, &viewports).map_err(anyhow::Error::from)?;
@@ -71,6 +72,20 @@ pub async fn run(
             .snapshot_all(targets)
             .await
             .map_err(anyhow::Error::from)?
+    };
+
+    // PRD §15.4 — apply `--selector` between snapshot collection and
+    // rule dispatch. Per-snapshot: any viewport whose subtree has no
+    // matches surfaces as a CLI / infrastructure error (exit 2) so
+    // "filter ran, no violations" stays distinct from "filter failed".
+    let snapshots = if let Some(sel) = selector.as_deref() {
+        snapshots
+            .into_iter()
+            .map(|snap| selector_filter::filter_snapshot(snap, sel))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(anyhow::Error::from)?
+    } else {
+        snapshots
     };
 
     let violations = plumb_core::run_many(snapshots.iter(), &config);
