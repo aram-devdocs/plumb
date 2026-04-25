@@ -44,6 +44,7 @@ gutter_px = 24
 [a11y]
 min_contrast_ratio = 4.5
 
-# Example per-rule overrides. The placeholder rule is enabled by default.
-# [rules."placeholder/hello-world"]
+# Example per-rule overrides. Every rule is enabled by default.
+# [rules."spacing/grid-conformance"]
 # enabled = false
+# severity = "error"

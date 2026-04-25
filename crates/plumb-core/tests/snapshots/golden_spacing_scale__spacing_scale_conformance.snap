@@ -1,0 +1,106 @@
+---
+source: crates/plumb-core/tests/golden_spacing_scale.rs
+expression: json
+---
+[
+  {
+    "rule_id": "spacing/scale-conformance",
+    "severity": "warning",
+    "message": "`html > body > div:nth-child(2)` has off-scale margin-right 20px; expected a value from spacing.scale.",
+    "selector": "html > body > div:nth-child(2)",
+    "viewport": "desktop",
+    "rect": {
+      "x": 0,
+      "y": 100,
+      "width": 200,
+      "height": 100
+    },
+    "dom_order": 3,
+    "fix": {
+      "kind": {
+        "kind": "css_property_replace",
+        "property": "margin-right",
+        "from": "20px",
+        "to": "16px"
+      },
+      "description": "Snap `margin-right` to the nearest spacing-scale value (16px).",
+      "confidence": "medium"
+    },
+    "doc_url": "https://plumb.aramhammoudeh.com/rules/spacing-scale-conformance"
+  },
+  {
+    "rule_id": "spacing/scale-conformance",
+    "severity": "warning",
+    "message": "`html > body > div:nth-child(2)` has off-scale padding-bottom 36px; expected a value from spacing.scale.",
+    "selector": "html > body > div:nth-child(2)",
+    "viewport": "desktop",
+    "rect": {
+      "x": 0,
+      "y": 100,
+      "width": 200,
+      "height": 100
+    },
+    "dom_order": 3,
+    "fix": {
+      "kind": {
+        "kind": "css_property_replace",
+        "property": "padding-bottom",
+        "from": "36px",
+        "to": "32px"
+      },
+      "description": "Snap `padding-bottom` to the nearest spacing-scale value (32px).",
+      "confidence": "medium"
+    },
+    "doc_url": "https://plumb.aramhammoudeh.com/rules/spacing-scale-conformance"
+  },
+  {
+    "rule_id": "spacing/scale-conformance",
+    "severity": "warning",
+    "message": "`html > body > div:nth-child(3)` has off-scale gap 40px; expected a value from spacing.scale.",
+    "selector": "html > body > div:nth-child(3)",
+    "viewport": "desktop",
+    "rect": {
+      "x": 0,
+      "y": 200,
+      "width": 200,
+      "height": 100
+    },
+    "dom_order": 4,
+    "fix": {
+      "kind": {
+        "kind": "css_property_replace",
+        "property": "gap",
+        "from": "40px",
+        "to": "32px"
+      },
+      "description": "Snap `gap` to the nearest spacing-scale value (32px).",
+      "confidence": "medium"
+    },
+    "doc_url": "https://plumb.aramhammoudeh.com/rules/spacing-scale-conformance"
+  },
+  {
+    "rule_id": "spacing/scale-conformance",
+    "severity": "warning",
+    "message": "`html > body > div:nth-child(3)` has off-scale row-gap 28px; expected a value from spacing.scale.",
+    "selector": "html > body > div:nth-child(3)",
+    "viewport": "desktop",
+    "rect": {
+      "x": 0,
+      "y": 200,
+      "width": 200,
+      "height": 100
+    },
+    "dom_order": 4,
+    "fix": {
+      "kind": {
+        "kind": "css_property_replace",
+        "property": "row-gap",
+        "from": "28px",
+        "to": "24px"
+      },
+      "description": "Snap `row-gap` to the nearest spacing-scale value (24px).",
+      "confidence": "medium"
+    },
+    "doc_url": "https://plumb.aramhammoudeh.com/rules/spacing-scale-conformance"
+  }
+]

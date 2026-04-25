@@ -1,32 +1,13 @@
-//! Golden snapshot of the walking-skeleton engine run.
+//! Contract tests for the `SnapshotCtx` API.
 //!
-//! Proves `engine::run` produces deterministic, sorted output given the
-//! canned snapshot + default config.
+//! These tests landed alongside the walking-skeleton golden in an earlier
+//! revision. They exercise the `SnapshotCtx` constructors and the
+//! `rect_for` lookup directly — every rule author depends on this surface,
+//! so it deserves its own home rather than riding along with whichever
+//! golden test happens to use `PlumbSnapshot::canned()`.
 
-use plumb_core::{Config, PlumbSnapshot, Rect, SnapshotCtx, ViewportKey, run};
-
-#[test]
-fn hello_world_golden() -> Result<(), serde_json::Error> {
-    let snapshot = PlumbSnapshot::canned();
-    let config = Config::default();
-    let violations = run(&snapshot, &config);
-
-    let json = serde_json::to_string_pretty(&violations)?;
-    insta::assert_snapshot!("hello_world", json);
-    Ok(())
-}
-
-#[test]
-fn engine_run_is_deterministic() -> Result<(), serde_json::Error> {
-    let snapshot = PlumbSnapshot::canned();
-    let config = Config::default();
-    let a = serde_json::to_string_pretty(&run(&snapshot, &config))?;
-    let b = serde_json::to_string_pretty(&run(&snapshot, &config))?;
-    let c = serde_json::to_string_pretty(&run(&snapshot, &config))?;
-    assert_eq!(a, b);
-    assert_eq!(b, c);
-    Ok(())
-}
+use plumb_core::report::Rect;
+use plumb_core::{PlumbSnapshot, SnapshotCtx, ViewportKey};
 
 #[test]
 fn snapshot_ctx_new_exposes_snapshot_viewport() {

@@ -1,0 +1,56 @@
+---
+source: crates/plumb-core/tests/golden_type_scale.rs
+expression: json
+---
+[
+  {
+    "rule_id": "type/scale-conformance",
+    "severity": "warning",
+    "message": "`html > body > div:nth-child(2)` has off-scale font-size 15px; expected a value from type.scale.",
+    "selector": "html > body > div:nth-child(2)",
+    "viewport": "desktop",
+    "rect": {
+      "x": 0,
+      "y": 24,
+      "width": 200,
+      "height": 24
+    },
+    "dom_order": 3,
+    "fix": {
+      "kind": {
+        "kind": "css_property_replace",
+        "property": "font-size",
+        "from": "15px",
+        "to": "14px"
+      },
+      "description": "Snap `font-size` to the nearest type-scale value (14px).",
+      "confidence": "medium"
+    },
+    "doc_url": "https://plumb.aramhammoudeh.com/rules/type-scale-conformance"
+  },
+  {
+    "rule_id": "type/scale-conformance",
+    "severity": "warning",
+    "message": "`html > body > div:nth-child(3)` has off-scale font-size 22px; expected a value from type.scale.",
+    "selector": "html > body > div:nth-child(3)",
+    "viewport": "desktop",
+    "rect": {
+      "x": 0,
+      "y": 48,
+      "width": 200,
+      "height": 32
+    },
+    "dom_order": 4,
+    "fix": {
+      "kind": {
+        "kind": "css_property_replace",
+        "property": "font-size",
+        "from": "22px",
+        "to": "20px"
+      },
+      "description": "Snap `font-size` to the nearest type-scale value (20px).",
+      "confidence": "medium"
+    },
+    "doc_url": "https://plumb.aramhammoudeh.com/rules/type-scale-conformance"
+  }
+]

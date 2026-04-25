@@ -1,9 +1,9 @@
 //! Config schema — the shape of `plumb.toml`.
 //!
 //! The real fields are spelled out in `docs/local/prd.md` §12.2. The
-//! walking skeleton defines the full shape (so the JSON Schema emitted by
-//! `plumb schema` is stable across PRs) even though most fields are unused
-//! by the single placeholder rule.
+//! full shape is defined up front (so the JSON Schema emitted by
+//! `plumb schema` is stable across PRs) even though most fields are
+//! unused by the rules that have shipped so far.
 
 use indexmap::IndexMap;
 use schemars::JsonSchema;

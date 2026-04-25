@@ -14,18 +14,17 @@ if [ -z "$transcript_path" ] || [ ! -f "$transcript_path" ]; then
     exit 0
 fi
 
-# Read the subagent's last assistant message. Transcripts are JSONL with
-# one message per line; the final assistant line is what we care about.
-last_assistant="$(tac "$transcript_path" \
-    | jq -r 'select(.type == "assistant") | .message.content[0].text // ""' \
-    | head -n 100 \
-    | head -n 1 || true)"
+# Read the subagent's last assistant message in full. Transcripts are
+# JSONL with one message per line; the verdict is conventionally the
+# final line of the latest assistant message, so we read the whole text
+# and grep its lines.
+last_assistant="$(jq -sr 'map(select(.type == "assistant") | .message.content[0].text // empty)[-1] // empty' "$transcript_path" 2>/dev/null || true)"
 
 if [ -z "$last_assistant" ]; then
     exit 0
 fi
 
-if printf '%s' "$last_assistant" | grep -Eq '^Verdict:[[:space:]]+(APPROVE|REQUEST_CHANGES|BLOCK)[[:space:]]*$'; then
+if printf '%s\n' "$last_assistant" | grep -Eq '^Verdict:[[:space:]]+(APPROVE|REQUEST_CHANGES|BLOCK)[[:space:]]*$'; then
     exit 0
 fi
 

@@ -23,8 +23,10 @@ fn run_many_collects_violations_from_every_snapshot() {
 
     let violations = run_many([&mobile, &desktop], &config);
 
-    // Placeholder rule emits exactly one violation per snapshot — we
-    // expect both viewports represented after sort + dedup.
+    // The canned snapshot's `body` carries `padding-top: 13px`, which
+    // is off-grid against the default `spacing.base_unit = 4`. Each
+    // snapshot produces exactly one violation; both viewports must be
+    // represented after sort + dedup.
     assert_eq!(violations.len(), 2);
 
     let viewports: Vec<&str> = violations.iter().map(|v| v.viewport.as_str()).collect();
@@ -46,8 +48,8 @@ fn run_many_sorts_by_rule_id_viewport_selector_dom_order() {
     assert_eq!(
         keys(&violations),
         vec![
-            ("placeholder/hello-world", "desktop", "html > body", 2_u64,),
-            ("placeholder/hello-world", "mobile", "html > body", 2_u64,),
+            ("spacing/grid-conformance", "desktop", "html > body", 2_u64,),
+            ("spacing/grid-conformance", "mobile", "html > body", 2_u64,),
         ],
     );
 }

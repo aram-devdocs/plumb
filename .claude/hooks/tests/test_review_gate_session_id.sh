@@ -124,4 +124,48 @@ pass "fallback (no session_id anywhere) shares stable 'current' id"
 
 cleanup_state "current"
 cleanup_state "$session_id"
+
+# --- Step 5: regression for the macOS portability + verdict-on-last-
+# line bug. Real reviewer responses are multi-line with `Verdict:` on
+# the final line; the tracker must extract the verdict from anywhere
+# in the latest assistant message, not just the first line. This case
+# also exercises the `tac`-less reversal path on BSD/macOS.
+multiline_transcript="$TMP_DIR/multiline-spec-transcript.jsonl"
+multiline_text="All key claims verified.\n\nPunch list:\n- placeholder retired\n- docs in place\n\nVerdict: APPROVE"
+jq -n --arg t "$(printf '%b' "$multiline_text")" '
+    [
+        {type: "user", message: {role: "user", content: "review"}},
+        {type: "assistant", message: {role: "assistant", content: [{type: "text", text: $t}]}}
+    ]
+    | .[]
+' >"$multiline_transcript"
+
+multiline_session_id="sess-test-multiline-$$"
+cleanup_state "$multiline_session_id"
+
+multiline_input="$(jq -n \
+    --arg sid "$multiline_session_id" \
+    --arg tp "$multiline_transcript" \
+    --arg cwd "$REPO_ROOT" \
+    --arg sub "02-spec-reviewer" \
+    '{session_id: $sid, transcript_path: $tp, cwd: $cwd, subagent: $sub}')"
+
+env -u CLAUDE_SESSION_ID \
+    CLAUDE_PROJECT_DIR="$REPO_ROOT" \
+    bash "$HOOKS_DIR/review-gate-tracker.sh" <<<"$multiline_input" >/dev/null
+
+multiline_gates_file="$STATE_DIR/${multiline_session_id}.review-gates"
+[ -f "$multiline_gates_file" ] || fail "tracker did not write $multiline_gates_file for multi-line response (verdict on last line)"
+grep -q 'spec=APPROVE' "$multiline_gates_file" || fail "tracker missed verdict on last line of multi-line response, got: $(cat "$multiline_gates_file")"
+pass "tracker extracts verdict from final line of multi-line response"
+
+# Validator must accept the same multi-line shape.
+validator_output="$(env -u CLAUDE_SESSION_ID \
+    CLAUDE_PROJECT_DIR="$REPO_ROOT" \
+    bash "$HOOKS_DIR/review-verdict-validator.sh" <<<"$multiline_input" || true)"
+decision="$(printf '%s' "$validator_output" | jq -r '.decision // empty' 2>/dev/null || true)"
+[ "$decision" != "block" ] || fail "validator wrongly blocked multi-line response with verdict on last line, got: $validator_output"
+pass "validator accepts multi-line response with verdict on last line"
+
+cleanup_state "$multiline_session_id"
 pass "all review-gate session id tests passed"

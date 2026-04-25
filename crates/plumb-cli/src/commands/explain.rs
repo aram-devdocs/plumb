@@ -1,8 +1,8 @@
 //! `plumb explain <rule>` — print the long-form documentation for a rule.
 //!
 //! Reads from `docs/src/rules/<slug>.md` relative to the binary or CWD.
-//! The rule id `placeholder/hello-world` maps to
-//! `docs/src/rules/placeholder-hello-world.md`.
+//! The rule id `spacing/grid-conformance` maps to
+//! `docs/src/rules/spacing-grid-conformance.md`.
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;

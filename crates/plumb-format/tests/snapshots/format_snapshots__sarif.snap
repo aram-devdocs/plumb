@@ -1,6 +1,5 @@
 ---
 source: crates/plumb-format/tests/format_snapshots.rs
-assertion_line: 27
 expression: out
 ---
 {
@@ -17,10 +16,10 @@ expression: out
       },
       "results": [
         {
-          "ruleId": "placeholder/hello-world",
+          "ruleId": "spacing/grid-conformance",
           "level": "warning",
           "message": {
-            "text": "`body` has off-scale padding 13px; expected a value from the spacing token set."
+            "text": "`html > body` has off-grid padding-top 13px; expected a multiple of 4px."
           },
           "locations": [
             {
@@ -37,7 +36,7 @@ expression: out
             }
           ],
           "properties": {
-            "docUrl": "https://plumb.aramhammoudeh.com/rules/placeholder-hello-world"
+            "docUrl": "https://plumb.aramhammoudeh.com/rules/spacing-grid-conformance"
           }
         }
       ]

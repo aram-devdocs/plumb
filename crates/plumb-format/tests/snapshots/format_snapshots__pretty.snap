@@ -2,10 +2,10 @@
 source: crates/plumb-format/tests/format_snapshots.rs
 expression: pretty(&fixture())
 ---
-warning placeholder/hello-world
+warning spacing/grid-conformance
          at html > body [desktop]
-         `body` has off-scale padding 13px; expected a value from the spacing token set.
-         fix: Snap `body` padding to the nearest spacing token (16px).
-         docs: https://plumb.aramhammoudeh.com/rules/placeholder-hello-world
+         `html > body` has off-grid padding-top 13px; expected a multiple of 4px.
+         fix: Snap `padding-top` to the nearest spacing-grid value (12px).
+         docs: https://plumb.aramhammoudeh.com/rules/spacing-grid-conformance
 
 1 violations (0 error, 1 warning, 0 info)

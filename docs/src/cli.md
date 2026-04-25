@@ -34,7 +34,7 @@ overwrite.
 ### `plumb explain <rule-id>`
 
 Print the long-form documentation for a rule. The argument is a slash-
-separated id like `placeholder/hello-world`.
+separated id like `spacing/grid-conformance`.
 
 ### `plumb schema`
 
