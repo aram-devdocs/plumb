@@ -9,6 +9,8 @@ against each page snapshot. Every rule has:
 
 ## Built-in rules
 
+- [`a11y/touch-target`](./a11y-touch-target.md) — flags interactive
+  elements smaller than `a11y.touch_target`.
 - [`radius/scale-conformance`](./radius-scale-conformance.md) — flags
   border-radius values that aren't members of `radius.scale`.
 - [`spacing/grid-conformance`](./spacing-grid-conformance.md) — flags

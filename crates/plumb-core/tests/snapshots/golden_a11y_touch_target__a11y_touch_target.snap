@@ -1,0 +1,122 @@
+---
+source: crates/plumb-core/tests/golden_a11y_touch_target.rs
+expression: json
+---
+[
+  {
+    "rule_id": "a11y/touch-target",
+    "severity": "warning",
+    "message": "`html > body > a:nth-child(3)` is 20×20px; WCAG 2.5.8 wants at least 24×24px for interactive targets.",
+    "selector": "html > body > a:nth-child(3)",
+    "viewport": "desktop",
+    "rect": {
+      "x": 0,
+      "y": 60,
+      "width": 20,
+      "height": 20
+    },
+    "dom_order": 4,
+    "fix": {
+      "kind": {
+        "kind": "description",
+        "text": "Enlarge the hit area to at least 24×24px (CSS pixels). Padding or `min-width` / `min-height` typically does the trick without changing the visual size."
+      },
+      "description": "Bring `html > body > a:nth-child(3)` up to the minimum touch-target size (24×24px).",
+      "confidence": "low"
+    },
+    "doc_url": "https://plumb.aramhammoudeh.com/rules/a11y-touch-target",
+    "metadata": {
+      "rendered_width_px": 20,
+      "rendered_height_px": 20,
+      "min_width_px": 24,
+      "min_height_px": 24
+    }
+  },
+  {
+    "rule_id": "a11y/touch-target",
+    "severity": "warning",
+    "message": "`html > body > button:nth-child(2)` is 16×16px; WCAG 2.5.8 wants at least 24×24px for interactive targets.",
+    "selector": "html > body > button:nth-child(2)",
+    "viewport": "desktop",
+    "rect": {
+      "x": 0,
+      "y": 40,
+      "width": 16,
+      "height": 16
+    },
+    "dom_order": 3,
+    "fix": {
+      "kind": {
+        "kind": "description",
+        "text": "Enlarge the hit area to at least 24×24px (CSS pixels). Padding or `min-width` / `min-height` typically does the trick without changing the visual size."
+      },
+      "description": "Bring `html > body > button:nth-child(2)` up to the minimum touch-target size (24×24px).",
+      "confidence": "low"
+    },
+    "doc_url": "https://plumb.aramhammoudeh.com/rules/a11y-touch-target",
+    "metadata": {
+      "rendered_width_px": 16,
+      "rendered_height_px": 16,
+      "min_width_px": 24,
+      "min_height_px": 24
+    }
+  },
+  {
+    "rule_id": "a11y/touch-target",
+    "severity": "warning",
+    "message": "`html > body > div:nth-child(6)` is 18×18px; WCAG 2.5.8 wants at least 24×24px for interactive targets.",
+    "selector": "html > body > div:nth-child(6)",
+    "viewport": "desktop",
+    "rect": {
+      "x": 0,
+      "y": 130,
+      "width": 18,
+      "height": 18
+    },
+    "dom_order": 7,
+    "fix": {
+      "kind": {
+        "kind": "description",
+        "text": "Enlarge the hit area to at least 24×24px (CSS pixels). Padding or `min-width` / `min-height` typically does the trick without changing the visual size."
+      },
+      "description": "Bring `html > body > div:nth-child(6)` up to the minimum touch-target size (24×24px).",
+      "confidence": "low"
+    },
+    "doc_url": "https://plumb.aramhammoudeh.com/rules/a11y-touch-target",
+    "metadata": {
+      "rendered_width_px": 18,
+      "rendered_height_px": 18,
+      "min_width_px": 24,
+      "min_height_px": 24
+    }
+  },
+  {
+    "rule_id": "a11y/touch-target",
+    "severity": "warning",
+    "message": "`html > body > input:nth-child(5)` is 22×22px; WCAG 2.5.8 wants at least 24×24px for interactive targets.",
+    "selector": "html > body > input:nth-child(5)",
+    "viewport": "desktop",
+    "rect": {
+      "x": 0,
+      "y": 100,
+      "width": 22,
+      "height": 22
+    },
+    "dom_order": 6,
+    "fix": {
+      "kind": {
+        "kind": "description",
+        "text": "Enlarge the hit area to at least 24×24px (CSS pixels). Padding or `min-width` / `min-height` typically does the trick without changing the visual size."
+      },
+      "description": "Bring `html > body > input:nth-child(5)` up to the minimum touch-target size (24×24px).",
+      "confidence": "low"
+    },
+    "doc_url": "https://plumb.aramhammoudeh.com/rules/a11y-touch-target",
+    "metadata": {
+      "rendered_width_px": 22,
+      "rendered_height_px": 22,
+      "min_width_px": 24,
+      "min_height_px": 24
+    }
+  }
+]

@@ -12,6 +12,7 @@
 # Rules
 
 - [Overview](./rules/overview.md)
+- [a11y/touch-target](./rules/a11y-touch-target.md)
 - [radius/scale-conformance](./rules/radius-scale-conformance.md)
 - [spacing/grid-conformance](./rules/spacing-grid-conformance.md)
 - [spacing/scale-conformance](./rules/spacing-scale-conformance.md)
