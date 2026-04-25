@@ -32,6 +32,16 @@ enum LintError {
         unknown: Vec<String>,
         available: Vec<String>,
     },
+    /// `--viewport` was passed but `config.viewports` is empty (no
+    /// `[viewports]` section in `plumb.toml`, or no config at all).
+    /// Refuse to silently fall back to the default desktop because the
+    /// user explicitly named a viewport — see issue #119.
+    #[error(
+        "--viewport {} requested but no [viewports] are configured. add [viewports.{}] to plumb.toml or remove the flag to use the default 1280x800 desktop.",
+        .names.join(", "),
+        .names.first().map_or("<name>", String::as_str)
+    )]
+    ViewportFlagWithoutConfig { names: Vec<String> },
 }
 
 pub async fn run(
@@ -82,20 +92,23 @@ pub async fn run(
 
 /// Decide which viewports to snapshot.
 ///
-/// Three branches:
+/// Branches:
 ///
-/// 1. `config.viewports` is empty → fall back to a single
-///    `desktop` 1280x800 target (the walking-skeleton default that
-///    keeps `plumb lint plumb-fake://hello` working in a fresh
-///    checkout, with or without `--viewport`). Any `viewports_arg`
-///    passed in this mode is ignored: there is no configured set to
-///    filter against, so honoring the flag would silently invent
-///    viewports the user never declared. We deliberately do not
-///    error here — that would regress the no-config quickstart path.
-/// 2. `config.viewports` is non-empty and `viewports_arg` is empty →
+/// 1. `config.viewports` is empty and `viewports_arg` is empty → fall
+///    back to a single `desktop` 1280x800 target (the walking-skeleton
+///    default that keeps `plumb lint plumb-fake://hello` working in a
+///    fresh checkout with no `plumb.toml`).
+/// 2. `config.viewports` is empty and `viewports_arg` is non-empty →
+///    return [`LintError::ViewportFlagWithoutConfig`]. The user named
+///    viewports that don't exist; silently substituting `desktop`
+///    would run the lint with the wrong viewport and hide the
+///    mismatch (issue #119). The populated-config path already errors
+///    on unknown names; this branch makes the empty-config path
+///    consistent.
+/// 3. `config.viewports` is non-empty and `viewports_arg` is empty →
 ///    one target per configured viewport, in `IndexMap` insertion
 ///    order (preserves the determinism invariant).
-/// 3. Both are non-empty → filter the configured set down to the
+/// 4. Both are non-empty → filter the configured set down to the
 ///    named viewports. Any unknown name produces
 ///    [`LintError::UnknownViewports`].
 fn resolve_targets(
@@ -104,6 +117,11 @@ fn resolve_targets(
     viewports_arg: &[String],
 ) -> Result<Vec<Target>, LintError> {
     if config.viewports.is_empty() {
+        if !viewports_arg.is_empty() {
+            return Err(LintError::ViewportFlagWithoutConfig {
+                names: viewports_arg.to_vec(),
+            });
+        }
         return Ok(vec![Target {
             url: url.to_owned(),
             viewport: ViewportKey::new("desktop"),
@@ -225,19 +243,28 @@ mod tests {
         assert_eq!(targets[0].height, 800);
     }
 
-    /// When `config.viewports` is empty the orchestrator falls back to
-    /// the walking-skeleton default and ignores `--viewport` values
-    /// rather than erroring — there is no configured set to validate
-    /// the names against. Erroring here would regress
-    /// `plumb lint plumb-fake://hello --viewport mobile` in a fresh
-    /// checkout that has no `plumb.toml` yet.
+    /// When `config.viewports` is empty and the user passed `--viewport
+    /// NAME`, the orchestrator refuses to silently fall back to the
+    /// default desktop — that hid an entire run behind the wrong
+    /// viewport (issue #119). Input order is preserved on the error so
+    /// the message matches the user's flag order.
     #[test]
-    fn empty_config_ignores_viewport_arg_and_returns_default() {
+    fn empty_config_with_viewport_flag_errors() {
         let config = Config::default();
-        let targets = resolve_targets("plumb-fake://hello", &config, &["mobile".to_owned()])
-            .expect("flag is ignored when no viewports are configured");
-        assert_eq!(targets.len(), 1);
-        assert_eq!(targets[0].viewport.as_str(), "desktop");
+        let err = resolve_targets(
+            "plumb-fake://hello",
+            &config,
+            &["mobile".to_owned(), "tablet".to_owned()],
+        )
+        .expect_err("empty config + viewport flag must error");
+        match err {
+            LintError::ViewportFlagWithoutConfig { names } => {
+                assert_eq!(names, vec!["mobile", "tablet"]);
+            }
+            other @ LintError::UnknownViewports { .. } => {
+                panic!("expected ViewportFlagWithoutConfig, got {other:?}")
+            }
+        }
     }
 
     #[test]
@@ -268,6 +295,9 @@ mod tests {
                 assert_eq!(unknown, vec!["bogus"]);
                 assert_eq!(available, vec!["desktop", "mobile"]);
             }
+            other @ LintError::ViewportFlagWithoutConfig { .. } => {
+                panic!("expected UnknownViewports, got {other:?}")
+            }
         }
     }
 
@@ -285,6 +315,9 @@ mod tests {
                 assert_eq!(unknown, vec!["bogus"]);
                 assert_eq!(available, vec!["desktop", "mobile"]);
             }
+            other @ LintError::ViewportFlagWithoutConfig { .. } => {
+                panic!("expected UnknownViewports, got {other:?}")
+            }
         }
     }
 
@@ -301,6 +334,9 @@ mod tests {
             LintError::UnknownViewports { unknown, available } => {
                 assert_eq!(unknown, vec!["bogus", "alpha"]);
                 assert_eq!(available, vec!["desktop", "mobile"]);
+            }
+            other @ LintError::ViewportFlagWithoutConfig { .. } => {
+                panic!("expected UnknownViewports, got {other:?}")
             }
         }
     }
