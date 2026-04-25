@@ -19,7 +19,7 @@ parent:
     extension follows: Rule trait + golden test + docs page +
     register_builtin; Chromium launch + DOMSnapshot + viewport multi-run.
   acceptance_criteria:
-    - "`plumb lint https://plumb.aramhammoudeh.com --format json` renders a real page via Chromium and emits ≥1 violation from a real rule."
+    - "`plumb lint file://$REPO/crates/plumb-cdp/tests/fixtures/static_page.html --format json` (with `$REPO` resolved to an absolute path) renders the checked-in fixture via Chromium and emits ≥1 violation from a real rule. The fixture's `padding:13px` on `<body>` is off-grid against the default `spacing.base_unit = 4`, so `spacing/grid-conformance` fires deterministically. (Phase 6 (#56) will additionally enable `https://plumb.aramhammoudeh.com` as an acceptance target once the docs site ships.)"
     - "3x byte-diff determinism check holds on the new rules (`just determinism-check`)."
     - "`cargo xtask pre-release` green — rule docs in sync, schema current."
     - "All 9 child PRs merged."
@@ -188,8 +188,11 @@ batches:
 
 phase_gate:
   criterion: |
-    `just validate` green AND `plumb lint https://plumb.aramhammoudeh.com --format json`
-    renders a real page via Chromium and emits ≥1 violation from a real
-    rule AND `just determinism-check` passes on the new rules AND
+    `just validate` green AND `plumb lint file://$REPO/crates/plumb-cdp/tests/fixtures/static_page.html --format json`
+    (with `$REPO` resolved to an absolute path) renders the checked-in
+    fixture via Chromium and emits ≥1 violation from a real rule AND
+    `just determinism-check` passes on the new rules AND
     `cargo xtask pre-release` passes (rule docs in sync, schema current).
+    The docs-site URL `https://plumb.aramhammoudeh.com` becomes an
+    additional valid target in Phase 6 (#56) once the site ships.
   unblocks: "phase-2"
