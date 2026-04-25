@@ -218,6 +218,41 @@ fn errors_on_unsupported_extension() {
 // The unit-test `is_under_or_ancestor_rejects_unrelated` covers the
 // rejection logic deterministically.
 
+/// Determinism invariant: calling `merge_tailwind` twice on the same
+/// fixture MUST produce byte-identical output, including across the
+/// cache-miss → cache-hit boundary. The first call populates the
+/// cache; the second call reads from it. Both are functions of
+/// `(snapshot, config)` only, so they must agree exactly.
+#[test]
+fn merge_is_byte_identical_across_runs() {
+    if node_on_path().is_none() {
+        return;
+    }
+    let fixture_root = tempfile::tempdir().expect("fixture tempdir");
+    let Some(path) = copy_fixture_to(fixture_root.path()) else {
+        return;
+    };
+    let cache_dir = tempfile::tempdir().expect("cache tempdir");
+    let opts = TailwindOptions {
+        cache_dir: Some(cache_dir.path().to_path_buf()),
+        cwd_root: Some(fixture_root.path().to_path_buf()),
+        ..Default::default()
+    };
+
+    // First call: cache miss — spawns Node, populates the cache.
+    let first = merge_tailwind(Config::default(), &path, &opts).expect("first call");
+    // Second call: cache hit — reads the cache file we just wrote.
+    let second = merge_tailwind(Config::default(), &path, &opts).expect("second call");
+
+    // `Config` is `PartialEq` (see `plumb-core::config`), so this
+    // covers every nested spec — color, spacing, type_scale, radius,
+    // alignment, a11y — without piecewise comparison.
+    assert_eq!(
+        first, second,
+        "merge_tailwind output must be byte-identical across runs"
+    );
+}
+
 #[test]
 fn errors_when_node_subprocess_times_out() {
     if node_on_path().is_none() {

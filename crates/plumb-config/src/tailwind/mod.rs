@@ -7,8 +7,9 @@
 //!
 //! The pipeline is:
 //!
-//! 1. Validate the user-supplied path: must be a regular file under the
-//!    process CWD's ancestors, with one of the supported extensions.
+//! 1. Validate the user-supplied path: must be a regular file with one
+//!    of the supported extensions, and (when [`TailwindOptions::cwd_root`]
+//!    is `Some`) live under that root or one of its ancestors.
 //! 2. Look up `node` on `PATH` (or honour an explicit override) — if
 //!    missing, surface [`ConfigError::TailwindUnavailable`].
 //! 3. Consult the mtime cache. On hit, skip the spawn entirely.
@@ -84,20 +85,30 @@ pub struct TailwindOptions {
     /// Override the discovered `node` executable. Useful in tests and
     /// in Nix-style build environments where `which` would fail.
     pub node_path: Option<PathBuf>,
-    /// Override the cache directory. When `None`, falls back to
-    /// `<system-tmp>/plumb-tailwind/`.
+    /// Cache directory for resolved themes.
+    ///
+    /// When `None`, the cache is disabled — every call spawns Node
+    /// fresh. The library never reads `TMPDIR` / `TEMP` / `TMP`; the
+    /// caller (typically `plumb-cli`) decides where to cache.
     pub cache_dir: Option<PathBuf>,
-    /// Skip the cache entirely. Defaults to `false`.
+    /// Skip the cache entirely. Defaults to `false`. When `cache_dir`
+    /// is `None` the cache is already disabled, so this flag is only
+    /// meaningful alongside an explicit `cache_dir`.
     pub no_cache: bool,
     /// Subprocess timeout. Defaults to 60 seconds.
     pub timeout: Option<Duration>,
-    /// Override the CWD root used for the path-traversal guard. When
-    /// `None` we read [`std::env::current_dir`] at call time.
+    /// CWD root used for the path-traversal guard.
     ///
-    /// The validated config path must be `cwd_root` itself, a
-    /// descendant of `cwd_root`, or live in any ancestor of `cwd_root`.
-    /// Tests use this to point the guard at a tempdir without
-    /// mutating the process-global CWD.
+    /// When `Some(root)`, the validated config path must be `root`
+    /// itself, a descendant of `root`, or a sibling under any
+    /// ancestor of `root` (so `--config /repo/tailwind.config.js`
+    /// works from `/repo/sub/`).
+    ///
+    /// When `None`, the path-traversal guard is skipped entirely.
+    /// Callers that need the guard MUST populate this with a canonical
+    /// project root; `plumb-cli` reads `current_dir()` itself before
+    /// invoking the adapter. The library never reads
+    /// [`std::env::current_dir`].
     pub cwd_root: Option<PathBuf>,
 }
 
@@ -123,12 +134,17 @@ pub fn merge_tailwind(
 
 /// Resolve the Tailwind theme for the given config file. Wraps the
 /// cache lookup → Node spawn → cache write pipeline.
+///
+/// The cache is consulted only when [`TailwindOptions::cache_dir`] is
+/// `Some(_)` and [`TailwindOptions::no_cache`] is `false`. When
+/// `cache_dir` is `None` the library never reads or writes a cache
+/// file; the caller is responsible for choosing a directory.
 fn resolve_theme(config_path: &Path, options: &TailwindOptions) -> Result<Value, ConfigError> {
     let validated = validate_config_path(config_path, options.cwd_root.as_deref())?;
-    let cache_dir_override = options.cache_dir.as_deref();
+    let cache_dir = options.cache_dir.as_deref().filter(|_| !options.no_cache);
 
-    if !options.no_cache
-        && let Some(entry) = cache::read(&validated, cache_dir_override)
+    if let Some(dir) = cache_dir
+        && let Some(entry) = cache::read(&validated, dir)
     {
         tracing::debug!(
             target: "plumb_config::tailwind",
@@ -141,10 +157,10 @@ fn resolve_theme(config_path: &Path, options: &TailwindOptions) -> Result<Value,
     let node = find_node(options)?;
     let theme = spawn_loader(&node, &validated, options)?;
 
-    if !options.no_cache {
+    if let Some(dir) = cache_dir {
         // Best-effort write. If the cache directory is read-only or full,
         // we still return a valid theme; subsequent runs will re-spawn.
-        if let Err(err) = cache::write(&validated, &theme, cache_dir_override) {
+        if let Err(err) = cache::write(&validated, &theme, dir) {
             tracing::debug!(
                 target: "plumb_config::tailwind",
                 path = %config_path.display(),
@@ -161,12 +177,17 @@ fn resolve_theme(config_path: &Path, options: &TailwindOptions) -> Result<Value,
 ///
 /// 1. A supported extension (`.js`, `.mjs`, `.cjs`, `.ts`, `.mts`, `.cts`).
 /// 2. The file exists and is a regular file.
-/// 3. After canonicalization, the path is under at least one of:
-///    - the current working directory (or [`TailwindOptions::cwd_root`]),
-///    - any of the CWD's ancestors (so users can pass `--config /abs/path`
-///      pointing at a parent monorepo root),
+/// 3. When `cwd_override` is `Some`, after canonicalization the path
+///    must be under at least one of:
+///    - `cwd_override` itself,
+///    - any of `cwd_override`'s ancestors (so users can pass
+///      `--config /abs/path` pointing at a parent monorepo root),
 ///    - the path itself if it was already absolute and exists on disk
 ///      (covered by the ancestor check via the canonical form).
+///
+/// When `cwd_override` is `None`, the path-traversal guard is skipped.
+/// The library never reads [`std::env::current_dir`]; callers that
+/// want the guard MUST supply a canonical project root.
 ///
 /// We return the canonical absolute path so downstream callers don't
 /// re-resolve it.
@@ -195,41 +216,53 @@ fn validate_config_path(path: &Path, cwd_override: Option<&Path>) -> Result<Path
         });
     }
 
-    let cwd: PathBuf = if let Some(root) = cwd_override {
-        root.to_path_buf()
-    } else {
-        std::env::current_dir().map_err(|err| ConfigError::TailwindBadPath {
-            path: path.display().to_string(),
-            reason: format!("could not read current working directory: {err}"),
-        })?
-    };
-    let cwd_canonical = dunce::canonicalize(&cwd).unwrap_or(cwd);
+    if let Some(cwd) = cwd_override {
+        let cwd_canonical =
+            dunce::canonicalize(cwd).map_err(|err| ConfigError::TailwindBadPath {
+                path: path.display().to_string(),
+                reason: format!("could not resolve cwd root: {err}"),
+            })?;
 
-    if !is_under_or_ancestor(&canonical, &cwd_canonical) {
-        return Err(ConfigError::TailwindBadPath {
-            path: path.display().to_string(),
-            reason: "config path resolves outside the current working directory tree".to_owned(),
-        });
+        if !is_under_or_ancestor(&canonical, &cwd_canonical) {
+            return Err(ConfigError::TailwindBadPath {
+                path: path.display().to_string(),
+                reason: "config path resolves outside the current working directory tree"
+                    .to_owned(),
+            });
+        }
     }
 
     Ok(canonical)
 }
 
 /// Returns `true` when `candidate` is `cwd`, a descendant of `cwd`, or a
-/// file whose parent directory is `cwd` or any ancestor of `cwd`.
+/// file whose parent directory is `cwd` or any non-root ancestor of
+/// `cwd`.
 ///
 /// This covers the "pass `--config` pointing at a monorepo root" case
 /// while rejecting `..`-traversal attacks that escape the user's
-/// project tree.
+/// project tree. Crucially, the ancestor branch refuses to match when
+/// the candidate's parent is just the filesystem root (e.g.
+/// `/tailwind.config.js` on Unix); `cwd.starts_with("/")` is trivially
+/// true on Unix and would otherwise let any root-level file slip past
+/// the guard.
 fn is_under_or_ancestor(candidate: &Path, cwd: &Path) -> bool {
     if candidate.starts_with(cwd) {
         return true;
     }
-    // The candidate's *parent* must be `cwd` or an ancestor of `cwd`.
-    // Equivalently: `cwd` must start with the candidate's parent.
+    // The candidate's *parent* must be `cwd` or a non-root ancestor of
+    // `cwd`. Equivalently: `cwd` must start with the candidate's
+    // parent, AND that parent must contain at least one named
+    // component (so it's not just `/` or a Windows prefix).
     let Some(candidate_parent) = candidate.parent() else {
         return false;
     };
+    let parent_has_named_component = candidate_parent
+        .components()
+        .any(|c| matches!(c, std::path::Component::Normal(_)));
+    if !parent_has_named_component {
+        return false;
+    }
     cwd.starts_with(candidate_parent)
 }
 
@@ -890,6 +923,19 @@ mod tests {
     fn is_under_or_ancestor_rejects_unrelated() {
         assert!(!is_under_or_ancestor(
             Path::new("/etc/passwd"),
+            Path::new("/work/proj")
+        ));
+    }
+
+    /// Security regression guard: a candidate at the filesystem root
+    /// (parent is `/`) MUST NOT slip past the ancestor branch on Unix.
+    /// `cwd.starts_with("/")` is trivially true for any absolute path,
+    /// so without the named-component check `/tailwind.config.js`
+    /// would be accepted as if it were a sibling under an ancestor.
+    #[test]
+    fn is_under_or_ancestor_rejects_filesystem_root() {
+        assert!(!is_under_or_ancestor(
+            Path::new("/tailwind.config.js"),
             Path::new("/work/proj")
         ));
     }

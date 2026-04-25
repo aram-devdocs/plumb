@@ -14,6 +14,13 @@
 //!
 //! Mismatched or unreadable cache entries are treated as a miss; we
 //! never error out of a corrupted cache.
+//!
+//! ## No env access
+//!
+//! This module never reads `TMPDIR` / `TEMP` / `TMP` or any other
+//! process-global state. The caller passes the cache directory in
+//! explicitly. When no directory is supplied, the caller treats it as
+//! "cache disabled" and the functions in this module are not invoked.
 
 use std::fs;
 use std::io;
@@ -22,9 +29,6 @@ use std::time::SystemTimeError;
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-
-/// Filename used inside the system temp directory.
-const CACHE_DIR_NAME: &str = "plumb-tailwind";
 
 /// Wire format for the cache file.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -36,24 +40,6 @@ pub(super) struct CacheEntry {
     /// so the cache file is self-describing — no schema migrations
     /// required when Plumb adds new theme keys.
     pub(super) theme: serde_json::Value,
-}
-
-/// Resolve the cache directory.
-///
-/// We avoid `std::env::temp_dir` (banned workspace-wide by
-/// `clippy::disallowed_methods` to keep `plumb-core` deterministic) and
-/// query the standard env vars ourselves so the same code path applies
-/// across crates without per-crate overrides.
-pub(super) fn cache_dir() -> PathBuf {
-    let base = match std::env::var_os("TMPDIR")
-        .or_else(|| std::env::var_os("TEMP"))
-        .or_else(|| std::env::var_os("TMP"))
-    {
-        Some(value) => PathBuf::from(value),
-        None if cfg!(windows) => PathBuf::from(r"C:\Windows\Temp"),
-        None => PathBuf::from("/tmp"),
-    };
-    base.join(CACHE_DIR_NAME)
 }
 
 /// SHA-256 hex digest of the absolute config path. Stable across runs.
@@ -74,9 +60,8 @@ pub(super) fn config_path_hash(path: &Path) -> String {
 }
 
 /// Compute the absolute path of the cache entry for a given config.
-pub(super) fn cache_path_for(config_path: &Path, override_dir: Option<&Path>) -> PathBuf {
+pub(super) fn cache_path_for(config_path: &Path, dir: &Path) -> PathBuf {
     let hash = config_path_hash(config_path);
-    let dir = override_dir.map_or_else(cache_dir, Path::to_path_buf);
     dir.join(format!("{hash}.json"))
 }
 
@@ -112,9 +97,9 @@ impl std::fmt::Display for MtimeError {
 /// Look up a cached theme for `config_path`. Returns `None` on any cache
 /// miss (file missing, JSON malformed, mtime mismatch). Never errors;
 /// cache problems are silent.
-pub(super) fn read(config_path: &Path, override_dir: Option<&Path>) -> Option<CacheEntry> {
+pub(super) fn read(config_path: &Path, dir: &Path) -> Option<CacheEntry> {
     let mtime = mtime_unix_ms(config_path).ok()?;
-    let cache_path = cache_path_for(config_path, override_dir);
+    let cache_path = cache_path_for(config_path, dir);
     let bytes = fs::read(&cache_path).ok()?;
     let entry: CacheEntry = serde_json::from_slice(&bytes).ok()?;
     if entry.mtime_unix_ms == mtime {
@@ -131,7 +116,7 @@ pub(super) fn read(config_path: &Path, override_dir: Option<&Path>) -> Option<Ca
 pub(super) fn write(
     config_path: &Path,
     theme: &serde_json::Value,
-    override_dir: Option<&Path>,
+    dir: &Path,
 ) -> Result<(), io::Error> {
     let mtime = mtime_unix_ms(config_path).map_err(|err| match err {
         MtimeError::Io(io) => io,
@@ -141,7 +126,7 @@ pub(super) fn write(
         mtime_unix_ms: mtime,
         theme: theme.clone(),
     };
-    let cache_path = cache_path_for(config_path, override_dir);
+    let cache_path = cache_path_for(config_path, dir);
     if let Some(parent) = cache_path.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -187,9 +172,9 @@ mod tests {
         std::fs::write(&cfg_path, "module.exports = {};").expect("write config");
 
         let theme = serde_json::json!({"colors": {"red": "#ff0000"}});
-        write(&cfg_path, &theme, Some(dir.path())).expect("write cache");
+        write(&cfg_path, &theme, dir.path()).expect("write cache");
 
-        let entry = read(&cfg_path, Some(dir.path())).expect("hit cache");
+        let entry = read(&cfg_path, dir.path()).expect("hit cache");
         assert_eq!(entry.theme, theme);
     }
 
@@ -199,7 +184,7 @@ mod tests {
         let cfg_path = dir.path().join("tailwind.config.js");
         std::fs::write(&cfg_path, "module.exports = {};").expect("write config");
         let theme = serde_json::json!({"colors": {"red": "#ff0000"}});
-        write(&cfg_path, &theme, Some(dir.path())).expect("write cache");
+        write(&cfg_path, &theme, dir.path()).expect("write cache");
 
         // Bump mtime by rewriting the config file with later content.
         // sleep-free: set mtime explicitly via filetime if available;
@@ -215,7 +200,7 @@ mod tests {
         drop(file);
 
         assert!(
-            read(&cfg_path, Some(dir.path())).is_none(),
+            read(&cfg_path, dir.path()).is_none(),
             "mtime change should invalidate cache"
         );
     }
