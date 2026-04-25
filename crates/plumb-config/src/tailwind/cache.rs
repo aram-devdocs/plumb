@@ -15,8 +15,6 @@
 //! Mismatched or unreadable cache entries are treated as a miss; we
 //! never error out of a corrupted cache.
 
-#![allow(clippy::redundant_pub_crate)]
-
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -30,14 +28,14 @@ const CACHE_DIR_NAME: &str = "plumb-tailwind";
 
 /// Wire format for the cache file.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct CacheEntry {
+pub(super) struct CacheEntry {
     /// Modification time of the source config file in milliseconds since
     /// the Unix epoch. This is the cache key beyond the filename hash.
-    pub(crate) mtime_unix_ms: u128,
+    pub(super) mtime_unix_ms: u128,
     /// The resolved theme JSON object. Stored as `serde_json::Value`
     /// so the cache file is self-describing — no schema migrations
     /// required when Plumb adds new theme keys.
-    pub(crate) theme: serde_json::Value,
+    pub(super) theme: serde_json::Value,
 }
 
 /// Resolve the cache directory.
@@ -46,7 +44,7 @@ pub(crate) struct CacheEntry {
 /// `clippy::disallowed_methods` to keep `plumb-core` deterministic) and
 /// query the standard env vars ourselves so the same code path applies
 /// across crates without per-crate overrides.
-pub(crate) fn cache_dir() -> PathBuf {
+pub(super) fn cache_dir() -> PathBuf {
     let base = match std::env::var_os("TMPDIR")
         .or_else(|| std::env::var_os("TEMP"))
         .or_else(|| std::env::var_os("TMP"))
@@ -59,7 +57,7 @@ pub(crate) fn cache_dir() -> PathBuf {
 }
 
 /// SHA-256 hex digest of the absolute config path. Stable across runs.
-pub(crate) fn config_path_hash(path: &Path) -> String {
+pub(super) fn config_path_hash(path: &Path) -> String {
     let mut hasher = Sha256::new();
     hasher.update(path.as_os_str().as_encoded_bytes());
     let digest = hasher.finalize();
@@ -76,14 +74,14 @@ pub(crate) fn config_path_hash(path: &Path) -> String {
 }
 
 /// Compute the absolute path of the cache entry for a given config.
-pub(crate) fn cache_path_for(config_path: &Path, override_dir: Option<&Path>) -> PathBuf {
+pub(super) fn cache_path_for(config_path: &Path, override_dir: Option<&Path>) -> PathBuf {
     let hash = config_path_hash(config_path);
     let dir = override_dir.map_or_else(cache_dir, Path::to_path_buf);
     dir.join(format!("{hash}.json"))
 }
 
 /// Read the file's mtime as milliseconds since the Unix epoch.
-pub(crate) fn mtime_unix_ms(path: &Path) -> Result<u128, MtimeError> {
+pub(super) fn mtime_unix_ms(path: &Path) -> Result<u128, MtimeError> {
     let meta = fs::metadata(path).map_err(MtimeError::Io)?;
     let modified = meta.modified().map_err(MtimeError::Io)?;
     let dur = modified
@@ -94,7 +92,7 @@ pub(crate) fn mtime_unix_ms(path: &Path) -> Result<u128, MtimeError> {
 
 /// Failure modes when reading a file's mtime.
 #[derive(Debug)]
-pub(crate) enum MtimeError {
+pub(super) enum MtimeError {
     /// Underlying I/O error (file missing, permission denied, etc.).
     Io(io::Error),
     /// File mtime predates the Unix epoch — shouldn't happen on any
@@ -114,7 +112,7 @@ impl std::fmt::Display for MtimeError {
 /// Look up a cached theme for `config_path`. Returns `None` on any cache
 /// miss (file missing, JSON malformed, mtime mismatch). Never errors;
 /// cache problems are silent.
-pub(crate) fn read(config_path: &Path, override_dir: Option<&Path>) -> Option<CacheEntry> {
+pub(super) fn read(config_path: &Path, override_dir: Option<&Path>) -> Option<CacheEntry> {
     let mtime = mtime_unix_ms(config_path).ok()?;
     let cache_path = cache_path_for(config_path, override_dir);
     let bytes = fs::read(&cache_path).ok()?;
@@ -130,7 +128,7 @@ pub(crate) fn read(config_path: &Path, override_dir: Option<&Path>) -> Option<Ca
 /// logged at `debug` level and otherwise swallowed; the caller already
 /// has a valid theme, so a missing cache entry just costs a re-spawn
 /// next time.
-pub(crate) fn write(
+pub(super) fn write(
     config_path: &Path,
     theme: &serde_json::Value,
     override_dir: Option<&Path>,

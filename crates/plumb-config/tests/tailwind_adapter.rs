@@ -12,6 +12,7 @@
 #![allow(clippy::expect_used)]
 
 use std::path::PathBuf;
+use std::time::Duration;
 
 use plumb_config::{ConfigError, TailwindOptions, merge_tailwind};
 use plumb_core::Config;
@@ -216,3 +217,39 @@ fn errors_on_unsupported_extension() {
 // process-global CWD, which races with parallel tests in this file.
 // The unit-test `is_under_or_ancestor_rejects_unrelated` covers the
 // rejection logic deterministically.
+
+#[test]
+fn errors_when_node_subprocess_times_out() {
+    if node_on_path().is_none() {
+        return;
+    }
+    let dir = tempfile::tempdir().expect("tempdir");
+    // A `.cjs` script that intentionally never exits. `setInterval`
+    // keeps the event loop alive without busy-waiting; the polling
+    // loop in `spawn_loader` should kill it once the budget elapses.
+    let cfg_path = dir.path().join("tailwind.config.cjs");
+    std::fs::write(&cfg_path, "setInterval(() => {}, 1000);\n").expect("write hang script");
+
+    let cache_dir = tempfile::tempdir().expect("cache tempdir");
+    let opts = TailwindOptions {
+        cache_dir: Some(cache_dir.path().to_path_buf()),
+        cwd_root: Some(dir.path().to_path_buf()),
+        // Bypass the cache so the spawn happens.
+        no_cache: true,
+        // 200 ms is long enough to spin up Node on slow CI but short
+        // enough that the test wraps up well under the suite's
+        // per-test budget.
+        timeout: Some(Duration::from_millis(200)),
+        ..Default::default()
+    };
+
+    let err = merge_tailwind(Config::default(), &cfg_path, &opts)
+        .expect_err("hanging subprocess must surface a TailwindEval error");
+    let ConfigError::TailwindEval { reason, .. } = err else {
+        panic!("expected TailwindEval, got {err:?}");
+    };
+    assert!(
+        reason.contains("timed out"),
+        "expected reason to mention `timed out`, got `{reason}`"
+    );
+}

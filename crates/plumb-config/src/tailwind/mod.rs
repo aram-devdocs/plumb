@@ -37,15 +37,14 @@
 //! - No `println!`/`eprintln!`. Diagnostic noise routes through `tracing`.
 //! - Subprocess hygiene: arguments pass through `Command::arg`, no
 //!   shell concatenation; stderr stays separate from stdout; the spawn
-//!   has a wall-clock timeout enforced via a watcher thread.
-
-#![allow(clippy::redundant_pub_crate)]
+//!   is bounded by a `try_wait` polling loop that counts ticks instead
+//!   of measuring wall-clock time (`std::time::Instant::now` is on the
+//!   workspace's `clippy::disallowed_methods` list).
 
 use std::ffi::OsStr;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::sync::mpsc;
+use std::process::{Command, ExitStatus, Stdio};
 use std::thread;
 use std::time::Duration;
 
@@ -66,6 +65,13 @@ const LOADER_JS: &str = include_str!("loader.js");
 /// Default subprocess timeout. Tailwind themes resolve in well under a
 /// second; 30 s is loud-failure territory.
 const DEFAULT_TIMEOUT_SECS: u64 = 30;
+
+/// Polling cadence for the `try_wait` loop. We can't use
+/// `std::time::Instant::now` (banned by `clippy::disallowed_methods`) so
+/// the timeout budget is expressed as a tick count rather than a wall-
+/// clock deadline. 50 ms balances responsiveness against the cost of
+/// repeatedly polling the OS.
+const POLL_INTERVAL: Duration = Duration::from_millis(50);
 
 /// Supported config file extensions. Anything else is rejected before
 /// we spawn Node — keeps the failure mode predictable.
@@ -245,6 +251,46 @@ fn find_node(options: &TailwindOptions) -> Result<PathBuf, ConfigError> {
     })
 }
 
+/// Drain a stdout/stderr reader thread, returning an empty buffer on
+/// any failure. Reader-thread errors are intentionally swallowed; the
+/// caller surfaces a higher-level `TailwindEval` error and a partial
+/// or empty buffer is fine for diagnostic context.
+fn drain_reader(handle: Option<thread::JoinHandle<std::io::Result<Vec<u8>>>>) -> Vec<u8> {
+    match handle {
+        None => Vec::new(),
+        Some(h) => match h.join() {
+            Ok(Ok(buf)) => buf,
+            Ok(Err(_)) | Err(_) => Vec::new(),
+        },
+    }
+}
+
+/// Outcome of polling a child process for completion.
+enum WaitOutcome {
+    /// The child exited with a final status before the budget expired.
+    Exited(ExitStatus),
+    /// `try_wait` returned an I/O error.
+    Errored(std::io::Error),
+    /// The poll budget elapsed without a final status.
+    TimedOut,
+}
+
+/// Poll `try_wait` on a tick cadence until either the child exits or
+/// the tick budget expires. We can't use `Instant::now` (workspace
+/// `clippy::disallowed_methods`), so the deadline is expressed as a
+/// tick count.
+fn wait_with_timeout(child: &mut std::process::Child, timeout: Duration) -> WaitOutcome {
+    let max_ticks = (timeout.as_millis() / POLL_INTERVAL.as_millis()).max(1);
+    for _ in 0..max_ticks {
+        match child.try_wait() {
+            Ok(Some(status)) => return WaitOutcome::Exited(status),
+            Ok(None) => thread::sleep(POLL_INTERVAL),
+            Err(err) => return WaitOutcome::Errored(err),
+        }
+    }
+    WaitOutcome::TimedOut
+}
+
 /// Drive the Node loader subprocess and parse its JSON output.
 fn spawn_loader(
     node: &Path,
@@ -272,6 +318,10 @@ fn spawn_loader(
             reason: format!("failed to spawn `node`: {err}"),
         })?;
 
+    // Reader threads MUST be spawned before we wait. Node can write
+    // more than one OS pipe buffer (~64 KiB on Linux) of stdout or
+    // stderr; without concurrent drainers the child blocks on `write`
+    // and we deadlock on the wait below.
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
     let stdout_handle = stdout.map(|mut s| {
@@ -289,44 +339,34 @@ fn spawn_loader(
         })
     });
 
-    // Watcher: wait `timeout`; if the child is still alive, kill it.
-    let (tx, rx) = mpsc::channel::<()>();
-    let watcher_done = thread::spawn(move || {
-        if rx.recv_timeout(timeout).is_err() {
-            // Receive timed out → caller is still waiting on the child.
-            true
-        } else {
-            false
+    let status = match wait_with_timeout(&mut child, timeout) {
+        WaitOutcome::Exited(status) => status,
+        WaitOutcome::TimedOut => {
+            // Kill the child, reap it with `wait` to release the OS
+            // resources, then surface a structured error.
+            let _ = child.kill();
+            let _ = child.wait();
+            let stderr_bytes = drain_reader(stderr_handle);
+            let _ = drain_reader(stdout_handle);
+            return Err(ConfigError::TailwindEval {
+                path: config_path.display().to_string(),
+                reason: format!("node subprocess timed out after {timeout:?}"),
+                stderr: String::from_utf8_lossy(&stderr_bytes).into_owned(),
+            });
         }
-    });
+        WaitOutcome::Errored(err) => {
+            let stderr_bytes = drain_reader(stderr_handle);
+            let _ = drain_reader(stdout_handle);
+            return Err(ConfigError::TailwindEval {
+                path: config_path.display().to_string(),
+                reason: format!("failed to wait for node subprocess: {err}"),
+                stderr: String::from_utf8_lossy(&stderr_bytes).into_owned(),
+            });
+        }
+    };
 
-    let status = child.wait();
-    // Tell the watcher the child finished so it doesn't try to kill it.
-    let _ = tx.send(());
-    let timed_out = watcher_done.join().unwrap_or(false);
-    if timed_out {
-        // Best-effort kill; if the child already exited, this is a noop.
-        // We need a fresh handle since `wait` consumed `child`. The
-        // `wait` above will have completed — we use timed_out only to
-        // surface a richer error message.
-    }
-
-    let stdout_bytes = stdout_handle.map_or_else(Vec::new, |h| {
-        h.join()
-            .unwrap_or_else(|_| Ok(Vec::new()))
-            .unwrap_or_default()
-    });
-    let stderr_bytes = stderr_handle.map_or_else(Vec::new, |h| {
-        h.join()
-            .unwrap_or_else(|_| Ok(Vec::new()))
-            .unwrap_or_default()
-    });
-
-    let status = status.map_err(|err| ConfigError::TailwindEval {
-        path: config_path.display().to_string(),
-        reason: format!("failed to wait for node subprocess: {err}"),
-        stderr: String::from_utf8_lossy(&stderr_bytes).into_owned(),
-    })?;
+    let stdout_bytes = drain_reader(stdout_handle);
+    let stderr_bytes = drain_reader(stderr_handle);
 
     if !status.success() {
         // The loader emits a structured JSON error to stdout when it
@@ -447,10 +487,16 @@ fn insert_color_token(spec: &mut ColorSpec, name: &str, css_value: &str) {
     }
 }
 
-/// Convert a Tailwind colour value to a six-digit hex string. Accepts
-/// `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`, `rgb()`, `rgba()`, `hsl()`,
-/// `hsla()`, and the named CSS basics. Anything else returns `None` —
-/// callers log and drop.
+/// Convert a Tailwind colour value to a six-digit hex string.
+///
+/// Accepts `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`, and `rgb(...)` /
+/// `rgba(...)` in either comma- or whitespace-separated form. Alpha is
+/// parsed but not preserved — Plumb's `[color].tokens` stores only the
+/// opaque hex.
+///
+/// Other CSS colour forms (`hsl()`, `hsla()`, `oklch()`, named CSS
+/// colours like `transparent` or `rebeccapurple`) return `None`.
+/// Callers log the dropped token at `tracing::debug` and continue.
 fn css_color_to_hex(value: &str) -> Option<String> {
     let v = value.trim().to_ascii_lowercase();
     if let Some(body) = v.strip_prefix('#') {
