@@ -37,3 +37,51 @@ async fn fake_driver_snapshot_all_preserves_target_order_and_viewport() -> Resul
 
     Ok(())
 }
+
+/// Regression for #121: the canned snapshot's html/body rects are
+/// viewport-sized, so when a non-default viewport is requested the
+/// fake driver MUST rewrite those rects to match the target's
+/// width/height — otherwise hand-testing multi-viewport behavior
+/// against `plumb-fake://` reports desktop rects on mobile.
+#[tokio::test]
+async fn fake_driver_rewrites_viewport_sized_rects_to_target() -> Result<(), CdpError> {
+    let driver = FakeDriver;
+    let snap = driver.snapshot(target("mobile", 375, 667)).await?;
+
+    assert_eq!(snap.viewport_width, 375);
+    assert_eq!(snap.viewport_height, 667);
+
+    let html = snap
+        .nodes
+        .iter()
+        .find(|n| n.tag == "html")
+        .expect("canned snapshot has an <html> root");
+    let html_rect = html.rect.expect("html node has a rect");
+    assert_eq!(html_rect.x, 0);
+    assert_eq!(html_rect.y, 0);
+    assert_eq!(
+        html_rect.width, 375,
+        "html rect width follows target viewport"
+    );
+    assert_eq!(
+        html_rect.height, 667,
+        "html rect height follows target viewport"
+    );
+
+    let body = snap
+        .nodes
+        .iter()
+        .find(|n| n.tag == "body")
+        .expect("canned snapshot has a <body>");
+    let body_rect = body.rect.expect("body node has a rect");
+    assert_eq!(
+        body_rect.width, 375,
+        "body rect width follows target viewport"
+    );
+    assert_eq!(
+        body_rect.height, 667,
+        "body rect height follows target viewport"
+    );
+
+    Ok(())
+}

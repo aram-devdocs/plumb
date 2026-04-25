@@ -385,6 +385,12 @@ async fn inject_animation_killer(page: &Page) -> Result<(), CdpError> {
 /// Deterministic fake driver. Recognizes `plumb-fake://hello` and returns
 /// [`PlumbSnapshot::canned`]. Used by the walking-skeleton CLI and by
 /// downstream tests.
+///
+/// Viewport-aware end-to-end: the returned snapshot's viewport name,
+/// width, and height match the target, and any per-node rect that
+/// covered the canned viewport is rescaled to the target dimensions
+/// so that hand-testing multi-viewport behavior produces the expected
+/// rects rather than the canned 1280x800 ones.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct FakeDriver;
 
@@ -393,9 +399,25 @@ impl BrowserDriver for FakeDriver {
     async fn snapshot(&self, target: Target) -> Result<PlumbSnapshot, CdpError> {
         if target.url == "plumb-fake://hello" {
             let mut snap = PlumbSnapshot::canned();
+            // Capture the canned viewport bounds before overwriting so
+            // we can rewrite any node rect that covered the full
+            // canned viewport to the target's dimensions.
+            let canned_w = snap.viewport_width;
+            let canned_h = snap.viewport_height;
             snap.viewport = target.viewport.clone();
             snap.viewport_width = target.width;
             snap.viewport_height = target.height;
+            for node in &mut snap.nodes {
+                if let Some(rect) = node.rect.as_mut()
+                    && rect.x == 0
+                    && rect.y == 0
+                    && rect.width == canned_w
+                    && rect.height == canned_h
+                {
+                    rect.width = target.width;
+                    rect.height = target.height;
+                }
+            }
             Ok(snap)
         } else {
             Err(CdpError::UnknownFakeUrl(target.url))
