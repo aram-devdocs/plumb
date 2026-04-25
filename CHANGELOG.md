@@ -21,6 +21,13 @@ From the first release onward, this file is maintained automatically by [`releas
 ### Changed
 
 - Renamed `radius.allowed_px` to `radius.scale` for naming consistency with `spacing.scale` and `type.scale`. The old name is rejected; update any pre-existing `plumb.toml`.
+- `plumb-cdp` accepts a Chromium major-version range
+  (`MIN_SUPPORTED_CHROMIUM_MAJOR..=MAX_SUPPORTED_CHROMIUM_MAJOR`,
+  currently `131..=150`) instead of an exact pin on `131`. The
+  `CdpError::UnsupportedChromium` variant now carries `min_supported`,
+  `max_supported`, and `found` fields, and the install hint reflects the
+  range. This unblocks `plumb lint <real-url>` on any host running a
+  recent Chrome / Chromium build.
 
 ### Removed
 

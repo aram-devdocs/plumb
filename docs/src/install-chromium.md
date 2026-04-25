@@ -3,9 +3,10 @@
 Plumb drives Chrome or Chromium through the Chrome DevTools Protocol. The
 browser is not bundled with the `plumb` binary.
 
-Plumb currently pins Chromium major version 131. If the detected browser
-reports a different major version, `plumb lint` exits with an unsupported
-Chromium error instead of producing lint output.
+Plumb supports Chromium major versions 131 through 150 inclusive. If the
+detected browser reports a major version outside that range, `plumb lint`
+exits with an unsupported Chromium error instead of producing lint
+output.
 
 ## macOS
 
@@ -66,5 +67,7 @@ Run the browser directly to confirm its major version:
 chromium --version
 ```
 
-The first number in the version must be `131`. If you have several Chrome or
-Chromium builds installed, pass `--executable-path` to select the matching one.
+The first number in the version must fall in the supported range
+(`131` through `150` inclusive). If you have several Chrome or Chromium
+builds installed, pass `--executable-path` to select one whose major
+version falls in that range.

@@ -8,11 +8,16 @@
 //! skeleton doesn't yet use `unsafe`; the override exists to preempt
 //! future friction when snapshot conversion lands.
 //!
-//! ## Pinned Chromium version
+//! ## Supported Chromium versions
 //!
-//! [`PINNED_CHROMIUM_MAJOR`] is the canonical Chromium major version
-//! Plumb renders against. Pinning the browser is part of Plumb's
-//! determinism guarantee (`docs/local/prd.md` §9, §16).
+//! Plumb accepts Chromium major versions in the inclusive range
+//! <code>[MIN_SUPPORTED_CHROMIUM_MAJOR]..=[MAX_SUPPORTED_CHROMIUM_MAJOR]</code>.
+//! The lower bound is the oldest major Plumb has validated against; the
+//! upper bound is the newest major tested up to. Both are public so
+//! callers can introspect the accepted range. Constraining the browser
+//! to a known range is part of Plumb's determinism guarantee
+//! (`docs/local/prd.md` §9, §16) — DOMSnapshot output stability is
+//! re-verified whenever the upper bound moves.
 //!
 //! ## Behavior
 //!
@@ -52,9 +57,14 @@ use chromiumoxide::{Browser, BrowserConfig, Handler};
 use futures_util::StreamExt;
 use tokio::task::JoinHandle;
 
-/// Pinned Chromium major version. Any CI or local run that boots a
-/// Chromium binary older or newer than this major version refuses to run.
-pub const PINNED_CHROMIUM_MAJOR: u32 = 131;
+/// Lowest Chromium major version Plumb has validated against. Booting
+/// a Chromium binary with a smaller major refuses to run.
+pub const MIN_SUPPORTED_CHROMIUM_MAJOR: u32 = 131;
+
+/// Highest Chromium major version Plumb has tested up to. Booting a
+/// Chromium binary with a larger major refuses to run; bump this
+/// constant after running the e2e suite against the new major.
+pub const MAX_SUPPORTED_CHROMIUM_MAJOR: u32 = 150;
 
 /// CSS property whitelist passed to `DOMSnapshot.captureSnapshot` as the
 /// `computedStyles` argument.
@@ -133,11 +143,18 @@ pub enum CdpError {
         /// Human-readable installation and override guidance.
         install_hint: String,
     },
-    /// The Chromium binary reported a major version we don't support.
-    #[error("Chromium major version {found} is not supported (Plumb pins to {expected})")]
+    /// The Chromium binary reported a major version outside Plumb's
+    /// supported range.
+    #[error(
+        "Chromium major version {found} is not supported (Plumb supports {min_supported}..={max_supported})"
+    )]
     UnsupportedChromium {
-        /// Expected major version (see [`PINNED_CHROMIUM_MAJOR`]).
-        expected: u32,
+        /// Lowest validated major version (see
+        /// [`MIN_SUPPORTED_CHROMIUM_MAJOR`]).
+        min_supported: u32,
+        /// Highest tested major version (see
+        /// [`MAX_SUPPORTED_CHROMIUM_MAJOR`]).
+        max_supported: u32,
         /// Detected major version.
         found: u32,
     },
@@ -415,8 +432,12 @@ fn chromium_install_hint() -> String {
         "Linux: install `google-chrome-stable`, `chromium`, or `chromium-browser` with your package manager."
     };
 
+    // The `--executable-path` mention here is for the not-found case:
+    // pointing at a binary auto-detect missed. It does NOT bypass the
+    // version check — the supplied binary still has to fall in the
+    // supported range.
     format!(
-        "Install Chrome/Chromium {PINNED_CHROMIUM_MAJOR} or pass `--executable-path <path>` to a compatible binary. {platform_hint}"
+        "Install Chrome/Chromium between major {MIN_SUPPORTED_CHROMIUM_MAJOR} and {MAX_SUPPORTED_CHROMIUM_MAJOR} (inclusive), or pass `--executable-path <path>` to a Chromium binary in that range that auto-detect missed. {platform_hint}"
     )
 }
 
@@ -498,11 +519,14 @@ fn validate_chromium_product_major(product: &str) -> Result<(), CdpError> {
         )))
     })?;
 
-    if found == PINNED_CHROMIUM_MAJOR {
+    // PRD §16: Plumb accepts a contiguous range of Chromium majors,
+    // re-validated whenever the upper bound moves.
+    if (MIN_SUPPORTED_CHROMIUM_MAJOR..=MAX_SUPPORTED_CHROMIUM_MAJOR).contains(&found) {
         Ok(())
     } else {
         Err(CdpError::UnsupportedChromium {
-            expected: PINNED_CHROMIUM_MAJOR,
+            min_supported: MIN_SUPPORTED_CHROMIUM_MAJOR,
+            max_supported: MAX_SUPPORTED_CHROMIUM_MAJOR,
             found,
         })
     }
@@ -1007,7 +1031,10 @@ fn rect_from_bounds(inner: &[f64]) -> Rect {
 
 #[cfg(test)]
 mod tests {
-    use super::{COMPUTED_STYLE_WHITELIST, CdpError, PINNED_CHROMIUM_MAJOR};
+    use super::{
+        COMPUTED_STYLE_WHITELIST, CdpError, MAX_SUPPORTED_CHROMIUM_MAJOR,
+        MIN_SUPPORTED_CHROMIUM_MAJOR,
+    };
 
     #[test]
     fn style_whitelist_has_36_properties() {
@@ -1087,21 +1114,43 @@ mod tests {
 
     #[test]
     fn detects_unsupported_chromium_major() {
-        let result = super::validate_chromium_product_major("Chrome/132.0.0.0");
-
+        // Below the minimum is rejected.
+        let below = MIN_SUPPORTED_CHROMIUM_MAJOR - 1;
+        let below_product = format!("Chrome/{below}.0.0.0");
+        let below_result = super::validate_chromium_product_major(&below_product);
         assert!(matches!(
-            result,
+            below_result,
             Err(CdpError::UnsupportedChromium {
-                expected: PINNED_CHROMIUM_MAJOR,
-                found: 132,
-            })
+                min_supported: MIN_SUPPORTED_CHROMIUM_MAJOR,
+                max_supported: MAX_SUPPORTED_CHROMIUM_MAJOR,
+                found,
+            }) if found == below
+        ));
+
+        // Above the maximum is rejected.
+        let above = MAX_SUPPORTED_CHROMIUM_MAJOR + 1;
+        let above_product = format!("Chrome/{above}.0.0.0");
+        let above_result = super::validate_chromium_product_major(&above_product);
+        assert!(matches!(
+            above_result,
+            Err(CdpError::UnsupportedChromium {
+                min_supported: MIN_SUPPORTED_CHROMIUM_MAJOR,
+                max_supported: MAX_SUPPORTED_CHROMIUM_MAJOR,
+                found,
+            }) if found == above
         ));
     }
 
     #[test]
-    fn accepts_pinned_chromium_major() {
-        let product = format!("HeadlessChrome/{PINNED_CHROMIUM_MAJOR}.0.0.0");
+    fn accepts_supported_chromium_majors() {
+        // Min, max, and an in-between value (140) all pass.
+        let lower_bound = format!("HeadlessChrome/{MIN_SUPPORTED_CHROMIUM_MAJOR}.0.0.0");
+        assert!(super::validate_chromium_product_major(&lower_bound).is_ok());
 
-        assert!(super::validate_chromium_product_major(&product).is_ok());
+        let upper_bound = format!("HeadlessChrome/{MAX_SUPPORTED_CHROMIUM_MAJOR}.0.0.0");
+        assert!(super::validate_chromium_product_major(&upper_bound).is_ok());
+
+        let in_range = "HeadlessChrome/140.0.0.0";
+        assert!(super::validate_chromium_product_major(in_range).is_ok());
     }
 }
