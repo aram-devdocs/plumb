@@ -17,6 +17,7 @@ categories.workspace = true
 plumb-core = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+sha2 = { workspace = true }
 
 [dev-dependencies]
 plumb-core = { workspace = true, features = ["test-fake"] }

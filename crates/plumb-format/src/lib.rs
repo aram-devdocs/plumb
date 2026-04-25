@@ -23,6 +23,17 @@ use std::fmt::Write as _;
 
 use plumb_core::{Severity, Violation};
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
+
+/// Plumb version string embedded in the JSON envelope.
+///
+/// Pinned to `plumb-format`'s `CARGO_PKG_VERSION` because the envelope
+/// shape is owned by this crate. The workspace version-bumps in
+/// lockstep, so this resolves to the same value as the `plumb` binary
+/// in practice; sourcing it from this crate keeps the formatter
+/// self-contained and avoids a needless dependency cycle through
+/// `plumb-cli`.
+const PLUMB_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Render a slice of violations as a pretty, human-readable block.
 ///
@@ -55,13 +66,81 @@ pub fn pretty(violations: &[Violation]) -> String {
 
 /// Render a slice of violations as canonical, pretty-printed JSON.
 ///
+/// # Envelope
+///
+/// The output is an object with these top-level fields, written in
+/// alphabetical key order:
+///
+/// - `plumb_version` — the `plumb-format` crate version at compile
+///   time. The workspace ships every crate with the same version, so
+///   this matches the `plumb` binary version too.
+/// - `run_id` — a content-derived identifier of the violations payload
+///   (see below).
+/// - `summary` — `{ "error": N, "info": N, "total": N, "warning": N }`,
+///   keys also in alphabetical order.
+/// - `violations` — the violations array, sorted by
+///   [`plumb_core::Violation::sort_key`].
+///
+/// The workspace enables `serde_json/preserve_order` via `schemars`, so
+/// `serde_json::Map` is `IndexMap`-backed and preserves insertion
+/// order. The envelope inserts keys alphabetically to keep the output
+/// independent of that crate-feature toggle.
+///
+/// # `run_id` derivation
+///
+/// `run_id = "sha256:" + hex(Sha256(serde_json::to_vec(&sorted_violations)))`
+///
+/// The hash input is the **compact** (non-pretty) JSON serialization of
+/// the sorted violations array — not the pretty-printed envelope —
+/// which means whitespace tweaks in the output never shift the hash,
+/// and a `plumb_version` bump never shifts it either. Two runs with
+/// the same violations always produce the same `run_id`; any
+/// observable change in a violation flips the digest.
+///
+/// The formatter re-sorts violations defensively before hashing and
+/// serializing. The engine already sorts on its way out, but the
+/// formatter does not depend on caller invariants.
+///
 /// # Errors
 ///
 /// Returns an error if serialization fails, which in practice only
 /// happens when a `Violation::metadata` contains a non-JSON-representable
 /// value.
 pub fn json(violations: &[Violation]) -> Result<String, serde_json::Error> {
-    serde_json::to_string_pretty(violations)
+    let mut sorted: Vec<&Violation> = violations.iter().collect();
+    sorted.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
+
+    let canonical = serde_json::to_vec(&sorted)?;
+    let run_id = format!("sha256:{}", hex_digest(&canonical));
+
+    // Build the envelope with alphabetically ordered keys so the
+    // output is stable regardless of `serde_json`'s `preserve_order`
+    // feature being enabled in the workspace.
+    let mut envelope = serde_json::Map::new();
+    envelope.insert(
+        "plumb_version".to_owned(),
+        Value::String(PLUMB_VERSION.to_owned()),
+    );
+    envelope.insert("run_id".to_owned(), Value::String(run_id));
+    envelope.insert("summary".to_owned(), counts(violations));
+    envelope.insert("violations".to_owned(), serde_json::to_value(&sorted)?);
+    serde_json::to_string_pretty(&Value::Object(envelope))
+}
+
+/// Hex-alphabet table used by [`hex_digest`].
+const HEX_TABLE: &[u8; 16] = b"0123456789abcdef";
+
+/// Hex-encode a SHA-256 digest of `bytes` without an extra dependency.
+fn hex_digest(bytes: &[u8]) -> String {
+    let digest = Sha256::digest(bytes);
+    let mut hex = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        let upper = HEX_TABLE[(byte >> 4) as usize];
+        let lower = HEX_TABLE[(byte & 0x0f) as usize];
+        hex.push(char::from(upper));
+        hex.push(char::from(lower));
+    }
+    hex
 }
 
 /// Render a slice of violations as SARIF 2.1.0.
@@ -162,12 +241,14 @@ fn counts(violations: &[Violation]) -> Value {
             Severity::Info => info += 1,
         }
     }
-    json!({
-        "error": err,
-        "warning": warn,
-        "info": info,
-        "total": violations.len(),
-    })
+    // Insert in alphabetical order so the output is stable regardless
+    // of `serde_json`'s `preserve_order` feature toggle.
+    let mut map = serde_json::Map::new();
+    map.insert("error".to_owned(), json!(err));
+    map.insert("info".to_owned(), json!(info));
+    map.insert("total".to_owned(), json!(violations.len()));
+    map.insert("warning".to_owned(), json!(warn));
+    Value::Object(map)
 }
 
 fn summary_line(violations: &[Violation]) -> String {

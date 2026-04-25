@@ -2,30 +2,40 @@
 source: crates/plumb-format/tests/format_snapshots.rs
 expression: out
 ---
-[
-  {
-    "rule_id": "spacing/grid-conformance",
-    "severity": "warning",
-    "message": "`html > body` has off-grid padding-top 13px; expected a multiple of 4px.",
-    "selector": "html > body",
-    "viewport": "desktop",
-    "rect": {
-      "x": 0,
-      "y": 0,
-      "width": 1280,
-      "height": 800
-    },
-    "dom_order": 2,
-    "fix": {
-      "kind": {
-        "kind": "css_property_replace",
-        "property": "padding-top",
-        "from": "13px",
-        "to": "12px"
+{
+  "plumb_version": "0.0.1",
+  "run_id": "sha256:53a662be238be796f9a08b74adb05e4020dd3d9f653e9bf91a7fb5b1c7a274c0",
+  "summary": {
+    "error": 0,
+    "info": 0,
+    "total": 1,
+    "warning": 1
+  },
+  "violations": [
+    {
+      "rule_id": "spacing/grid-conformance",
+      "severity": "warning",
+      "message": "`html > body` has off-grid padding-top 13px; expected a multiple of 4px.",
+      "selector": "html > body",
+      "viewport": "desktop",
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 1280,
+        "height": 800
       },
-      "description": "Snap `padding-top` to the nearest spacing-grid value (12px).",
-      "confidence": "medium"
-    },
-    "doc_url": "https://plumb.aramhammoudeh.com/rules/spacing-grid-conformance"
-  }
-]
+      "dom_order": 2,
+      "fix": {
+        "kind": {
+          "kind": "css_property_replace",
+          "property": "padding-top",
+          "from": "13px",
+          "to": "12px"
+        },
+        "description": "Snap `padding-top` to the nearest spacing-grid value (12px).",
+        "confidence": "medium"
+      },
+      "doc_url": "https://plumb.aramhammoudeh.com/rules/spacing-grid-conformance"
+    }
+  ]
+}
