@@ -22,12 +22,14 @@ use thiserror::Error;
 mod css_props;
 mod dtcg;
 mod span;
+pub mod tailwind;
 mod validate;
 
 pub use css_props::{CssPropertyScrape, ScrapedValue, scrape_css_properties};
 pub use dtcg::{DtcgImport, DtcgSource, DtcgWarning, DtcgWarningKind, MAX_NESTING, merge_dtcg};
 
 use span::{SourceFormat, locate_path};
+pub use tailwind::{TailwindOptions, merge_tailwind};
 use validate::ValidationIssue;
 
 /// Underlying config parse errors.
@@ -144,6 +146,39 @@ pub enum ConfigError {
         cycle: Vec<String>,
         /// Human-readable explanation.
         reason: String,
+    },
+    /// The Tailwind adapter could not run because Node is missing
+    /// or otherwise unavailable.
+    #[error("tailwind adapter unavailable: {reason}")]
+    #[diagnostic(
+        code(plumb::config::tailwind_unavailable),
+        help("install Node.js (https://nodejs.org) or pass --tailwind-node <path>")
+    )]
+    TailwindUnavailable {
+        /// Why the adapter couldn't run (missing Node, missing override, …).
+        reason: String,
+    },
+    /// The Tailwind config path is malformed or escapes the project tree.
+    #[error("invalid tailwind config path `{path}`: {reason}")]
+    #[diagnostic(code(plumb::config::tailwind_bad_path))]
+    TailwindBadPath {
+        /// User-supplied tailwind config path.
+        path: String,
+        /// Why we rejected it.
+        reason: String,
+    },
+    /// Node ran but the Tailwind config evaluation failed.
+    #[error("failed to evaluate tailwind config `{path}`: {reason}")]
+    #[diagnostic(code(plumb::config::tailwind_eval))]
+    TailwindEval {
+        /// User-supplied tailwind config path.
+        path: String,
+        /// Reason text — either the loader's structured error or the
+        /// shape of the subprocess failure.
+        reason: String,
+        /// Captured stderr from the Node subprocess. Empty when the
+        /// child closed without writing diagnostics.
+        stderr: String,
     },
 }
 
