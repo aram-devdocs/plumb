@@ -9,6 +9,8 @@ against each page snapshot. Every rule has:
 
 ## Built-in rules
 
+- [`radius/scale-conformance`](./radius-scale-conformance.md) — flags
+  border-radius values that aren't members of `radius.scale`.
 - [`spacing/grid-conformance`](./spacing-grid-conformance.md) — flags
   spacing values that aren't multiples of `spacing.base_unit`.
 - [`spacing/scale-conformance`](./spacing-scale-conformance.md) —
@@ -18,6 +20,5 @@ against each page snapshot. Every rule has:
 
 ## Coming soon
 
-The PRD lists the rest of the initial rule set — color, radius,
-alignment, a11y. Each will land with its own docs page and a golden
-snapshot test.
+The PRD lists the rest of the initial rule set — color, alignment,
+a11y. Each will land with its own docs page and a golden snapshot test.

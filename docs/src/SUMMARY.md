@@ -12,6 +12,7 @@
 # Rules
 
 - [Overview](./rules/overview.md)
+- [radius/scale-conformance](./rules/radius-scale-conformance.md)
 - [spacing/grid-conformance](./rules/spacing-grid-conformance.md)
 - [spacing/scale-conformance](./rules/spacing-scale-conformance.md)
 - [type/scale-conformance](./rules/type-scale-conformance.md)

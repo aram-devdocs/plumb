@@ -8,6 +8,7 @@
 //! 3. Add a golden snapshot test under `tests/`.
 //! 4. Document it at `docs/src/rules/<rule-id>.md`.
 
+pub mod radius;
 pub mod spacing;
 pub mod type_;
 
@@ -46,6 +47,7 @@ pub trait Rule: Send + Sync {
 #[must_use]
 pub fn register_builtin() -> Vec<Box<dyn Rule>> {
     vec![
+        Box::new(radius::scale_conformance::ScaleConformance),
         Box::new(spacing::grid_conformance::GridConformance),
         Box::new(spacing::scale_conformance::ScaleConformance),
         Box::new(type_::scale_conformance::ScaleConformance),
