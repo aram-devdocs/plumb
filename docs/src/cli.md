@@ -7,8 +7,9 @@ The `plumb` binary is the primary entry point for developers and CI.
 ### `plumb lint <url>`
 
 Lint a URL. The `plumb-fake://hello` URL scheme is still available for
-local smoke tests. Real URLs require a Chrome or Chromium binary that
-matches Plumb's pinned Chromium major version.
+local smoke tests. Real URLs require a Chrome or Chromium binary whose
+major version falls in Plumb's supported range (see
+[Install Chromium](install-chromium.md)).
 
 | Flag | Description |
 |------|-------------|

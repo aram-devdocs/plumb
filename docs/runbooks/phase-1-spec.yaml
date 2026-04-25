@@ -44,7 +44,7 @@ batches:
           - "`ChromiumDriver::snapshot` launches a real Chromium for standard install paths on all three OSes."
           - "`--executable-path /custom/chrome` overrides detection."
           - "Missing Chromium yields `CdpError::ChromiumNotFound` with a human-readable install hint."
-          - "Chromium major version verified against `PINNED_CHROMIUM_MAJOR`; mismatch yields `CdpError::UnsupportedChromium`."
+          - "Chromium major version verified against `MIN_SUPPORTED_CHROMIUM_MAJOR..=MAX_SUPPORTED_CHROMIUM_MAJOR`; out-of-range yields `CdpError::UnsupportedChromium`."
           - "`docs/src/install-chromium.md` documents install steps per OS."
         reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner", "06-security-auditor"]
       - slug: core-rule-trait-dispatch

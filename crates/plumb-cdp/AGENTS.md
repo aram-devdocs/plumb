@@ -6,7 +6,8 @@ See `/AGENTS.md` for repo-wide rules. This file scopes to `plumb-cdp`.
 
 The only crate that drives a browser. Owns: `BrowserDriver` trait,
 `Target`, `CdpError`, `ChromiumDriver` (real), `FakeDriver` (for the
-`plumb-fake://` scheme), `PINNED_CHROMIUM_MAJOR` constant.
+`plumb-fake://` scheme), `MIN_SUPPORTED_CHROMIUM_MAJOR` and
+`MAX_SUPPORTED_CHROMIUM_MAJOR` constants.
 
 ## Unique permissions
 
@@ -22,8 +23,10 @@ invariants. No exceptions.
 
 ## Non-negotiable invariants
 
-- The pinned Chromium major version (`PINNED_CHROMIUM_MAJOR`) must match
-  the PRD (§9, §16) and the docs. Changing it needs an ADR.
+- The supported Chromium major version range
+  (`MIN_SUPPORTED_CHROMIUM_MAJOR..=MAX_SUPPORTED_CHROMIUM_MAJOR`) must
+  match the PRD (§9, §16) and the docs. Widening or shifting the range
+  needs an ADR.
 - `ChromiumDriver::snapshot` never touches the wall clock for anything
   that flows into `PlumbSnapshot` output. Snapshot content depends only
   on the page and the viewport.

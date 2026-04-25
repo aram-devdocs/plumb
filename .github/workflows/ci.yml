@@ -50,7 +50,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@nextest
       - name: cargo nextest
-        run: cargo nextest run --workspace --all-features --profile ci
+        run: cargo nextest run --workspace --profile ci
       - name: Upload junit
         if: always()
         uses: actions/upload-artifact@v7

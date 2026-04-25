@@ -81,7 +81,7 @@ Report per-step PASS/FAIL with short excerpts on failure.
 Check:
 - Every parser/URL/config boundary rejects malformed input with a typed error — no `unwrap`/`expect` on external data.
 - MCP tools (`plumb-mcp`) validate input schemas, cap response size (≤10 KB `structuredContent` by default), never echo secrets in errors.
-- `plumb-cdp`: every `unsafe` block has a `// SAFETY:` comment. Chromium pin (`PINNED_CHROMIUM_MAJOR`) matches the PRD.
+- `plumb-cdp`: every `unsafe` block has a `// SAFETY:` comment. Supported Chromium range (`MIN_SUPPORTED_CHROMIUM_MAJOR..=MAX_SUPPORTED_CHROMIUM_MAJOR`) matches the PRD.
 - `cargo audit` + `cargo deny check advisories` pass — no unpatched `RUSTSEC-*`.
 - `cargo deny check licenses` passes — no GPL/AGPL/LGPL transitively.
 - No hard-coded tokens, API keys, or private endpoints.

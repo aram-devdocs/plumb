@@ -18,9 +18,10 @@ vulnerabilities before they ship.
    agents. Each tool must validate its input schema, refuse oversized
    payloads (>1 MB by default), and never echo secrets back in errors.
 3. **CDP / Chromium.** `plumb-cdp` is the only crate allowed `unsafe`.
-   Every `unsafe` block has a `// SAFETY:` comment. Chromium pin
-   (`PINNED_CHROMIUM_MAJOR`) matches the version documented in
-   `docs/adr/` and the PRD.
+   Every `unsafe` block has a `// SAFETY:` comment. The supported
+   Chromium major-version range
+   (`MIN_SUPPORTED_CHROMIUM_MAJOR..=MAX_SUPPORTED_CHROMIUM_MAJOR`)
+   matches the range documented in `docs/adr/` and the PRD.
 4. **Dependency advisories.** Run `cargo audit` and `cargo deny check
    advisories`. Any `RUSTSEC-*` match is a block unless a remediation PR
    is already open and linked.
