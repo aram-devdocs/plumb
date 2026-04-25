@@ -54,12 +54,12 @@
 //!   smuggle in a non-hex string.
 //!
 //! [dtcg-spec]: https://design-tokens.github.io/community-group/format/
-//! [`ColorSpec::tokens`]: plumb_core::ColorSpec::tokens
-//! [`SpacingSpec::tokens`]: plumb_core::SpacingSpec::tokens
-//! [`TypeScaleSpec::tokens`]: plumb_core::TypeScaleSpec::tokens
-//! [`TypeScaleSpec::families`]: plumb_core::TypeScaleSpec::families
-//! [`TypeScaleSpec::weights`]: plumb_core::TypeScaleSpec::weights
-//! [`RadiusSpec::scale`]: plumb_core::RadiusSpec::scale
+//! [`ColorSpec::tokens`]: plumb_core::config::ColorSpec::tokens
+//! [`SpacingSpec::tokens`]: plumb_core::config::SpacingSpec::tokens
+//! [`TypeScaleSpec::tokens`]: plumb_core::config::TypeScaleSpec::tokens
+//! [`TypeScaleSpec::families`]: plumb_core::config::TypeScaleSpec::families
+//! [`TypeScaleSpec::weights`]: plumb_core::config::TypeScaleSpec::weights
+//! [`RadiusSpec::scale`]: plumb_core::config::RadiusSpec::scale
 
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -97,21 +97,21 @@ pub struct DtcgSource {
 /// types, multi-mode siblings) are recorded in [`Self::warnings`].
 #[derive(Debug, Default, Clone)]
 pub struct DtcgImport {
-    /// Number of color tokens added to [`plumb_core::ColorSpec::tokens`].
+    /// Number of color tokens added to [`plumb_core::config::ColorSpec::tokens`].
     pub color_added: usize,
-    /// Number of spacing tokens added to [`plumb_core::SpacingSpec::tokens`].
+    /// Number of spacing tokens added to [`plumb_core::config::SpacingSpec::tokens`].
     pub spacing_added: usize,
     /// Number of typography size tokens added to
-    /// [`plumb_core::TypeScaleSpec::tokens`].
+    /// [`plumb_core::config::TypeScaleSpec::tokens`].
     pub type_size_added: usize,
     /// Number of font families added to
-    /// [`plumb_core::TypeScaleSpec::families`].
+    /// [`plumb_core::config::TypeScaleSpec::families`].
     pub type_family_added: usize,
     /// Number of font weights added to
-    /// [`plumb_core::TypeScaleSpec::weights`].
+    /// [`plumb_core::config::TypeScaleSpec::weights`].
     pub type_weight_added: usize,
     /// Number of radius values added to
-    /// [`plumb_core::RadiusSpec::scale`].
+    /// [`plumb_core::config::RadiusSpec::scale`].
     pub radius_added: usize,
     /// Non-fatal issues discovered during the merge.
     pub warnings: Vec<DtcgWarning>,
