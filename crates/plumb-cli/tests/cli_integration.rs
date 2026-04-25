@@ -309,3 +309,57 @@ fn init_then_lint_runs_against_fake_driver() -> Result<(), Box<dyn std::error::E
         .stdout(contains("spacing/"));
     Ok(())
 }
+
+// `--selector` (PRD §15.4) — restricts the lint to a CSS subtree
+// before rule dispatch. The canned `plumb-fake://hello` snapshot has
+// `padding-top: 13px` on `<body>`, off-grid against the default
+// `spacing.base_unit = 4`, so `spacing/grid-conformance` fires when
+// body is in the kept set and stays silent when it isn't.
+
+#[test]
+fn lint_with_selector_matching_body_keeps_violation() -> Result<(), Box<dyn std::error::Error>> {
+    Command::cargo_bin("plumb")?
+        .args(["lint", "plumb-fake://hello", "--selector", "body"])
+        .assert()
+        .code(3)
+        .stdout(contains("spacing/grid-conformance"));
+    Ok(())
+}
+
+#[test]
+fn lint_with_selector_matching_only_head_drops_violation() -> Result<(), Box<dyn std::error::Error>>
+{
+    Command::cargo_bin("plumb")?
+        .args(["lint", "plumb-fake://hello", "--selector", "head"])
+        .assert()
+        .success()
+        .stdout(contains("spacing/grid-conformance").not());
+    Ok(())
+}
+
+#[test]
+fn lint_with_invalid_selector_exits_input_error() -> Result<(), Box<dyn std::error::Error>> {
+    Command::cargo_bin("plumb")?
+        .args(["lint", "plumb-fake://hello", "--selector", ">>>"])
+        .assert()
+        .code(2)
+        .stderr(contains("invalid --selector"))
+        .stderr(contains(">>>"));
+    Ok(())
+}
+
+#[test]
+fn lint_with_selector_matching_nothing_exits_input_error() -> Result<(), Box<dyn std::error::Error>>
+{
+    Command::cargo_bin("plumb")?
+        .args([
+            "lint",
+            "plumb-fake://hello",
+            "--selector",
+            ".does-not-exist",
+        ])
+        .assert()
+        .code(2)
+        .stderr(contains("matched no elements"));
+    Ok(())
+}

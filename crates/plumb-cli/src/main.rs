@@ -65,6 +65,11 @@ enum Command {
         /// configured.
         #[arg(long = "viewport", value_name = "NAME", action = ArgAction::Append)]
         viewports: Vec<String>,
+        /// Restrict linting to elements matching this CSS selector and
+        /// their descendants. When provided, snapshots are filtered
+        /// before rule dispatch.
+        #[arg(long, value_name = "CSS_SELECTOR")]
+        selector: Option<String>,
     },
     /// Write a starter `plumb.toml` to the current directory.
     Init {
@@ -121,7 +126,18 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 executable_path,
                 format,
                 viewports,
-            } => commands::lint::run(url, config, executable_path, format.into(), viewports).await,
+                selector,
+            } => {
+                commands::lint::run(
+                    url,
+                    config,
+                    executable_path,
+                    format.into(),
+                    viewports,
+                    selector,
+                )
+                .await
+            }
             Command::Init { force } => commands::init::run(force),
             Command::Explain { rule } => commands::explain::run(&rule),
             Command::Schema => commands::schema::run(),
