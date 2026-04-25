@@ -8,6 +8,7 @@ pub mod init;
 pub mod lint;
 pub mod mcp;
 pub mod schema;
+pub mod selector;
 
 use std::fmt;
 

@@ -31,6 +31,11 @@ miette = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 serde_json = { workspace = true }
+indexmap = { workspace = true }
+# CSS selector matcher for `--selector` (PRD §15.4). `errors` exposes the
+# selector parser's error types; `deterministic` keeps internal hash maps
+# deterministic so filter output is byte-stable across runs.
+scraper = { version = "0.26", default-features = false, features = ["errors", "deterministic"] }
 
 [dev-dependencies]
 assert_cmd = { workspace = true }
