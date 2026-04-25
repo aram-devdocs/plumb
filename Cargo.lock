@@ -1364,6 +1364,7 @@ name = "plumb-config"
 version = "0.0.1"
 dependencies = [
  "figment",
+ "indexmap",
  "miette",
  "plumb-core",
  "schemars",

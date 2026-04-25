@@ -16,6 +16,7 @@ From the first release onward, this file is maintained automatically by [`releas
 - Rule `spacing/scale-conformance`: flags the same property set when values aren't members of `spacing.scale`.
 - Rule `type/scale-conformance`: flags `font-size` values that aren't members of `type.scale`.
 - PRD §12.2 `[color]`, `[radius]`, `[alignment]`, `[a11y]` config sections fleshed out: `color.delta_e_tolerance` (default 2.0), `alignment.tolerance_px` (default 3), `a11y.touch_target.{min_width_px, min_height_px}` (default 24×24 per WCAG 2.5.8).
+- DTCG 2025.10 token adapter in `plumb-config`: `merge_dtcg(&mut Config, &DtcgSource)` imports a Design Tokens Community Group JSON file into a `Config`. Maps `color`, `dimension` (spacing or typography by namespace heuristic), `fontFamily`, `fontWeight`, and `radius` / `borderRadius`; resolves `{path.to.token}` brace aliases and `{ "$ref": "#/..." }` pointers with cycle detection; caps nesting at 256 levels.
 
 ### Changed
 

@@ -16,6 +16,7 @@ categories.workspace = true
 [dependencies]
 plumb-core = { workspace = true }
 figment = { workspace = true }
+indexmap = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 toml = { workspace = true }

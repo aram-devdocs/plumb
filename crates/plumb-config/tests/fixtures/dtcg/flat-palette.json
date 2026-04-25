@@ -1,0 +1,18 @@
+{
+  "brand-primary": {
+    "$type": "color",
+    "$value": "#0b7285"
+  },
+  "brand-secondary": {
+    "$type": "color",
+    "$value": "#1971c2"
+  },
+  "neutral-bg": {
+    "$type": "color",
+    "$value": "#ffffff"
+  },
+  "neutral-fg": {
+    "$type": "color",
+    "$value": "#0b0b0b"
+  }
+}

@@ -19,8 +19,11 @@ use miette::{Diagnostic, NamedSource, SourceSpan};
 use plumb_core::Config;
 use thiserror::Error;
 
+mod dtcg;
 mod span;
 mod validate;
+
+pub use dtcg::{DtcgImport, DtcgSource, DtcgWarning, DtcgWarningKind, MAX_NESTING, merge_dtcg};
 
 use span::{SourceFormat, locate_path};
 use validate::ValidationIssue;
@@ -95,6 +98,35 @@ pub enum ConfigError {
     /// Schema emission failed.
     #[error("failed to emit schema: {0}")]
     Schema(#[source] serde_json::Error),
+    /// A DTCG import failed at the parsing or value-conversion stage.
+    #[error("failed to import DTCG token file `{path}`: {reason}")]
+    #[diagnostic(code(plumb::config::dtcg_parse))]
+    DtcgParse {
+        /// Path of the failing DTCG document.
+        path: String,
+        /// Source text for span-annotated diagnostics.
+        #[source_code]
+        source_code: Option<NamedSource<String>>,
+        /// Best-effort label location, when the parser could pin one.
+        #[label("invalid token")]
+        span: Option<SourceSpan>,
+        /// Human-readable explanation.
+        reason: String,
+    },
+    /// A DTCG alias either dangles or forms a cycle.
+    #[error("DTCG alias error in `{path}`: {reason} (cycle: {cycle:?})")]
+    #[diagnostic(code(plumb::config::dtcg_alias))]
+    DtcgAlias {
+        /// Path of the DTCG document where the alias error was raised.
+        path: String,
+        /// Source text for span-annotated diagnostics.
+        #[source_code]
+        source_code: Option<NamedSource<String>>,
+        /// Slash-joined token paths in the order the resolver visited them.
+        cycle: Vec<String>,
+        /// Human-readable explanation.
+        reason: String,
+    },
 }
 
 /// Load a `Config` from disk. The file extension decides the parser.

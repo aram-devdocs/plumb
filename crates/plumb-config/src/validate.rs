@@ -38,7 +38,7 @@ pub(crate) fn validate(cfg: &Config) -> Option<ValidationIssue> {
 
 /// Returns `true` if `value` is a `#`-prefixed hex color of length
 /// 3, 4, 6, or 8 nibbles.
-fn is_valid_hex_color(value: &str) -> bool {
+pub(crate) fn is_valid_hex_color(value: &str) -> bool {
     let Some(body) = value.strip_prefix('#') else {
         return false;
     };

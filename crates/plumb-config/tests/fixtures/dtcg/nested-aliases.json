@@ -1,0 +1,134 @@
+{
+  "$description": "Nested DTCG group with aliases. Spacing scale aliased from a base unit, semantic colors aliased from primitives.",
+  "color": {
+    "primitive": {
+      "blue-500": {
+        "$type": "color",
+        "$value": "#1971c2"
+      },
+      "gray-50": {
+        "$type": "color",
+        "$value": "#f8f9fa"
+      },
+      "gray-900": {
+        "$type": "color",
+        "$value": "#0b0b0b"
+      }
+    },
+    "semantic": {
+      "bg/canvas": {
+        "$type": "color",
+        "$value": "{color.primitive.gray-50}"
+      },
+      "fg/primary": {
+        "$type": "color",
+        "$value": "{color.primitive.gray-900}"
+      },
+      "accent/brand": {
+        "$type": "color",
+        "$value": "{color.primitive.blue-500}"
+      }
+    }
+  },
+  "spacing": {
+    "$description": "Spacing scale in pixels. Tokens alias the base unit by indirection.",
+    "unit": {
+      "$type": "dimension",
+      "$value": {
+        "value": 4,
+        "unit": "px"
+      }
+    },
+    "sm": {
+      "$type": "dimension",
+      "$value": {
+        "value": 8,
+        "unit": "px"
+      }
+    },
+    "md": {
+      "$type": "dimension",
+      "$value": {
+        "value": 16,
+        "unit": "px"
+      }
+    },
+    "lg": {
+      "$type": "dimension",
+      "$value": "{spacing.md}"
+    }
+  },
+  "typography": {
+    "size": {
+      "body": {
+        "$type": "dimension",
+        "$value": {
+          "value": 16,
+          "unit": "px"
+        }
+      },
+      "heading": {
+        "$type": "dimension",
+        "$value": {
+          "value": 24,
+          "unit": "px"
+        }
+      }
+    },
+    "family": {
+      "sans": {
+        "$type": "fontFamily",
+        "$value": "Inter"
+      },
+      "mono": {
+        "$type": "fontFamily",
+        "$value": ["JetBrains Mono", "ui-monospace"]
+      }
+    },
+    "weight": {
+      "regular": {
+        "$type": "fontWeight",
+        "$value": 400
+      },
+      "bold": {
+        "$type": "fontWeight",
+        "$value": 700
+      }
+    }
+  },
+  "radius": {
+    "sm": {
+      "$type": "borderRadius",
+      "$value": {
+        "value": 4,
+        "unit": "px"
+      }
+    },
+    "md": {
+      "$type": "borderRadius",
+      "$value": {
+        "value": 8,
+        "unit": "px"
+      }
+    },
+    "lg": {
+      "$type": "radius",
+      "$value": {
+        "value": 16,
+        "unit": "px"
+      }
+    }
+  },
+  "shadow": {
+    "elevation-1": {
+      "$type": "shadow",
+      "$value": {
+        "color": "#0000001a",
+        "offsetX": "0px",
+        "offsetY": "1px",
+        "blur": "2px",
+        "spread": "0px"
+      }
+    }
+  }
+}
