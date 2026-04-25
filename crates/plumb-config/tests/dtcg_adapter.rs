@@ -291,7 +291,9 @@ fn rejects_invalid_hex_color() {
 
 #[test]
 fn deeply_nested_input_is_rejected() {
-    // 300 levels of nesting — over the 256 cap.
+    // 300 levels of nesting — well over both Plumb's 64 cap and
+    // serde_json's default 128 recursion limit. Either layer of defense
+    // is enough to surface the failure as a `DtcgParse`.
     let mut body = String::new();
     for _ in 0..300 {
         body.push_str("{\"g\":");
@@ -375,10 +377,78 @@ fn duplicate_token_name_warns_and_keeps_first() {
     // First wins — the existing config value is preserved.
     assert_eq!(cfg.color.tokens["brand"], "#abcdef");
     assert!(
+        report
+            .warnings
+            .iter()
+            .any(|w| matches!(&w.kind, DtcgWarningKind::DuplicateName) && w.path == "brand"),
+        "duplicate token should surface as a DuplicateName warning at path `brand`"
+    );
+}
+
+#[test]
+fn nesting_above_plumb_cap_is_rejected_by_dtcg_check() {
+    // 100 levels of nesting — above Plumb's 64 cap, below serde_json's
+    // default 128 recursion limit. This exercises the `exceeds_depth`
+    // check directly (the deeper-nesting test relies on serde_json's
+    // recursion guard firing first).
+    let mut body = String::new();
+    for _ in 0..100 {
+        body.push_str("{\"g\":");
+    }
+    body.push_str("{\"$type\":\"color\",\"$value\":\"#000000\"}");
+    for _ in 0..100 {
+        body.push('}');
+    }
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("plumb-cap.json");
+    std::fs::write(&path, &body).expect("write fixture");
+    let source = DtcgSource {
+        path,
+        contents: body,
+    };
+
+    let mut cfg = Config::default();
+    let err = merge_dtcg(&mut cfg, &source).expect_err("over-cap nesting should fail");
+    match err {
+        ConfigError::DtcgParse { reason, .. } => {
+            assert!(
+                reason.contains("exceeds maximum nesting depth (64)"),
+                "expected Plumb cap message, got reason: {reason}"
+            );
+        }
+        other => panic!("expected DtcgParse, got {other:?}"),
+    }
+}
+
+#[test]
+fn radius_unconvertible_warning_uses_actual_type() {
+    // A `$type: "radius"` token whose `$value` cannot be coerced into
+    // pixels should report `ty: "radius"` — not the previously-hardcoded
+    // `"borderRadius"`.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("radius-unconvertible.json");
+    let body = r#"
+    {
+      "rad": { "$type": "radius", "$value": "1.5em" }
+    }
+    "#;
+    std::fs::write(&path, body).expect("write fixture");
+    let source = DtcgSource {
+        path,
+        contents: body.to_owned(),
+    };
+
+    let mut cfg = Config::default();
+    let report = merge_dtcg(&mut cfg, &source).expect("unconvertible should warn, not fail");
+
+    assert_eq!(report.radius_added, 0);
+    assert!(
         report.warnings.iter().any(|w| matches!(
             &w.kind,
-            DtcgWarningKind::DuplicateName { name, .. } if name == "brand"
+            DtcgWarningKind::Unconvertible { ty, .. } if ty == "radius"
         )),
-        "duplicate token should surface as a DuplicateName warning"
+        "radius-typed unconvertible should report ty=`radius`, got {:?}",
+        report.warnings
     );
 }

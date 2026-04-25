@@ -44,7 +44,7 @@
 //! Inputs come from user-supplied design-token files, which are
 //! frequently auto-generated. The adapter:
 //!
-//! * Caps tree depth at [`MAX_NESTING`] (256 levels) before parsing
+//! * Caps tree depth at [`MAX_NESTING`] (64 levels) before parsing
 //!   anything user-visible.
 //! * Returns a typed [`ConfigError::DtcgParse`] (with a miette
 //!   [`NamedSource`] for span-aware diagnostics) on malformed JSON or
@@ -74,9 +74,13 @@ use crate::validate::is_valid_hex_color;
 
 /// Maximum tolerated nesting depth in a DTCG document.
 ///
-/// Picked to comfortably accommodate hand-authored token files (rarely
-/// past a dozen levels) while bounding stack use on adversarial input.
-pub const MAX_NESTING: usize = 256;
+/// Sized to comfortably accommodate hand-authored token files (rarely
+/// past a dozen levels) while sitting below `serde_json`'s default
+/// recursion limit of 128. Documents in the 65-127 range are caught by
+/// this check with an actionable Plumb-specific error before
+/// `serde_json` would surface its own (less actionable) recursion
+/// failure.
+pub const MAX_NESTING: usize = 64;
 
 /// A DTCG document handed to [`merge_dtcg`].
 ///
@@ -139,11 +143,9 @@ pub enum DtcgWarningKind {
         ty: String,
     },
     /// A token already exists in [`Config`] under this name. The
-    /// existing value is kept; the incoming value is dropped.
-    DuplicateName {
-        /// Token name as inserted (slash-joined path).
-        name: String,
-    },
+    /// existing value is kept; the incoming value is dropped. The
+    /// affected token path is carried by [`DtcgWarning::path`].
+    DuplicateName,
     /// A `$extensions.modes` entry was found alongside the canonical
     /// `$value`. Plumb does not yet model design-token modes; the
     /// canonical `$value` is imported, the mode payloads are dropped.
@@ -249,9 +251,10 @@ fn parse_error(source: &DtcgSource, reason: &str) -> ConfigError {
     }
 }
 
-/// Conservative depth-bound check on the parsed JSON tree. We don't
-/// rely on `serde_json`'s recursion limit because the public default
-/// (128) is below our cap and not user-tunable per call.
+/// Conservative depth-bound check on the parsed JSON tree. The cap
+/// sits below `serde_json`'s default recursion limit (128) so we can
+/// surface a clearer, Plumb-specific error before a stack-deep parse
+/// would fail.
 fn exceeds_depth(value: &Value, limit: usize) -> bool {
     fn walk(value: &Value, depth: usize, limit: usize) -> bool {
         if depth > limit {
@@ -473,7 +476,9 @@ fn apply_resolved(
             "dimension" => apply_dimension(into, path, &token.value, import, source)?,
             "fontFamily" => apply_font_family(into, path, &token.value, import),
             "fontWeight" => apply_font_weight(into, path, &token.value, import),
-            "radius" | "borderRadius" => apply_radius(into, path, &token.value, import, source)?,
+            "radius" | "borderRadius" => {
+                apply_radius(into, path, &token.value, import, source, &token.ty)?;
+            }
             "" => {
                 // No `$type` — DTCG allows this if a parent group
                 // declares `$type`, but Plumb doesn't track group-level
@@ -529,9 +534,7 @@ fn apply_color(
     if into.color.tokens.contains_key(path) {
         import.warnings.push(DtcgWarning {
             path: path.to_owned(),
-            kind: DtcgWarningKind::DuplicateName {
-                name: path.to_owned(),
-            },
+            kind: DtcgWarningKind::DuplicateName,
         });
         return Ok(());
     }
@@ -581,9 +584,7 @@ fn apply_dimension(
         if into.type_scale.tokens.contains_key(path) {
             import.warnings.push(DtcgWarning {
                 path: path.to_owned(),
-                kind: DtcgWarningKind::DuplicateName {
-                    name: path.to_owned(),
-                },
+                kind: DtcgWarningKind::DuplicateName,
             });
             return Ok(());
         }
@@ -593,9 +594,7 @@ fn apply_dimension(
         if into.spacing.tokens.contains_key(path) {
             import.warnings.push(DtcgWarning {
                 path: path.to_owned(),
-                kind: DtcgWarningKind::DuplicateName {
-                    name: path.to_owned(),
-                },
+                kind: DtcgWarningKind::DuplicateName,
             });
             return Ok(());
         }
@@ -754,6 +753,7 @@ fn apply_radius(
     value: &Value,
     import: &mut DtcgImport,
     source: &DtcgSource,
+    ty: &str,
 ) -> Result<(), ConfigError> {
     let pixels = match dimension_to_pixels(value) {
         Ok(px) => px,
@@ -761,7 +761,7 @@ fn apply_radius(
             import.warnings.push(DtcgWarning {
                 path: path.to_owned(),
                 kind: DtcgWarningKind::Unconvertible {
-                    ty: "borderRadius".to_owned(),
+                    ty: ty.to_owned(),
                     reason,
                 },
             });
