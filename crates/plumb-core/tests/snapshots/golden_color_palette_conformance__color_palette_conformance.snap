@@ -57,7 +57,7 @@ expression: json
         "to": "#ffffff"
       },
       "description": "Snap `color` to the nearest palette token `white` (#ffffff).",
-      "confidence": "medium"
+      "confidence": "low"
     },
     "doc_url": "https://plumb.aramhammoudeh.com/rules/color-palette-conformance",
     "metadata": {

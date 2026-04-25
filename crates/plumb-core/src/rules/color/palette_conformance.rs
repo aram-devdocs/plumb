@@ -149,7 +149,14 @@ impl Rule for PaletteConformance {
                             token = entry.name,
                             hex = entry.hex,
                         ),
-                        confidence: Confidence::Medium,
+                        confidence: if (parsed.a - 1.0).abs() < f32::EPSILON {
+                            Confidence::Medium
+                        } else {
+                            // Translucent source: the nearest token was picked against
+                            // the composited appearance, so swapping the literal value
+                            // changes more than the rendered color.
+                            Confidence::Low
+                        },
                     }),
                     doc_url: "https://plumb.aramhammoudeh.com/rules/color-palette-conformance"
                         .to_owned(),

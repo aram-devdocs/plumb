@@ -304,7 +304,7 @@ pub(crate) fn nearest_in_scale(value: f64, scale: &[u32]) -> Option<u32> {
 
 #[cfg(test)]
 mod tests {
-    use super::{nearest_in_scale, nearest_multiple, parse_px};
+    use super::{nearest_in_scale, nearest_multiple, parse_css_color, parse_px};
 
     #[test]
     fn parse_px_accepts_supported_shapes() {
@@ -377,5 +377,76 @@ mod tests {
     #[test]
     fn nearest_in_scale_returns_none_for_empty_scale() {
         assert_eq!(nearest_in_scale(13.0, &[]), None);
+    }
+
+    #[test]
+    fn parse_css_color_expands_3_digit_hex() {
+        let c = parse_css_color("#fff").expect("hex-3 parses");
+        assert!((c.r - 1.0).abs() < 1e-6);
+        assert!((c.g - 1.0).abs() < 1e-6);
+        assert!((c.b - 1.0).abs() < 1e-6);
+        assert!((c.a - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn parse_css_color_expands_4_digit_hex_with_alpha() {
+        let c = parse_css_color("#f00a").expect("hex-4 parses");
+        assert!((c.r - 1.0).abs() < 1e-6);
+        assert!((c.g - 0.0).abs() < 1e-6);
+        assert!((c.b - 0.0).abs() < 1e-6);
+        // 0xaa / 0xff = 170/255
+        assert!((c.a - (170.0 / 255.0)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn parse_css_color_accepts_8_digit_hex_with_alpha() {
+        let c = parse_css_color("#ff00ff80").expect("hex-8 parses");
+        assert!((c.r - 1.0).abs() < 1e-6);
+        assert!((c.g - 0.0).abs() < 1e-6);
+        assert!((c.b - 1.0).abs() < 1e-6);
+        // 0x80 / 0xff
+        assert!((c.a - (128.0 / 255.0)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn parse_css_color_handles_percentage_channels() {
+        let c = parse_css_color("rgb(50%, 50%, 50%)").expect("percentage rgb parses");
+        assert!((c.r - 0.5).abs() < 1e-2);
+        assert!((c.g - 0.5).abs() < 1e-2);
+        assert!((c.b - 0.5).abs() < 1e-2);
+        assert!((c.a - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn parse_css_color_handles_rgba_with_fractional_alpha() {
+        let c = parse_css_color("rgba(255, 0, 0, 0.5)").expect("rgba parses");
+        assert!((c.r - 1.0).abs() < 1e-6);
+        assert!((c.g - 0.0).abs() < 1e-6);
+        assert!((c.b - 0.0).abs() < 1e-6);
+        assert!((c.a - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn parse_css_color_handles_whitespace_separated_rgb() {
+        // CSS Color 4: rgb(r g b)
+        let c = parse_css_color("rgb(255 0 0)").expect("space-separated rgb parses");
+        assert!((c.r - 1.0).abs() < 1e-6);
+        assert!((c.g - 0.0).abs() < 1e-6);
+        assert!((c.b - 0.0).abs() < 1e-6);
+        assert!((c.a - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn parse_css_color_returns_transparent_for_keyword() {
+        let c = parse_css_color("transparent").expect("transparent parses");
+        assert!((c.a - 0.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn parse_css_color_rejects_malformed_input() {
+        assert!(parse_css_color("#ff").is_none());
+        assert!(parse_css_color("rgb(1, 2)").is_none());
+        assert!(parse_css_color("not-a-color").is_none());
+        assert!(parse_css_color("").is_none());
     }
 }
