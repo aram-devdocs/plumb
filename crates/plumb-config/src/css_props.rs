@@ -69,6 +69,12 @@ pub enum ScrapedValue {
 /// Scan each path in `files` for CSS custom-properties declared inside
 /// `:root` blocks. See module docs for scope and value typing.
 ///
+/// Results are emitted in input order: file by file as listed in
+/// `files`, and within each file by source position of the declaration.
+/// Callers that want a stable global ordering across runs MUST sort
+/// `files` before calling — `glob` and `read_dir` return paths in an
+/// OS-dependent order.
+///
 /// # Errors
 ///
 /// Returns [`ConfigError::Read`] if a path can't be read,
@@ -317,11 +323,11 @@ fn parse_color(value: &str) -> Option<String> {
 }
 
 fn strip_func<'a>(value: &'a str, name: &str) -> Option<&'a str> {
-    let lower = value.as_bytes();
-    if lower.len() < name.len() + 2 {
+    let bytes = value.as_bytes();
+    if bytes.len() < name.len() + 2 {
         return None;
     }
-    let prefix_eq = value.as_bytes()[..name.len()]
+    let prefix_eq = bytes[..name.len()]
         .iter()
         .zip(name.as_bytes())
         .all(|(a, b)| a.eq_ignore_ascii_case(b));
@@ -761,11 +767,12 @@ impl<'a> Parser<'a> {
     }
 
     fn slice(&self, start: usize, end: usize) -> &'a str {
-        // SAFETY substitute: we only ever index at byte positions we
-        // discovered while walking the slice via ASCII checks or by
-        // recognizing UTF-8-safe boundary bytes (`{`, `}`, `;`, `:`,
-        // `"`, `'`, `/`, `*`). Recover with `from_utf8_lossy` if a
-        // future regression introduces a mid-codepoint slice.
+        // Cursor positions only ever land on ASCII delimiters (`{`,
+        // `}`, `;`, `:`, `"`, `'`, `/`, `*`) discovered while walking
+        // the input. UTF-8 codepoint boundaries are therefore preserved
+        // by construction; the `unwrap_or("")` is a defensive no-op
+        // for an unreachable branch (returning `""` keeps callers
+        // panic-free if a future refactor breaks that invariant).
         std::str::from_utf8(&self.bytes[start..end]).unwrap_or("")
     }
 }
