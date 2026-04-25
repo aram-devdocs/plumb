@@ -117,10 +117,16 @@ pub struct TypeScaleSpec {
 }
 
 /// Color spec.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, Default)]
+///
+/// Tokens are flat name → hex pairs. Slash-delimited names
+/// (`"bg/canvas"`, `"fg/primary"`) namespace the palette without
+/// requiring nested tables — TOML quotes the key, the rule engine
+/// treats the slash as a hint for grouping in diagnostics.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ColorSpec {
-    /// Named tokens mapped to hex values (e.g. `#0b7285`).
+    /// Named tokens mapped to hex values (e.g. `#0b7285`). Slash-delimited
+    /// keys (`"bg/canvas"`) act as informal namespaces.
     #[serde(default)]
     pub tokens: IndexMap<String, String>,
     /// CIEDE2000 Delta-E tolerance when matching off-palette colors.
@@ -132,17 +138,28 @@ fn default_delta_e() -> f32 {
     2.0
 }
 
+impl Default for ColorSpec {
+    fn default() -> Self {
+        Self {
+            tokens: IndexMap::new(),
+            delta_e_tolerance: default_delta_e(),
+        }
+    }
+}
+
 /// Border-radius spec.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, Default)]
 #[serde(deny_unknown_fields)]
 pub struct RadiusSpec {
-    /// Allowed radii in pixels.
+    /// Allowed border-radius values in pixels.
+    ///
+    /// Naming matches `spacing.scale` and `type.scale` for consistency.
     #[serde(default)]
-    pub allowed_px: Vec<u32>,
+    pub scale: Vec<u32>,
 }
 
 /// Alignment / layout spec.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, Default)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct AlignmentSpec {
     /// Grid column count, if the design uses a fixed grid.
@@ -151,6 +168,24 @@ pub struct AlignmentSpec {
     /// Container gutter in pixels.
     #[serde(default)]
     pub gutter_px: Option<u32>,
+    /// Edge-clustering tolerance in pixels for `edge/near-alignment`.
+    /// Defaults to 3 px.
+    #[serde(default = "default_alignment_tolerance_px")]
+    pub tolerance_px: u32,
+}
+
+fn default_alignment_tolerance_px() -> u32 {
+    3
+}
+
+impl Default for AlignmentSpec {
+    fn default() -> Self {
+        Self {
+            grid_columns: None,
+            gutter_px: None,
+            tolerance_px: default_alignment_tolerance_px(),
+        }
+    }
 }
 
 /// Accessibility spec.
@@ -160,6 +195,36 @@ pub struct A11ySpec {
     /// Minimum contrast ratio to enforce (e.g. `4.5` for WCAG AA body text).
     #[serde(default)]
     pub min_contrast_ratio: Option<f32>,
+    /// Minimum interactive-element size for `a11y/touch-target`.
+    #[serde(default)]
+    pub touch_target: TouchTargetSpec,
+}
+
+/// Touch-target threshold per WCAG 2.5.8 (Target Size, Minimum).
+///
+/// Defaults to 24×24 CSS pixels.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct TouchTargetSpec {
+    /// Minimum interactive width in CSS pixels.
+    #[serde(default = "default_touch_target_px")]
+    pub min_width_px: u32,
+    /// Minimum interactive height in CSS pixels.
+    #[serde(default = "default_touch_target_px")]
+    pub min_height_px: u32,
+}
+
+fn default_touch_target_px() -> u32 {
+    24
+}
+
+impl Default for TouchTargetSpec {
+    fn default() -> Self {
+        Self {
+            min_width_px: default_touch_target_px(),
+            min_height_px: default_touch_target_px(),
+        }
+    }
 }
 
 /// Per-rule override.

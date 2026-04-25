@@ -67,6 +67,75 @@ fn default_spacing_base_unit_is_four() {
 }
 
 #[test]
+fn loads_prd_color_radius_alignment_a11y_sections() {
+    let dir = tempfile::tempdir().expect("create tempdir");
+    let path = dir.path().join("plumb.toml");
+    std::fs::write(
+        &path,
+        r##"
+[color]
+tokens = { "bg/canvas" = "#ffffff", "fg/primary" = "#0b0b0b", "accent/brand" = "#0b7285" }
+delta_e_tolerance = 1.5
+
+[radius]
+scale = [0, 2, 4, 8, 12, 16, 9999]
+
+[alignment]
+grid_columns = 12
+gutter_px = 24
+tolerance_px = 3
+
+[a11y]
+min_contrast_ratio = 4.5
+
+[a11y.touch_target]
+min_width_px = 24
+min_height_px = 24
+"##,
+    )
+    .expect("write config");
+
+    let cfg = plumb_config::load(&path).expect("load config");
+
+    assert_eq!(cfg.color.tokens["bg/canvas"], "#ffffff");
+    assert_eq!(cfg.color.tokens["fg/primary"], "#0b0b0b");
+    assert_eq!(cfg.color.tokens["accent/brand"], "#0b7285");
+    assert!((cfg.color.delta_e_tolerance - 1.5).abs() < f32::EPSILON);
+
+    assert_eq!(cfg.radius.scale, vec![0, 2, 4, 8, 12, 16, 9999]);
+
+    assert_eq!(cfg.alignment.grid_columns, Some(12));
+    assert_eq!(cfg.alignment.gutter_px, Some(24));
+    assert_eq!(cfg.alignment.tolerance_px, 3);
+
+    assert_eq!(cfg.a11y.min_contrast_ratio, Some(4.5));
+    assert_eq!(cfg.a11y.touch_target.min_width_px, 24);
+    assert_eq!(cfg.a11y.touch_target.min_height_px, 24);
+}
+
+#[test]
+fn defaults_for_color_radius_alignment_a11y_sections() {
+    let dir = tempfile::tempdir().expect("create tempdir");
+    let path = dir.path().join("plumb.toml");
+    std::fs::write(&path, "").expect("write config");
+
+    let cfg = plumb_config::load(&path).expect("load config");
+
+    assert!(cfg.color.tokens.is_empty());
+    assert!((cfg.color.delta_e_tolerance - 2.0).abs() < f32::EPSILON);
+
+    assert!(cfg.radius.scale.is_empty());
+
+    assert_eq!(cfg.alignment.grid_columns, None);
+    assert_eq!(cfg.alignment.gutter_px, None);
+    assert_eq!(cfg.alignment.tolerance_px, 3);
+
+    assert_eq!(cfg.a11y.min_contrast_ratio, None);
+    assert_eq!(cfg.a11y.touch_target.min_width_px, 24);
+    assert_eq!(cfg.a11y.touch_target.min_height_px, 24);
+}
+
+#[test]
 fn rejects_old_config_aliases_and_unknown_fields() {
     for toml in [
         "[spacing]\nbase_px = 4\n",
@@ -74,6 +143,11 @@ fn rejects_old_config_aliases_and_unknown_fields() {
         "[type]\nsizes_px = [16]\n",
         "[type]\nline_heights = [1.5]\n",
         "[spacing]\nunknown = 4\n",
+        "[radius]\nallowed_px = [4]\n",
+        "[alignment]\nunknown = 1\n",
+        "[a11y]\nunknown = 1\n",
+        "[a11y.touch_target]\nunknown = 1\n",
+        "[color]\nunknown = 1\n",
     ] {
         let dir = tempfile::tempdir().expect("create tempdir");
         let path = dir.path().join("plumb.toml");
@@ -117,9 +191,35 @@ fn schema_uses_prd_names_and_drops_old_aliases() {
     assert!(type_props.contains_key("scale"));
     assert!(type_props.contains_key("tokens"));
 
+    let radius_props = definitions["RadiusSpec"]["properties"]
+        .as_object()
+        .expect("radius properties should be an object");
+    assert!(radius_props.contains_key("scale"));
+    assert!(!radius_props.contains_key("allowed_px"));
+
+    let alignment_props = definitions["AlignmentSpec"]["properties"]
+        .as_object()
+        .expect("alignment properties should be an object");
+    assert!(alignment_props.contains_key("grid_columns"));
+    assert!(alignment_props.contains_key("gutter_px"));
+    assert!(alignment_props.contains_key("tolerance_px"));
+
+    let a11y_props = definitions["A11ySpec"]["properties"]
+        .as_object()
+        .expect("a11y properties should be an object");
+    assert!(a11y_props.contains_key("min_contrast_ratio"));
+    assert!(a11y_props.contains_key("touch_target"));
+
+    let touch_target_props = definitions["TouchTargetSpec"]["properties"]
+        .as_object()
+        .expect("touch_target properties should be an object");
+    assert!(touch_target_props.contains_key("min_width_px"));
+    assert!(touch_target_props.contains_key("min_height_px"));
+
     assert!(!schema.contains("\"base_px\""));
     assert!(!schema.contains("\"sizes_px\""));
     assert!(!schema.contains("\"line_heights\""));
+    assert!(!schema.contains("\"allowed_px\""));
 }
 
 #[test]

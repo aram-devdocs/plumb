@@ -35,14 +35,19 @@ tokens = { "bg/canvas" = "#ffffff", "fg/primary" = "#0b0b0b", "accent/brand" = "
 delta_e_tolerance = 2.0
 
 [radius]
-allowed_px = [0, 2, 4, 8, 12, 16, 9999]
+scale = [0, 2, 4, 8, 12, 16, 9999]
 
 [alignment]
 grid_columns = 12
 gutter_px = 24
+tolerance_px = 3
 
 [a11y]
 min_contrast_ratio = 4.5
+
+[a11y.touch_target]
+min_width_px = 24
+min_height_px = 24
 
 # Example per-rule overrides. Every rule is enabled by default.
 # [rules."spacing/grid-conformance"]

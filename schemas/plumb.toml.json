@@ -36,14 +36,14 @@
       "$ref": "#/$defs/ColorSpec",
       "default": {
         "tokens": {},
-        "delta_e_tolerance": 0.0
+        "delta_e_tolerance": 2.0
       }
     },
     "radius": {
       "description": "Border-radius spec.",
       "$ref": "#/$defs/RadiusSpec",
       "default": {
-        "allowed_px": []
+        "scale": []
       }
     },
     "alignment": {
@@ -51,14 +51,19 @@
       "$ref": "#/$defs/AlignmentSpec",
       "default": {
         "grid_columns": null,
-        "gutter_px": null
+        "gutter_px": null,
+        "tolerance_px": 3
       }
     },
     "a11y": {
       "description": "Accessibility spec.",
       "$ref": "#/$defs/A11ySpec",
       "default": {
-        "min_contrast_ratio": null
+        "min_contrast_ratio": null,
+        "touch_target": {
+          "min_width_px": 24,
+          "min_height_px": 24
+        }
       }
     },
     "rules": {
@@ -182,11 +187,11 @@
       "additionalProperties": false
     },
     "ColorSpec": {
-      "description": "Color spec.",
+      "description": "Color spec.\n\nTokens are flat name → hex pairs. Slash-delimited names\n(`\"bg/canvas\"`, `\"fg/primary\"`) namespace the palette without\nrequiring nested tables — TOML quotes the key, the rule engine\ntreats the slash as a hint for grouping in diagnostics.",
       "type": "object",
       "properties": {
         "tokens": {
-          "description": "Named tokens mapped to hex values (e.g. `#0b7285`).",
+          "description": "Named tokens mapped to hex values (e.g. `#0b7285`). Slash-delimited\nkeys (`\"bg/canvas\"`) act as informal namespaces.",
           "type": "object",
           "additionalProperties": {
             "type": "string"
@@ -206,8 +211,8 @@
       "description": "Border-radius spec.",
       "type": "object",
       "properties": {
-        "allowed_px": {
-          "description": "Allowed radii in pixels.",
+        "scale": {
+          "description": "Allowed border-radius values in pixels.\n\nNaming matches `spacing.scale` and `type.scale` for consistency.",
           "type": "array",
           "items": {
             "type": "integer",
@@ -242,6 +247,13 @@
           "format": "uint32",
           "minimum": 0,
           "default": null
+        },
+        "tolerance_px": {
+          "description": "Edge-clustering tolerance in pixels for `edge/near-alignment`.\nDefaults to 3 px.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "default": 3
         }
       },
       "additionalProperties": false
@@ -258,6 +270,35 @@
           ],
           "format": "float",
           "default": null
+        },
+        "touch_target": {
+          "description": "Minimum interactive-element size for `a11y/touch-target`.",
+          "$ref": "#/$defs/TouchTargetSpec",
+          "default": {
+            "min_width_px": 24,
+            "min_height_px": 24
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "TouchTargetSpec": {
+      "description": "Touch-target threshold per WCAG 2.5.8 (Target Size, Minimum).\n\nDefaults to 24×24 CSS pixels.",
+      "type": "object",
+      "properties": {
+        "min_width_px": {
+          "description": "Minimum interactive width in CSS pixels.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "default": 24
+        },
+        "min_height_px": {
+          "description": "Minimum interactive height in CSS pixels.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "default": 24
         }
       },
       "additionalProperties": false
