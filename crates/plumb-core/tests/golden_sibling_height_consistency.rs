@@ -2,10 +2,13 @@
 //!
 //! Two parents under `<html> > <body>`:
 //!
-//! - A row of three cards (one outlier height) — exercises the
-//!   primary clustering path.
-//! - A vertical stack of three buttons (no row pairs) — exercises
-//!   the DOM-sibling fallback.
+//! - A row of three cards spaced 220px apart (no rect overlap, so
+//!   row clustering yields singletons and the DOM-sibling fallback
+//!   triggers). The unit test
+//!   `cluster_groups_siblings_with_close_tops` covers the primary
+//!   row-clustering path.
+//! - A vertical stack of three buttons (no row pairs) — also
+//!   exercises the DOM-sibling fallback.
 
 use indexmap::IndexMap;
 use plumb_core::report::Rect;

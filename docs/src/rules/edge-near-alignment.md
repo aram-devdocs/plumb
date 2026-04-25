@@ -17,8 +17,8 @@ Per parent group of siblings (with rects):
 2. Walk the sorted list. An edge joins the active cluster when it is
    within `alignment.tolerance_px` of the cluster's lowest member;
    otherwise it opens a new cluster.
-3. For each cluster of ≥ 2 members, compute the integer centroid
-   (the rounded mean).
+3. For each cluster of ≥ 2 members, compute the integer mean
+   (truncated; `sum / len`).
 4. For each cluster member, compute `delta = |edge - centroid|`.
    - `delta == 0` → pixel-perfect; the rule stays silent.
    - `0 < delta ≤ tolerance_px` → near-miss; emit a violation.

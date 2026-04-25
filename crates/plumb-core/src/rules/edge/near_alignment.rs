@@ -11,8 +11,8 @@
 //! 2. Walk the sorted list; an edge joins the active cluster when it
 //!    is within `alignment.tolerance_px` of the cluster's lowest
 //!    member, otherwise it opens a new cluster.
-//! 3. For each cluster of ≥ 2 members, compute the integer centroid
-//!    (the rounded mean).
+//! 3. For each cluster of ≥ 2 members, compute the integer mean
+//!    (truncated; `sum / len`).
 //! 4. Any member whose distance from the centroid is **strictly
 //!    positive** AND **at most `tolerance_px`** fires a violation.
 //!    Pixel-perfect alignments (delta == 0) are deliberately silent.
