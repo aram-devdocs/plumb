@@ -63,8 +63,8 @@ mod cache;
 const LOADER_JS: &str = include_str!("loader.js");
 
 /// Default subprocess timeout. Tailwind themes resolve in well under a
-/// second; 30 s is loud-failure territory.
-const DEFAULT_TIMEOUT_SECS: u64 = 30;
+/// second; 60 s is loud-failure territory.
+const DEFAULT_TIMEOUT_SECS: u64 = 60;
 
 /// Polling cadence for the `try_wait` loop. We can't use
 /// `std::time::Instant::now` (banned by `clippy::disallowed_methods`) so
@@ -89,7 +89,7 @@ pub struct TailwindOptions {
     pub cache_dir: Option<PathBuf>,
     /// Skip the cache entirely. Defaults to `false`.
     pub no_cache: bool,
-    /// Subprocess timeout. Defaults to 30 seconds.
+    /// Subprocess timeout. Defaults to 60 seconds.
     pub timeout: Option<Duration>,
     /// Override the CWD root used for the path-traversal guard. When
     /// `None` we read [`std::env::current_dir`] at call time.
