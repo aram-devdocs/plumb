@@ -135,6 +135,24 @@ fn lint_with_unknown_viewport_exits_input_error() -> Result<(), Box<dyn std::err
 }
 
 #[test]
+fn lint_with_viewport_flag_and_no_config_exits_input_error()
+-> Result<(), Box<dyn std::error::Error>> {
+    // Fresh TempDir with no `plumb.toml`. Passing `--viewport mobile`
+    // here used to silently fall back to the default 1280x800 desktop
+    // viewport (issue #119); the flag is now refused so the user sees
+    // the mismatch instead of running with the wrong viewport.
+    let dir = TempDir::new()?;
+    Command::cargo_bin("plumb")?
+        .args(["lint", "plumb-fake://hello", "--viewport", "mobile"])
+        .current_dir(dir.path())
+        .assert()
+        .code(2)
+        .stderr(contains("mobile"))
+        .stderr(contains("no [viewports]"));
+    Ok(())
+}
+
+#[test]
 fn lint_runs_every_configured_viewport_when_flag_absent() -> Result<(), Box<dyn std::error::Error>>
 {
     let workspace = workspace_with_two_viewports()?;
