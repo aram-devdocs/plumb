@@ -1,0 +1,63 @@
+# Plumb configuration — bootstrapped from a Tailwind project.
+#
+# Tailwind config detected at `./{{TAILWIND_CONFIG}}`. Once Plumb's
+# `extends` directive lands you'll be able to inherit Tailwind's spacing
+# scale, font scale, color tokens, etc. directly. The placeholder below
+# records the discovered file:
+#
+# extends = "./{{TAILWIND_CONFIG}}"
+#
+# Until then, edit the tokens below to match your Tailwind theme.
+
+[viewports.mobile]
+width = 375
+height = 667
+device_pixel_ratio = 2.0
+
+[viewports.tablet]
+width = 768
+height = 1024
+device_pixel_ratio = 2.0
+
+[viewports.desktop]
+width = 1280
+height = 800
+device_pixel_ratio = 1.0
+
+# Tailwind's default spacing scale, in pixels (1 unit = 4 px).
+[spacing]
+base_unit = 4
+scale = [0, 4, 8, 12, 16, 20, 24, 32, 40, 48, 64, 80, 96]
+tokens = { "0" = 0, "1" = 4, "2" = 8, "3" = 12, "4" = 16, "5" = 20, "6" = 24, "8" = 32, "10" = 40, "12" = 48, "16" = 64, "20" = 80, "24" = 96 }
+
+# Tailwind's default type scale, in pixels.
+[type]
+families = ["Inter", "system-ui"]
+weights = [400, 500, 600, 700]
+scale = [12, 14, 16, 18, 20, 24, 30, 36, 48, 60]
+tokens = { xs = 12, sm = 14, base = 16, lg = 18, xl = 20, "2xl" = 24, "3xl" = 30, "4xl" = 36, "5xl" = 48, "6xl" = 60 }
+
+[color]
+tokens = { "bg/canvas" = "#ffffff", "fg/primary" = "#0b0b0b", "accent/brand" = "#0b7285" }
+delta_e_tolerance = 2.0
+
+# Tailwind's default radius scale (`rounded-{none,sm,md,lg,xl,2xl,3xl,full}`).
+[radius]
+scale = [0, 2, 6, 8, 12, 16, 24, 9999]
+
+[alignment]
+grid_columns = 12
+gutter_px = 24
+tolerance_px = 3
+
+[a11y]
+min_contrast_ratio = 4.5
+
+[a11y.touch_target]
+min_width_px = 24
+min_height_px = 24
+
+# Example per-rule overrides. Every rule is enabled by default.
+# [rules."spacing/grid-conformance"]
+# enabled = false
+# severity = "error"

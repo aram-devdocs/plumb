@@ -182,3 +182,112 @@ fn lint_repeats_viewport_flag() -> Result<(), Box<dyn std::error::Error>> {
         .stdout(contains("tablet").not());
     Ok(())
 }
+
+#[test]
+fn init_writes_generic_config_in_clean_dir() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = TempDir::new()?;
+    Command::cargo_bin("plumb")?
+        .arg("init")
+        .current_dir(dir.path())
+        .assert()
+        .success()
+        .stdout(contains("Wrote"))
+        .stdout(contains("Tailwind").not());
+    let written = fs::read_to_string(dir.path().join("plumb.toml"))?;
+    assert!(written.contains("[viewports.desktop]"));
+    assert!(!written.contains("Tailwind detected"));
+    assert!(!written.contains("{{TAILWIND_CONFIG}}"));
+    Ok(())
+}
+
+#[test]
+fn init_refuses_to_overwrite_without_force() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = TempDir::new()?;
+    fs::write(dir.path().join("plumb.toml"), "# existing\n")?;
+    Command::cargo_bin("plumb")?
+        .arg("init")
+        .current_dir(dir.path())
+        .assert()
+        .code(2)
+        .stderr(contains("already exists"));
+    let preserved = fs::read_to_string(dir.path().join("plumb.toml"))?;
+    assert_eq!(preserved, "# existing\n");
+    Ok(())
+}
+
+#[test]
+fn init_overwrites_with_force() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = TempDir::new()?;
+    fs::write(dir.path().join("plumb.toml"), "# sentinel-do-not-keep\n")?;
+    Command::cargo_bin("plumb")?
+        .args(["init", "--force"])
+        .current_dir(dir.path())
+        .assert()
+        .success();
+    let written = fs::read_to_string(dir.path().join("plumb.toml"))?;
+    assert!(!written.contains("sentinel-do-not-keep"));
+    assert!(written.contains("[viewports.desktop]"));
+    Ok(())
+}
+
+#[test]
+fn init_detects_tailwind_and_emits_tailwind_template() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = TempDir::new()?;
+    fs::write(
+        dir.path().join("tailwind.config.ts"),
+        "export default { content: [] };\n",
+    )?;
+    fs::write(
+        dir.path().join("package.json"),
+        r#"{
+            "name": "tailwind-fixture",
+            "private": true,
+            "devDependencies": {
+                "next": "14.2.0",
+                "tailwindcss": "3.4.0"
+            }
+        }
+        "#,
+    )?;
+    Command::cargo_bin("plumb")?
+        .arg("init")
+        .current_dir(dir.path())
+        .assert()
+        .success()
+        .stdout(contains("Tailwind config detected"));
+    let written = fs::read_to_string(dir.path().join("plumb.toml"))?;
+    assert!(written.contains("./tailwind.config.ts"));
+    assert!(written.contains("Tailwind config detected"));
+    assert!(!written.contains("{{TAILWIND_CONFIG}}"));
+    Ok(())
+}
+
+#[test]
+fn init_then_lint_runs_against_fake_driver() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = TempDir::new()?;
+    fs::write(
+        dir.path().join("tailwind.config.js"),
+        "module.exports = { content: [] };\n",
+    )?;
+    fs::write(
+        dir.path().join("package.json"),
+        r#"{
+            "name": "tailwind-lint-fixture",
+            "private": true,
+            "dependencies": { "tailwindcss": "3.4.0" }
+        }
+        "#,
+    )?;
+    Command::cargo_bin("plumb")?
+        .arg("init")
+        .current_dir(dir.path())
+        .assert()
+        .success();
+    Command::cargo_bin("plumb")?
+        .args(["lint", "plumb-fake://hello"])
+        .current_dir(dir.path())
+        .assert()
+        .code(3)
+        .stdout(contains("spacing/"));
+    Ok(())
+}
