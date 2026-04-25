@@ -13,6 +13,9 @@ against each page snapshot. Every rule has:
   elements smaller than `a11y.touch_target`.
 - [`radius/scale-conformance`](./radius-scale-conformance.md) — flags
   border-radius values that aren't members of `radius.scale`.
+- [`sibling/height-consistency`](./sibling-height-consistency.md) —
+  flags sibling elements in the same visual row whose heights drift
+  from the row's median.
 - [`spacing/grid-conformance`](./spacing-grid-conformance.md) — flags
   spacing values that aren't multiples of `spacing.base_unit`.
 - [`spacing/scale-conformance`](./spacing-scale-conformance.md) —

@@ -10,6 +10,7 @@
 
 pub mod a11y;
 pub mod radius;
+pub mod sibling;
 pub mod spacing;
 pub mod type_;
 
@@ -50,6 +51,7 @@ pub fn register_builtin() -> Vec<Box<dyn Rule>> {
     vec![
         Box::new(a11y::touch_target::TouchTarget),
         Box::new(radius::scale_conformance::ScaleConformance),
+        Box::new(sibling::height_consistency::HeightConsistency),
         Box::new(spacing::grid_conformance::GridConformance),
         Box::new(spacing::scale_conformance::ScaleConformance),
         Box::new(type_::scale_conformance::ScaleConformance),

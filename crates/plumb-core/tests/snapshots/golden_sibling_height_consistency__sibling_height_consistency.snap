@@ -1,0 +1,64 @@
+---
+source: crates/plumb-core/tests/golden_sibling_height_consistency.rs
+expression: json
+---
+[
+  {
+    "rule_id": "sibling/height-consistency",
+    "severity": "info",
+    "message": "`html > body > div.row > div:nth-child(3)` is 130px tall; its row median is 100px (30px drift).",
+    "selector": "html > body > div.row > div:nth-child(3)",
+    "viewport": "desktop",
+    "rect": {
+      "x": 440,
+      "y": 1,
+      "width": 200,
+      "height": 130
+    },
+    "dom_order": 5,
+    "fix": {
+      "kind": {
+        "kind": "description",
+        "text": "Match the row's height (100px) by adjusting `height` / `min-height` or aligning the inner content. A 30px drift is small but visible."
+      },
+      "description": "Bring `html > body > div.row > div:nth-child(3)` in line with its row's height (100px).",
+      "confidence": "low"
+    },
+    "doc_url": "https://plumb.aramhammoudeh.com/rules/sibling-height-consistency",
+    "metadata": {
+      "rendered_height_px": 130,
+      "row_median_height_px": 100,
+      "row_size": 3,
+      "deviation_px": 30
+    }
+  },
+  {
+    "rule_id": "sibling/height-consistency",
+    "severity": "info",
+    "message": "`html > body > div.stack > button:nth-child(3)` is 48px tall; its row median is 32px (16px drift).",
+    "selector": "html > body > div.stack > button:nth-child(3)",
+    "viewport": "desktop",
+    "rect": {
+      "x": 0,
+      "y": 280,
+      "width": 120,
+      "height": 48
+    },
+    "dom_order": 9,
+    "fix": {
+      "kind": {
+        "kind": "description",
+        "text": "Match the row's height (32px) by adjusting `height` / `min-height` or aligning the inner content. A 16px drift is small but visible."
+      },
+      "description": "Bring `html > body > div.stack > button:nth-child(3)` in line with its row's height (32px).",
+      "confidence": "low"
+    },
+    "doc_url": "https://plumb.aramhammoudeh.com/rules/sibling-height-consistency",
+    "metadata": {
+      "rendered_height_px": 48,
+      "row_median_height_px": 32,
+      "row_size": 3,
+      "deviation_px": 16
+    }
+  }
+]
