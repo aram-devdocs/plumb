@@ -187,6 +187,9 @@ fn emit_for_axis(
     }
 }
 
+// Builds a single violation from values the caller already has on hand;
+// grouping these into a struct would duplicate the loop locals without
+// hiding any real complexity.
 #[allow(clippy::too_many_arguments)]
 fn emit_violation(
     rule_id: &str,
