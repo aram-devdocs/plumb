@@ -6,7 +6,7 @@
 //! 1. Group nodes by `parent` `dom_order`.
 //! 2. Within each parent, cluster the siblings into "visual rows":
 //!    two siblings share a row when their `top` edges are within
-//!    [`ROW_TOP_TOLERANCE_PX`] AND their bounding rects overlap
+//!    `ROW_TOP_TOLERANCE_PX` AND their bounding rects overlap
 //!    horizontally by at least 50% of the smaller width.
 //!    The clustering walks siblings in DOM order and assigns each one
 //!    to the first row it fits, opening a new row otherwise.
@@ -15,7 +15,7 @@
 //!    cards where the row geometry doesn't pan out.
 //! 4. For each row of size ≥ 2, compute the median height. Any element
 //!    whose height deviates from the median by more than
-//!    [`HEIGHT_DEVIATION_PX`] fires a violation.
+//!    `HEIGHT_DEVIATION_PX` fires a violation.
 //!
 //! Sibling iteration uses `parent` `dom_order` rather than the full
 //! DOM tree, so the rule only ever fires once per offending node per
@@ -158,7 +158,7 @@ fn horizontal_overlap_fraction(a: &Rect, b: &Rect) -> f64 {
 }
 
 /// Emit a violation for every member of `row` whose height deviates
-/// from the row's median by more than [`HEIGHT_DEVIATION_PX`].
+/// from the row's median by more than `HEIGHT_DEVIATION_PX`.
 fn emit_for_row(
     rule_id: &str,
     severity: Severity,
@@ -196,7 +196,7 @@ fn emit_for_row(
             fix: Some(Fix {
                 kind: FixKind::Description {
                     text: format!(
-                        "Match the row's height ({median}px) by adjusting `height` / `min-height` or aligning the inner content. A {dev}px drift is small but visible."
+                        "Match the row's height ({median}px) by adjusting `height` / `min-height` or aligning the inner content. Drift: {dev}px."
                     ),
                 },
                 description: format!(
