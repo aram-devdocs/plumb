@@ -8,7 +8,11 @@
 //! 3. Add a golden snapshot test under `tests/`.
 //! 4. Document it at `docs/src/rules/<rule-id>.md`.
 
+pub mod a11y;
 pub mod color;
+pub mod edge;
+pub mod radius;
+pub mod sibling;
 pub mod spacing;
 pub mod type_;
 
@@ -47,7 +51,11 @@ pub trait Rule: Send + Sync {
 #[must_use]
 pub fn register_builtin() -> Vec<Box<dyn Rule>> {
     vec![
+        Box::new(a11y::touch_target::TouchTarget),
         Box::new(color::palette_conformance::PaletteConformance),
+        Box::new(edge::near_alignment::NearAlignment),
+        Box::new(radius::scale_conformance::ScaleConformance),
+        Box::new(sibling::height_consistency::HeightConsistency),
         Box::new(spacing::grid_conformance::GridConformance),
         Box::new(spacing::scale_conformance::ScaleConformance),
         Box::new(type_::scale_conformance::ScaleConformance),

@@ -9,6 +9,17 @@ against each page snapshot. Every rule has:
 
 ## Built-in rules
 
+- [`a11y/touch-target`](./a11y-touch-target.md) — flags interactive
+  elements smaller than `a11y.touch_target`.
+- [`color/palette-conformance`](./color-palette-conformance.md) —
+  flags element colors that aren't members of the configured palette.
+- [`edge/near-alignment`](./edge-near-alignment.md) — flags element
+  edges that almost-but-not-quite line up with sibling edges.
+- [`radius/scale-conformance`](./radius-scale-conformance.md) — flags
+  border-radius values that aren't members of `radius.scale`.
+- [`sibling/height-consistency`](./sibling-height-consistency.md) —
+  flags sibling elements in the same visual row whose heights drift
+  from the row's median.
 - [`spacing/grid-conformance`](./spacing-grid-conformance.md) — flags
   spacing values that aren't multiples of `spacing.base_unit`.
 - [`spacing/scale-conformance`](./spacing-scale-conformance.md) —
@@ -18,6 +29,5 @@ against each page snapshot. Every rule has:
 
 ## Coming soon
 
-The PRD lists the rest of the initial rule set — color, radius,
-alignment, a11y. Each will land with its own docs page and a golden
-snapshot test.
+The PRD lists more rules in the initial set; each will land with its
+own docs page and a golden snapshot test.

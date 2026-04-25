@@ -1,0 +1,81 @@
+---
+source: crates/plumb-core/tests/golden_radius_scale.rs
+expression: json
+---
+[
+  {
+    "rule_id": "radius/scale-conformance",
+    "severity": "warning",
+    "message": "`html > body > div:nth-child(2)` has off-scale border-top-left-radius 5px; expected a value from radius.scale.",
+    "selector": "html > body > div:nth-child(2)",
+    "viewport": "desktop",
+    "rect": {
+      "x": 0,
+      "y": 100,
+      "width": 200,
+      "height": 100
+    },
+    "dom_order": 3,
+    "fix": {
+      "kind": {
+        "kind": "css_property_replace",
+        "property": "border-top-left-radius",
+        "from": "5px",
+        "to": "4px"
+      },
+      "description": "Snap `border-top-left-radius` to the nearest radius-scale value (4px).",
+      "confidence": "medium"
+    },
+    "doc_url": "https://plumb.aramhammoudeh.com/rules/radius-scale-conformance"
+  },
+  {
+    "rule_id": "radius/scale-conformance",
+    "severity": "warning",
+    "message": "`html > body > div:nth-child(2)` has off-scale border-bottom-right-radius 13px; expected a value from radius.scale.",
+    "selector": "html > body > div:nth-child(2)",
+    "viewport": "desktop",
+    "rect": {
+      "x": 0,
+      "y": 100,
+      "width": 200,
+      "height": 100
+    },
+    "dom_order": 3,
+    "fix": {
+      "kind": {
+        "kind": "css_property_replace",
+        "property": "border-bottom-right-radius",
+        "from": "13px",
+        "to": "12px"
+      },
+      "description": "Snap `border-bottom-right-radius` to the nearest radius-scale value (12px).",
+      "confidence": "medium"
+    },
+    "doc_url": "https://plumb.aramhammoudeh.com/rules/radius-scale-conformance"
+  },
+  {
+    "rule_id": "radius/scale-conformance",
+    "severity": "warning",
+    "message": "`html > body > div:nth-child(3)` has off-scale border-bottom-right-radius 20px; expected a value from radius.scale.",
+    "selector": "html > body > div:nth-child(3)",
+    "viewport": "desktop",
+    "rect": {
+      "x": 0,
+      "y": 200,
+      "width": 200,
+      "height": 100
+    },
+    "dom_order": 4,
+    "fix": {
+      "kind": {
+        "kind": "css_property_replace",
+        "property": "border-bottom-right-radius",
+        "from": "20px",
+        "to": "16px"
+      },
+      "description": "Snap `border-bottom-right-radius` to the nearest radius-scale value (16px).",
+      "confidence": "medium"
+    },
+    "doc_url": "https://plumb.aramhammoudeh.com/rules/radius-scale-conformance"
+  }
+]
