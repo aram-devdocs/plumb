@@ -154,9 +154,10 @@ fn emit_for_axis(
         }
         let cluster = &entries[idx..end];
         if cluster.len() >= 2 {
-            // Centroid = rounded mean. Use i64 to avoid overflow with
-            // many large coordinates; cluster size is bounded by the
-            // sibling count so the cast is safe.
+            // Centroid = integer mean (`sum / len`, truncating). Use
+            // i64 to avoid overflow with many large coordinates;
+            // cluster size is bounded by the sibling count so the
+            // cast back to i32 is safe.
             #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
             let sum: i64 = cluster.iter().map(|(_, e)| i64::from(*e)).sum();
             #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
