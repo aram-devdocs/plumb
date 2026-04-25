@@ -1,0 +1,46 @@
+{
+  "$description": "Multi-mode export resembling a Tokens Studio Pro file. The adapter selects the default/light mode and emits a warning for additional modes.",
+  "color": {
+    "bg": {
+      "$type": "color",
+      "$value": "#ffffff",
+      "$extensions": {
+        "modes": {
+          "light": "#ffffff",
+          "dark": "#0b0b0b"
+        }
+      }
+    },
+    "fg": {
+      "$type": "color",
+      "$value": "#0b0b0b",
+      "$extensions": {
+        "modes": {
+          "light": "#0b0b0b",
+          "dark": "#ffffff"
+        }
+      }
+    }
+  },
+  "spacing": {
+    "default": {
+      "$type": "dimension",
+      "$value": {
+        "value": 16,
+        "unit": "px"
+      },
+      "$extensions": {
+        "modes": {
+          "compact": {
+            "value": 12,
+            "unit": "px"
+          },
+          "comfortable": {
+            "value": 20,
+            "unit": "px"
+          }
+        }
+      }
+    }
+  }
+}
