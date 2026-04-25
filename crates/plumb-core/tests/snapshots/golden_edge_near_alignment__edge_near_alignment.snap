@@ -1,0 +1,68 @@
+---
+source: crates/plumb-core/tests/golden_edge_near_alignment.rs
+expression: json
+---
+[
+  {
+    "rule_id": "edge/near-alignment",
+    "severity": "info",
+    "message": "`html > body > div:nth-child(1)` left edge is 0px; 3 sibling(s) cluster at 1px (1px drift, tolerance 3px).",
+    "selector": "html > body > div:nth-child(1)",
+    "viewport": "desktop",
+    "rect": {
+      "x": 0,
+      "y": 50,
+      "width": 100,
+      "height": 80
+    },
+    "dom_order": 2,
+    "fix": {
+      "kind": {
+        "kind": "description",
+        "text": "Snap the left edge to 1px to match the sibling cluster."
+      },
+      "description": "Align `html > body > div:nth-child(1)`'s left edge with its 3-member cluster (1px).",
+      "confidence": "low"
+    },
+    "doc_url": "https://plumb.aramhammoudeh.com/rules/edge-near-alignment",
+    "metadata": {
+      "axis": "left",
+      "edge_px": 0,
+      "cluster_centroid_px": 1,
+      "delta_px": 1,
+      "cluster_size": 3,
+      "tolerance_px": 3
+    }
+  },
+  {
+    "rule_id": "edge/near-alignment",
+    "severity": "info",
+    "message": "`html > body > div:nth-child(3)` left edge is 2px; 3 sibling(s) cluster at 1px (1px drift, tolerance 3px).",
+    "selector": "html > body > div:nth-child(3)",
+    "viewport": "desktop",
+    "rect": {
+      "x": 2,
+      "y": 350,
+      "width": 98,
+      "height": 80
+    },
+    "dom_order": 4,
+    "fix": {
+      "kind": {
+        "kind": "description",
+        "text": "Snap the left edge to 1px to match the sibling cluster."
+      },
+      "description": "Align `html > body > div:nth-child(3)`'s left edge with its 3-member cluster (1px).",
+      "confidence": "low"
+    },
+    "doc_url": "https://plumb.aramhammoudeh.com/rules/edge-near-alignment",
+    "metadata": {
+      "axis": "left",
+      "edge_px": 2,
+      "cluster_centroid_px": 1,
+      "delta_px": 1,
+      "cluster_size": 3,
+      "tolerance_px": 3
+    }
+  }
+]

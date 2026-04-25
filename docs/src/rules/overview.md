@@ -11,6 +11,8 @@ against each page snapshot. Every rule has:
 
 - [`a11y/touch-target`](./a11y-touch-target.md) — flags interactive
   elements smaller than `a11y.touch_target`.
+- [`edge/near-alignment`](./edge-near-alignment.md) — flags element
+  edges that almost-but-not-quite line up with sibling edges.
 - [`radius/scale-conformance`](./radius-scale-conformance.md) — flags
   border-radius values that aren't members of `radius.scale`.
 - [`sibling/height-consistency`](./sibling-height-consistency.md) —
