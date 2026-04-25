@@ -72,15 +72,62 @@ fn fake_url_detector() {
 #[cfg(feature = "e2e-chromium")]
 type E2eResult = Result<(), Box<dyn std::error::Error>>;
 
-/// True when a CDP error indicates the host environment lacks a usable
-/// Chromium 131 binary. The e2e-chromium tests treat that as "skip"
-/// rather than fail — it is the host's fault, not the driver's.
+/// Environment variable that opts a host into silently skipping the
+/// e2e-chromium tests when Chromium is missing or out-of-range.
+///
+/// Without this set, a missing or unsupported Chromium hard-fails the
+/// test — the previous "silently return Ok(())" behavior masked broken
+/// e2e coverage on hosts where Chromium had drifted out of the
+/// supported range. Set `PLUMB_E2E_CHROMIUM_SKIP=1` (or any value) to
+/// restore the skip-on-missing behavior for hosts that genuinely don't
+/// have Chromium installed.
+#[cfg(feature = "e2e-chromium")]
+const SKIP_ENV_VAR: &str = "PLUMB_E2E_CHROMIUM_SKIP";
+
+/// Initialize a tracing subscriber for the test process at most once.
+///
+/// `tracing::warn!` from a skip path silently drops without a
+/// subscriber. Using `try_init` here means concurrent tests don't race
+/// each other to install one.
+#[cfg(feature = "e2e-chromium")]
+fn init_tracing() {
+    use std::sync::Once;
+    static INIT: Once = Once::new();
+    INIT.call_once(|| {
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(
+                tracing_subscriber::EnvFilter::try_from_default_env()
+                    .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn")),
+            )
+            .with_test_writer()
+            .try_init();
+    });
+}
+
+/// Returns `true` if the e2e test should skip on `err`. Skipping is
+/// allowed only when the user has explicitly opted in via
+/// [`SKIP_ENV_VAR`] — otherwise the underlying error propagates and the
+/// test fails loudly.
 #[cfg(feature = "e2e-chromium")]
 fn host_missing_chromium(err: &CdpError) -> bool {
-    matches!(
+    let is_chromium_unavailable = matches!(
         err,
         CdpError::ChromiumNotFound { .. } | CdpError::UnsupportedChromium { .. }
-    )
+    );
+    if !is_chromium_unavailable {
+        return false;
+    }
+    if std::env::var_os(SKIP_ENV_VAR).is_some() {
+        init_tracing();
+        tracing::warn!(
+            error = %err,
+            env = SKIP_ENV_VAR,
+            "skipping e2e-chromium test: host Chromium unavailable and skip opt-in is set"
+        );
+        true
+    } else {
+        false
+    }
 }
 
 #[cfg(feature = "e2e-chromium")]
@@ -100,13 +147,10 @@ async fn chromium_driver_captures_static_fixture() -> E2eResult {
     let (driver, _profile) = isolated_driver()?;
     let snap = match driver.snapshot(target(&url)).await {
         Ok(snap) => snap,
-        Err(err) if host_missing_chromium(&err) => {
-            // Host lacks Chromium 131; treat as a skip. The
-            // `print_stderr` workspace lint forbids `eprintln!`, so we
-            // surface the skip via a diagnostic write directly.
-            let _ = err;
-            return Ok(());
-        }
+        // Skip ONLY when the user opted in via PLUMB_E2E_CHROMIUM_SKIP.
+        // `host_missing_chromium` logs the underlying error via
+        // `tracing::warn!` so the skip is auditable.
+        Err(err) if host_missing_chromium(&err) => return Ok(()),
         Err(err) => return Err(Box::<dyn std::error::Error>::from(err)),
     };
 
@@ -167,10 +211,10 @@ async fn chromium_driver_snapshot_is_byte_identical() -> E2eResult {
     for _ in 0..3 {
         let snap = match driver.snapshot(target(&url)).await {
             Ok(snap) => snap,
-            Err(err) if host_missing_chromium(&err) => {
-                let _ = err;
-                return Ok(());
-            }
+            // Skip ONLY when the user opted in via
+            // PLUMB_E2E_CHROMIUM_SKIP — otherwise propagate so a
+            // misconfigured host fails loudly.
+            Err(err) if host_missing_chromium(&err) => return Ok(()),
             Err(err) => return Err(Box::<dyn std::error::Error>::from(err)),
         };
         serialized.push(serde_json::to_string(&snap)?);

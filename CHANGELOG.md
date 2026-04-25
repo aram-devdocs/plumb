@@ -28,6 +28,10 @@ From the first release onward, this file is maintained automatically by [`releas
   `max_supported`, and `found` fields, and the install hint reflects the
   range. This unblocks `plumb lint <real-url>` on any host running a
   recent Chrome / Chromium build.
+- `plumb-cdp`'s `e2e-chromium` tests no longer silently skip when
+  Chromium is missing or out-of-range. They now hard-fail unless the
+  user opts in via `PLUMB_E2E_CHROMIUM_SKIP=1`, in which case the skip
+  is logged via `tracing::warn!`.
 
 ### Removed
 
