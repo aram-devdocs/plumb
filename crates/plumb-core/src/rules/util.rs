@@ -43,6 +43,12 @@ pub(crate) fn parse_px(s: &str) -> Option<f64> {
 /// base 4). Sign is preserved by rounding the magnitude and re-applying
 /// the sign of `value`.
 ///
+/// Tie-break: `f64::round` rounds half away from zero, so `14.0`
+/// against base `4` snaps to `16` (not `12`). Compare with
+/// [`nearest_in_scale`], which breaks ties toward the lower scale
+/// member — the two helpers intentionally differ because the grid
+/// has no ordering hint while a discrete scale does.
+///
 /// If `base == 0`, the magnitude is undefined; callers MUST guard
 /// against that case before invoking this helper. As a defensive
 /// fallback this returns `value.round() as i64` — never panics.
@@ -55,13 +61,16 @@ pub(crate) fn nearest_multiple(value: f64, base: u32) -> i64 {
         return value.round() as i64;
     }
     let base_f = f64::from(base);
+    // `magnitude` is `n * base_f` for integer `n`, so the result is
+    // already an exact f64-representable integer for any `base ≤ 2^24`
+    // — no further rounding needed before casting.
     let magnitude = (value.abs() / base_f).round() * base_f;
     let signed = if value.is_sign_negative() {
         -magnitude
     } else {
         magnitude
     };
-    signed.round() as i64
+    signed as i64
 }
 
 /// Return the closest member of `scale` to `value` by absolute delta.
@@ -69,7 +78,10 @@ pub(crate) fn nearest_multiple(value: f64, base: u32) -> i64 {
 /// `None` iff `scale.is_empty()`. Tie-break: the lower scale value
 /// wins, which is deterministic and matches "snap toward zero" in
 /// the symmetric case (e.g. `value = 14.0` against `[12, 16]` picks
-/// `12` only on a strict-less comparison).
+/// `12` only on a strict-less comparison). Compare with
+/// [`nearest_multiple`], which breaks ties by rounding half away
+/// from zero — the discrete scale has an ordering hint to lean on,
+/// the continuous grid does not.
 ///
 /// `value.abs()` is the comparison axis — negative inputs are treated
 /// like their positive counterparts, since spacing scales are
