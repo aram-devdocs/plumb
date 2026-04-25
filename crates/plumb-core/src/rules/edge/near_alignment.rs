@@ -165,6 +165,9 @@ fn emit_for_axis(
             for (entry, edge) in cluster {
                 let delta = (edge - centroid).abs();
                 let delta_u32 = u32::try_from(delta).unwrap_or(0);
+                // delta <= tolerance by the clustering invariant above
+                // (every cluster member sits within `tolerance` of the
+                // anchor, so the mean's distance to each member is too).
                 if delta_u32 == 0 || delta_u32 > tolerance {
                     continue;
                 }
@@ -189,8 +192,8 @@ fn emit_for_axis(
 
 // Builds a single violation from values the caller already has on hand;
 // grouping these into a struct would duplicate the loop locals without
-// hiding any real complexity.
-#[allow(clippy::too_many_arguments)]
+// hiding any real complexity. (Argument count stays under the
+// `too-many-arguments-threshold` of 12 set in `clippy.toml`.)
 fn emit_violation(
     rule_id: &str,
     severity: Severity,

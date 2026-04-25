@@ -11,6 +11,8 @@ against each page snapshot. Every rule has:
 
 - [`a11y/touch-target`](./a11y-touch-target.md) — flags interactive
   elements smaller than `a11y.touch_target`.
+- [`color/palette-conformance`](./color-palette-conformance.md) —
+  flags element colors that aren't members of the configured palette.
 - [`edge/near-alignment`](./edge-near-alignment.md) — flags element
   edges that almost-but-not-quite line up with sibling edges.
 - [`radius/scale-conformance`](./radius-scale-conformance.md) — flags
@@ -27,5 +29,5 @@ against each page snapshot. Every rule has:
 
 ## Coming soon
 
-The PRD lists the rest of the initial rule set — color, alignment,
-a11y. Each will land with its own docs page and a golden snapshot test.
+The PRD lists more rules in the initial set; each will land with its
+own docs page and a golden snapshot test.

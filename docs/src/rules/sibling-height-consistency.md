@@ -78,7 +78,7 @@ picks the change.
   "fix": {
     "kind": {
       "kind": "description",
-      "text": "Match the row's height (100px) by adjusting `height` / `min-height` or aligning the inner content. A 30px drift is small but visible."
+      "text": "Match the row's height (100px) by adjusting `height` / `min-height` or aligning the inner content. Drift: 30px."
     },
     "description": "Bring `html > body > div.row > div:nth-child(3)` in line with its row's height (100px).",
     "confidence": "low"

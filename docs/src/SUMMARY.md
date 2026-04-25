@@ -13,6 +13,7 @@
 
 - [Overview](./rules/overview.md)
 - [a11y/touch-target](./rules/a11y-touch-target.md)
+- [color/palette-conformance](./rules/color-palette-conformance.md)
 - [edge/near-alignment](./rules/edge-near-alignment.md)
 - [radius/scale-conformance](./rules/radius-scale-conformance.md)
 - [sibling/height-consistency](./rules/sibling-height-consistency.md)
