@@ -5,10 +5,7 @@
 //! miette `Diagnostic` with a non-empty source span pointing at the
 //! offending line.
 
-// Helpers deliberately use `expect`/`expect_err` to surface failures
-// loudly. The crate's `clippy.toml` allows this in tests, but
-// integration-test helpers don't carry the `#[test]` proximity that
-// clippy looks for, so we opt them in explicitly.
+// allow expect_used — integration-test helpers lack #[test] proximity that clippy needs.
 #![allow(clippy::expect_used)]
 
 use std::path::Path;

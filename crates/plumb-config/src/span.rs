@@ -5,10 +5,7 @@
 //! per-key offsets. YAML and JSON span recovery is best-effort: we
 //! fall back to a textual search for the leaf key.
 
-// `pub(crate)` is the workspace convention for in-crate-only items; it
-// trips `clippy::redundant_pub_crate` (because the module is private)
-// while bare `pub` trips `unreachable_pub`. Allow the clippy lint to
-// match the rest of the codebase (see `plumb-core::rules::util`).
+// pub(crate) in a private mod triggers redundant_pub_crate; bare pub triggers unreachable_pub.
 #![allow(clippy::redundant_pub_crate)]
 
 use std::ops::Range;
