@@ -1,13 +1,204 @@
 //! Internal helpers shared by the built-in rules.
 //!
 //! Rules in `plumb-core` are pure functions of `(snapshot, config)`. The
-//! shared helpers here encapsulate CSS-pixel parsing and discrete-scale
-//! lookup so rule modules stay focused on their domain logic.
+//! shared helpers here encapsulate CSS-pixel parsing, CSS-color parsing,
+//! and discrete-scale lookup so rule modules stay focused on their
+//! domain logic.
 //!
 //! All helpers are `pub(crate)` — they are an implementation detail of
 //! the rule modules, not a stable surface.
 
 #![allow(clippy::redundant_pub_crate)]
+
+use palette::Srgb;
+use std::str::FromStr;
+
+/// Parsed CSS color in the (gamma-encoded) sRGB color space.
+///
+/// Components are non-linear sRGB in `[0.0, 1.0]`, matching the
+/// encoding of `palette::Srgb<f32>`. Alpha is in `[0.0, 1.0]`, with
+/// `1.0` meaning fully opaque.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct CssColor {
+    /// sRGB red, gamma-encoded, `[0.0, 1.0]`.
+    pub(crate) r: f32,
+    /// sRGB green, gamma-encoded, `[0.0, 1.0]`.
+    pub(crate) g: f32,
+    /// sRGB blue, gamma-encoded, `[0.0, 1.0]`.
+    pub(crate) b: f32,
+    /// Alpha channel, `[0.0, 1.0]`.
+    pub(crate) a: f32,
+}
+
+impl CssColor {
+    /// Build from byte (0..=255) channels and an alpha in `[0.0, 1.0]`.
+    fn from_rgb_u8_alpha(r: u8, g: u8, b: u8, a: f32) -> Self {
+        Self {
+            r: f32::from(r) / 255.0,
+            g: f32::from(g) / 255.0,
+            b: f32::from(b) / 255.0,
+            a,
+        }
+    }
+
+    /// View as a `palette::Srgb<f32>` (alpha discarded).
+    pub(crate) fn into_srgb(self) -> Srgb<f32> {
+        Srgb::new(self.r, self.g, self.b)
+    }
+}
+
+/// Parse the CSS color shapes that `getComputedStyle` ever returns
+/// after Chromium's normalization, plus a few hand-friendly forms used
+/// by Plumb config tokens.
+///
+/// Accepted shapes:
+///
+/// - `"transparent"` — returns alpha == 0 (caller MUST skip).
+/// - `"#rgb"`, `"#rrggbb"`, `"#rgba"`, `"#rrggbbaa"` — hex with
+///   optional alpha.
+/// - `"rgb(r, g, b)"` — decimal channels, no alpha (`a = 1.0`).
+/// - `"rgba(r, g, b, a)"` — decimal channels and alpha in `[0, 1]`.
+///
+/// Whitespace is tolerated. Anything else (named colors other than
+/// `transparent`, `hsl()`, `hsla()`, `color()`, etc.) returns `None`
+/// so the caller can skip silently. Chromium's resolved-style output
+/// for any color other than `transparent` is `rgb(...)` or `rgba(...)`,
+/// so this covers every snapshot value Plumb sees in practice; the
+/// hex paths handle palette tokens defined in `plumb.toml`.
+#[must_use]
+pub(crate) fn parse_css_color(s: &str) -> Option<CssColor> {
+    let trimmed = s.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if trimmed.eq_ignore_ascii_case("transparent") {
+        return Some(CssColor {
+            r: 0.0,
+            g: 0.0,
+            b: 0.0,
+            a: 0.0,
+        });
+    }
+    if trimmed.starts_with('#') {
+        return parse_hex(trimmed);
+    }
+    if let Some(rest) = strip_ci_prefix(trimmed, "rgba") {
+        return parse_rgb_functional(rest);
+    }
+    if let Some(rest) = strip_ci_prefix(trimmed, "rgb") {
+        return parse_rgb_functional(rest);
+    }
+    None
+}
+
+fn strip_ci_prefix<'a>(s: &'a str, prefix: &str) -> Option<&'a str> {
+    let plen = prefix.len();
+    if s.len() < plen {
+        return None;
+    }
+    let (head, tail) = s.split_at(plen);
+    if head.eq_ignore_ascii_case(prefix) {
+        Some(tail)
+    } else {
+        None
+    }
+}
+
+fn parse_hex(input: &str) -> Option<CssColor> {
+    // Route by hex length — `palette::Srgb::<u8>::from_str` covers the
+    // 3 / 6 cases. The 4 / 8 (with alpha) shapes need a hand-rolled
+    // split because palette's `Rgba` FromStr is generic over `Alpha`.
+    let hex = input.strip_prefix('#').unwrap_or(input);
+    match hex.len() {
+        3 | 6 => {
+            let rgb: Srgb<u8> = Srgb::from_str(input).ok()?;
+            Some(CssColor::from_rgb_u8_alpha(
+                rgb.red, rgb.green, rgb.blue, 1.0,
+            ))
+        }
+        4 => {
+            let red = u8::from_str_radix(&hex[0..1], 16).ok()?;
+            let green = u8::from_str_radix(&hex[1..2], 16).ok()?;
+            let blue = u8::from_str_radix(&hex[2..3], 16).ok()?;
+            let alpha = u8::from_str_radix(&hex[3..4], 16).ok()?;
+            Some(CssColor::from_rgb_u8_alpha(
+                red * 17,
+                green * 17,
+                blue * 17,
+                f32::from(alpha * 17) / 255.0,
+            ))
+        }
+        8 => {
+            let red = u8::from_str_radix(&hex[0..2], 16).ok()?;
+            let green = u8::from_str_radix(&hex[2..4], 16).ok()?;
+            let blue = u8::from_str_radix(&hex[4..6], 16).ok()?;
+            let alpha = u8::from_str_radix(&hex[6..8], 16).ok()?;
+            Some(CssColor::from_rgb_u8_alpha(
+                red,
+                green,
+                blue,
+                f32::from(alpha) / 255.0,
+            ))
+        }
+        _ => None,
+    }
+}
+
+fn parse_rgb_functional(input: &str) -> Option<CssColor> {
+    let trimmed = input.trim();
+    let inner = trimmed.strip_prefix('(')?.strip_suffix(')')?.trim();
+    // Tolerate both comma and whitespace separation. Chromium emits
+    // `rgb(255, 0, 0)` with commas; CSS Color 4 also allows
+    // `rgb(255 0 0)`. Splitting on either keeps the parser usable
+    // for hand-written palette config.
+    let parts: Vec<&str> = if inner.contains(',') {
+        inner.split(',').map(str::trim).collect()
+    } else {
+        inner.split_whitespace().collect()
+    };
+
+    let (red_s, green_s, blue_s, alpha_s) = match parts.as_slice() {
+        [r, g, b] => (*r, *g, *b, None),
+        [r, g, b, a] => (*r, *g, *b, Some(*a)),
+        _ => return None,
+    };
+    let alpha = match alpha_s {
+        Some(token) => parse_alpha(token)?,
+        // The function name (`rgb` vs `rgba`) does not constrain the
+        // channel count — `rgba(r, g, b)` is silently treated as
+        // opaque. Chromium normalizes both to the same shape.
+        None => 1.0,
+    };
+    let red = parse_channel(red_s)?;
+    let green = parse_channel(green_s)?;
+    let blue = parse_channel(blue_s)?;
+    Some(CssColor::from_rgb_u8_alpha(red, green, blue, alpha))
+}
+
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn parse_channel(s: &str) -> Option<u8> {
+    let trimmed = s.trim();
+    if let Some(pct) = trimmed.strip_suffix('%') {
+        let v = pct.trim().parse::<f32>().ok()?;
+        let scaled = (v / 100.0).clamp(0.0, 1.0) * 255.0;
+        // Clamp keeps the cast safe; `round` is half-away-from-zero.
+        return Some(scaled.round().clamp(0.0, 255.0) as u8);
+    }
+    let v = trimmed.parse::<f32>().ok()?;
+    // Accept fractional channel values (CSS Color 4) by rounding to
+    // the nearest integer.
+    Some(v.round().clamp(0.0, 255.0) as u8)
+}
+
+fn parse_alpha(s: &str) -> Option<f32> {
+    let trimmed = s.trim();
+    if let Some(pct) = trimmed.strip_suffix('%') {
+        let v = pct.trim().parse::<f32>().ok()?;
+        return Some((v / 100.0).clamp(0.0, 1.0));
+    }
+    let v = trimmed.parse::<f32>().ok()?;
+    Some(v.clamp(0.0, 1.0))
+}
 
 /// Parse a CSS pixel value into an `f64`.
 ///
@@ -113,7 +304,7 @@ pub(crate) fn nearest_in_scale(value: f64, scale: &[u32]) -> Option<u32> {
 
 #[cfg(test)]
 mod tests {
-    use super::{nearest_in_scale, nearest_multiple, parse_px};
+    use super::{nearest_in_scale, nearest_multiple, parse_css_color, parse_px};
 
     #[test]
     fn parse_px_accepts_supported_shapes() {
@@ -186,5 +377,76 @@ mod tests {
     #[test]
     fn nearest_in_scale_returns_none_for_empty_scale() {
         assert_eq!(nearest_in_scale(13.0, &[]), None);
+    }
+
+    #[test]
+    fn parse_css_color_expands_3_digit_hex() {
+        let c = parse_css_color("#fff").expect("hex-3 parses");
+        assert!((c.r - 1.0).abs() < 1e-6);
+        assert!((c.g - 1.0).abs() < 1e-6);
+        assert!((c.b - 1.0).abs() < 1e-6);
+        assert!((c.a - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn parse_css_color_expands_4_digit_hex_with_alpha() {
+        let c = parse_css_color("#f00a").expect("hex-4 parses");
+        assert!((c.r - 1.0).abs() < 1e-6);
+        assert!((c.g - 0.0).abs() < 1e-6);
+        assert!((c.b - 0.0).abs() < 1e-6);
+        // 0xaa / 0xff = 170/255
+        assert!((c.a - (170.0 / 255.0)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn parse_css_color_accepts_8_digit_hex_with_alpha() {
+        let c = parse_css_color("#ff00ff80").expect("hex-8 parses");
+        assert!((c.r - 1.0).abs() < 1e-6);
+        assert!((c.g - 0.0).abs() < 1e-6);
+        assert!((c.b - 1.0).abs() < 1e-6);
+        // 0x80 / 0xff
+        assert!((c.a - (128.0 / 255.0)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn parse_css_color_handles_percentage_channels() {
+        let c = parse_css_color("rgb(50%, 50%, 50%)").expect("percentage rgb parses");
+        assert!((c.r - 0.5).abs() < 1e-2);
+        assert!((c.g - 0.5).abs() < 1e-2);
+        assert!((c.b - 0.5).abs() < 1e-2);
+        assert!((c.a - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn parse_css_color_handles_rgba_with_fractional_alpha() {
+        let c = parse_css_color("rgba(255, 0, 0, 0.5)").expect("rgba parses");
+        assert!((c.r - 1.0).abs() < 1e-6);
+        assert!((c.g - 0.0).abs() < 1e-6);
+        assert!((c.b - 0.0).abs() < 1e-6);
+        assert!((c.a - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn parse_css_color_handles_whitespace_separated_rgb() {
+        // CSS Color 4: rgb(r g b)
+        let c = parse_css_color("rgb(255 0 0)").expect("space-separated rgb parses");
+        assert!((c.r - 1.0).abs() < 1e-6);
+        assert!((c.g - 0.0).abs() < 1e-6);
+        assert!((c.b - 0.0).abs() < 1e-6);
+        assert!((c.a - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn parse_css_color_returns_transparent_for_keyword() {
+        let c = parse_css_color("transparent").expect("transparent parses");
+        assert!((c.a - 0.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn parse_css_color_rejects_malformed_input() {
+        assert!(parse_css_color("#ff").is_none());
+        assert!(parse_css_color("rgb(1, 2)").is_none());
+        assert!(parse_css_color("not-a-color").is_none());
+        assert!(parse_css_color("").is_none());
     }
 }

@@ -19,10 +19,12 @@ use miette::{Diagnostic, NamedSource, SourceSpan};
 use plumb_core::Config;
 use thiserror::Error;
 
+mod css_props;
 mod dtcg;
 mod span;
 mod validate;
 
+pub use css_props::{CssPropertyScrape, ScrapedValue, scrape_css_properties};
 pub use dtcg::{DtcgImport, DtcgSource, DtcgWarning, DtcgWarningKind, MAX_NESTING, merge_dtcg};
 
 use span::{SourceFormat, locate_path};
@@ -93,6 +95,22 @@ pub enum ConfigError {
         /// Label pointing at the offending value, when the source format
         /// allows span recovery.
         #[label("invalid value")]
+        span: Option<SourceSpan>,
+    },
+    /// A CSS source (e.g. a token sheet passed to
+    /// [`scrape_css_properties`]) was malformed and could not be scanned.
+    #[error("failed to parse CSS file `{path}`: {message}")]
+    #[diagnostic(code(plumb::config::css_parse))]
+    CssParse {
+        /// Path of the file that failed to parse.
+        path: String,
+        /// Human-readable description of the offending region.
+        message: String,
+        /// Source text for span-annotated diagnostics.
+        #[source_code]
+        source_code: Option<NamedSource<String>>,
+        /// Label pointing at the offending region.
+        #[label("invalid CSS")]
         span: Option<SourceSpan>,
     },
     /// Schema emission failed.

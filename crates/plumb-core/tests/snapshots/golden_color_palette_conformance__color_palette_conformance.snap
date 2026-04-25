@@ -1,0 +1,71 @@
+---
+source: crates/plumb-core/tests/golden_color_palette_conformance.rs
+assertion_line: 180
+expression: json
+---
+[
+  {
+    "rule_id": "color/palette-conformance",
+    "severity": "warning",
+    "message": "`html > body > div:nth-child(3)` has off-palette color rgb(255, 0, 153); nearest token is `white` (#ffffff).",
+    "selector": "html > body > div:nth-child(3)",
+    "viewport": "desktop",
+    "rect": {
+      "x": 0,
+      "y": 48,
+      "width": 200,
+      "height": 24
+    },
+    "dom_order": 4,
+    "fix": {
+      "kind": {
+        "kind": "css_property_replace",
+        "property": "color",
+        "from": "rgb(255, 0, 153)",
+        "to": "#ffffff"
+      },
+      "description": "Snap `color` to the nearest palette token `white` (#ffffff).",
+      "confidence": "medium"
+    },
+    "doc_url": "https://plumb.aramhammoudeh.com/rules/color-palette-conformance",
+    "metadata": {
+      "color": "rgb(255, 0, 153)",
+      "nearest_token": "white",
+      "nearest_token_hex": "#ffffff",
+      "delta_e": 43.071,
+      "delta_e_tolerance": 2.0
+    }
+  },
+  {
+    "rule_id": "color/palette-conformance",
+    "severity": "warning",
+    "message": "`html > body > div:nth-child(4)` has off-palette color rgba(0, 0, 0, 0.4); nearest token is `white` (#ffffff).",
+    "selector": "html > body > div:nth-child(4)",
+    "viewport": "desktop",
+    "rect": {
+      "x": 0,
+      "y": 72,
+      "width": 200,
+      "height": 24
+    },
+    "dom_order": 5,
+    "fix": {
+      "kind": {
+        "kind": "css_property_replace",
+        "property": "color",
+        "from": "rgba(0, 0, 0, 0.4)",
+        "to": "#ffffff"
+      },
+      "description": "Snap `color` to the nearest palette token `white` (#ffffff).",
+      "confidence": "low"
+    },
+    "doc_url": "https://plumb.aramhammoudeh.com/rules/color-palette-conformance",
+    "metadata": {
+      "color": "rgba(0, 0, 0, 0.4)",
+      "nearest_token": "white",
+      "nearest_token_hex": "#ffffff",
+      "delta_e": 11.28,
+      "delta_e_tolerance": 2.0
+    }
+  }
+]
