@@ -32,12 +32,12 @@ For local development against a source checkout:
 }
 ```
 
-## Walking-skeleton tools
+## Tools
 
 | Tool | Description |
 |------|-------------|
 | `echo` | Smoke-test the transport. Echoes the `message` arg back. |
-| `lint_url` | Lint a URL. Accepts `plumb-fake://hello` only until the Chromium driver lands. |
+| `lint_url` | Lint a URL. Accepts `http(s)://` URLs (driven by the bundled Chromium driver) and `plumb-fake://hello` (canned snapshot for tests). On a Chromium launch failure the response is returned with `isError: true` and a single text block carrying the typed driver error. |
 | `explain_rule` | Return canonical documentation and metadata for a Plumb rule by id. Args: `{ "rule_id": "<category>/<id>" }`. |
 
 The response shape follows the MCP `content` + `structuredContent`

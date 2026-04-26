@@ -1592,6 +1592,7 @@ dependencies = [
 name = "plumb-mcp"
 version = "0.0.1"
 dependencies = [
+ "plumb-cdp",
  "plumb-core",
  "plumb-format",
  "rmcp",
