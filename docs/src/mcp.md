@@ -38,6 +38,7 @@ For local development against a source checkout:
 |------|-------------|
 | `echo` | Smoke-test the transport. Echoes the `message` arg back. |
 | `lint_url` | Lint a URL. Accepts `plumb-fake://hello` only until the Chromium driver lands. |
+| `explain_rule` | Return canonical documentation and metadata for a Plumb rule by id. Args: `{ "rule_id": "<category>/<id>" }`. |
 
 The response shape follows the MCP `content` + `structuredContent`
 convention:
