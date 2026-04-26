@@ -3,12 +3,14 @@
 //! Model Context Protocol server for Plumb, backed by the official
 //! [`rmcp`] Rust SDK.
 //!
-//! The server exposes two tools to AI coding agents:
+//! The server exposes three tools to AI coding agents:
 //!
 //! - `echo` — smoke-tests the transport.
 //! - `lint_url` — lints a URL and returns violations in the MCP-compact
 //!   shape from `docs/local/prd.md` §14.2. Walking-skeleton accepts
 //!   `plumb-fake://` URLs only.
+//! - `list_rules` — enumerates every built-in rule with id, default
+//!   severity, and one-line summary.
 //!
 //! The [`PlumbServer`] type implements [`rmcp::ServerHandler`] directly.
 //! Extend it by adding a tool descriptor to `list_tools` and a matching
@@ -21,7 +23,7 @@
 
 use std::io;
 
-use plumb_core::{Config, PlumbSnapshot, run};
+use plumb_core::{Config, PlumbSnapshot, rules::register_builtin, run};
 use plumb_format::mcp_compact;
 use rmcp::{
     RoleServer, ServerHandler, ServiceExt,
@@ -36,6 +38,7 @@ use rmcp::{
     transport::stdio,
 };
 use serde::Deserialize;
+use serde_json::{Value, json};
 use thiserror::Error;
 
 /// MCP server errors.
@@ -63,6 +66,11 @@ pub struct LintUrlArgs {
     /// URL to lint. Walking-skeleton accepts `plumb-fake://` URLs only.
     pub url: String,
 }
+
+/// Arguments to the `list_rules` tool. Currently empty — agents call
+/// it without parameters.
+#[derive(Debug, Default, Deserialize, JsonSchema)]
+pub struct ListRulesArgs {}
 
 /// The Plumb MCP server. Cheap to construct.
 #[derive(Clone, Default)]
@@ -95,6 +103,60 @@ impl PlumbServer {
         result.structured_content = Some(structured);
         Ok(result)
     }
+
+    async fn list_rules(&self, _args: ListRulesArgs) -> Result<CallToolResult, ErrorData> {
+        let (text, structured) = self.list_rules_payload();
+        let mut result = CallToolResult::success(vec![Content::text(text)]);
+        result.structured_content = Some(structured);
+        Ok(result)
+    }
+
+    /// Build the `list_rules` response payload — `(human text, structured JSON)`.
+    ///
+    /// Output is a deterministic function of the built-in rule registry: rules
+    /// are sorted by id (which encodes `<category>/<name>` and so sorts by
+    /// category first), severity is the lowercase [`Severity::label`] string,
+    /// and the structured block carries a `count` plus the `rules` array.
+    ///
+    /// Token budget: bounded by `register_builtin().len()` — one short line
+    /// per rule, well under 10 KB at the current rule count and growth rate.
+    ///
+    /// Takes `&self` for ergonomic call-site symmetry with other tool methods,
+    /// even though the response is purely a function of the built-in registry.
+    ///
+    /// [`Severity::label`]: plumb_core::report::Severity::label
+    #[must_use]
+    #[allow(clippy::unused_self)]
+    pub fn list_rules_payload(&self) -> (String, Value) {
+        let mut entries: Vec<(&'static str, &'static str, &'static str)> = register_builtin()
+            .iter()
+            .map(|rule| (rule.id(), rule.default_severity().label(), rule.summary()))
+            .collect();
+        entries.sort_unstable_by(|a, b| a.0.cmp(b.0));
+
+        let mut text = String::new();
+        for (id, severity, summary) in &entries {
+            use std::fmt::Write as _;
+            let _ = writeln!(text, "{severity} {id} — {summary}");
+        }
+
+        let rules: Vec<Value> = entries
+            .iter()
+            .map(|(id, severity, summary)| {
+                json!({
+                    "id": id,
+                    "default_severity": severity,
+                    "summary": summary,
+                })
+            })
+            .collect();
+        let structured = json!({
+            "rules": rules,
+            "count": entries.len(),
+        });
+
+        (text, structured)
+    }
 }
 
 impl ServerHandler for PlumbServer {
@@ -104,8 +166,8 @@ impl ServerHandler for PlumbServer {
         info.capabilities = ServerCapabilities::builder().enable_tools().build();
         info.server_info = Implementation::new("plumb", env!("CARGO_PKG_VERSION"));
         info.instructions = Some(
-            "Deterministic design-system linter. Call `lint_url` with a URL to get violations; \
-             use `echo` to smoke-test the transport."
+            "Deterministic design-system linter. Call `lint_url` with a URL to get violations, \
+             `list_rules` to enumerate every built-in rule, or `echo` to smoke-test the transport."
                 .into(),
         );
         info
@@ -120,6 +182,7 @@ impl ServerHandler for PlumbServer {
         match request.name.as_ref() {
             "echo" => self.echo(parse_tool_args(arguments)?).await,
             "lint_url" => self.lint_url(parse_tool_args(arguments)?).await,
+            "list_rules" => self.list_rules(parse_tool_args(arguments)?).await,
             unknown => Err(ErrorData::invalid_params(
                 format!("unknown tool: {unknown}"),
                 None,
@@ -137,6 +200,10 @@ impl ServerHandler for PlumbServer {
             tool_descriptor::<LintUrlArgs>(
                 "lint_url",
                 "Lint a URL with Plumb. Walking-skeleton accepts plumb-fake:// URLs only.",
+            ),
+            tool_descriptor::<ListRulesArgs>(
+                "list_rules",
+                "List every built-in Plumb rule with id, default severity, and one-line summary.",
             ),
         ];
         std::future::ready(Ok(ListToolsResult::with_all_items(tools)))
