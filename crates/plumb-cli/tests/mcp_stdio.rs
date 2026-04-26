@@ -110,6 +110,7 @@ fn mcp_initialize_and_tools_list() {
     let names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
     assert!(names.contains(&"echo"));
     assert!(names.contains(&"lint_url"));
+    assert!(names.contains(&"get_config"));
 
     let echo = tools
         .iter()
@@ -134,6 +135,19 @@ fn mcp_initialize_and_tools_list() {
     );
     assert_eq!(
         lint_url["inputSchema"]["properties"]["url"]["type"],
+        "string"
+    );
+
+    let get_config = tools
+        .iter()
+        .find(|tool| tool["name"] == "get_config")
+        .unwrap_or_else(|| panic!("get_config tool missing: got {tools:?}"));
+    assert_eq!(
+        get_config["description"],
+        "Return the resolved plumb.toml for a working directory as JSON. Memoized per (path, mtime)."
+    );
+    assert_eq!(
+        get_config["inputSchema"]["properties"]["working_dir"]["type"],
         "string"
     );
 }
@@ -190,5 +204,43 @@ fn mcp_lint_url_returns_structured_content() {
     assert_eq!(
         structured["violations"][0]["rule_id"].as_str(),
         Some("spacing/grid-conformance")
+    );
+}
+
+#[test]
+fn mcp_get_config_returns_default_when_no_file() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let working_dir = tmp.path().to_string_lossy().into_owned();
+
+    let get_config = json!({
+        "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+        "params": { "name": "get_config", "arguments": { "working_dir": working_dir } }
+    });
+    let responses = send_and_read(vec![
+        init_request(1),
+        initialized_notification(),
+        get_config,
+    ]);
+    let resp = responses
+        .iter()
+        .find(|r| r["id"] == 2)
+        .unwrap_or_else(|| panic!("get_config response missing: got {responses:?}"));
+    let result = &resp["result"];
+    assert_eq!(result["isError"].as_bool(), Some(false));
+
+    let text = result["content"][0]["text"].as_str().expect("text content");
+    assert!(text.contains("no plumb.toml"), "unexpected text: {text}");
+
+    let structured = result["structuredContent"]
+        .as_object()
+        .expect("structuredContent object");
+    assert_eq!(structured["source"].as_str(), Some("default"));
+    assert!(
+        structured["config"].is_object(),
+        "config field must be an object: {structured:?}"
+    );
+    assert!(
+        structured["config"]["viewports"].is_object(),
+        "default config must include viewports map: {structured:?}"
     );
 }
