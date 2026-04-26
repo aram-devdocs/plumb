@@ -45,7 +45,8 @@ Use the `09-mcp-tool-author` subagent for cookie-cutter execution.
 ## Depends on
 
 - `plumb-core` (types; `test-fake` feature enabled so `lint_url` can
-  serve the canned snapshot until the real CDP driver lands).
+  serve the canned snapshot for `plumb-fake://` URLs).
+- `plumb-cdp` (drives Chromium for real `http(s)://` URLs in `lint_url`).
 - `plumb-format` (mcp_compact).
 - `rmcp` (server + macros + transport-io + schemars features).
 - `tokio`, `serde`, `serde_json`, `schemars`, `thiserror`, `tracing`.

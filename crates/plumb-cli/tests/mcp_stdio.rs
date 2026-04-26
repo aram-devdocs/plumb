@@ -130,7 +130,7 @@ fn mcp_initialize_and_tools_list() {
         .unwrap_or_else(|| panic!("lint_url tool missing: got {tools:?}"));
     assert_eq!(
         lint_url["description"],
-        "Lint a URL with Plumb. Walking-skeleton accepts plumb-fake:// URLs only."
+        "Lint a URL with Plumb. Accepts http(s):// and plumb-fake:// URLs."
     );
     assert_eq!(
         lint_url["inputSchema"]["properties"]["url"]["type"],
