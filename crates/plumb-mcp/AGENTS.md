@@ -40,8 +40,6 @@ See `.agents/rules/mcp-tool-patterns.md`. Summary:
 3. Add a protocol test case in `crates/plumb-cli/tests/mcp_stdio.rs`.
 4. Update `docs/src/mcp.md` tool table.
 
-Use the `09-mcp-tool-author` subagent for cookie-cutter execution.
-
 ## Depends on
 
 - `plumb-core` (types; `test-fake` feature enabled so `lint_url` can
