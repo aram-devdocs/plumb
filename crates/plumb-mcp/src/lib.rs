@@ -7,8 +7,9 @@
 //!
 //! - `echo` — smoke-tests the transport.
 //! - `lint_url` — lints a URL and returns violations in the MCP-compact
-//!   shape from `docs/local/prd.md` §14.2. Walking-skeleton accepts
-//!   `plumb-fake://` URLs only.
+//!   shape from `docs/local/prd.md` §14.2. Accepts `http(s)://` URLs
+//!   (driven by `plumb_cdp::ChromiumDriver`) and `plumb-fake://` URLs
+//!   (served from the canned snapshot).
 //! - `explain_rule` — returns the canonical markdown documentation and
 //!   metadata for a built-in rule by id.
 //! - `get_config` — resolves `plumb.toml` for a given working directory
@@ -34,8 +35,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
+use plumb_cdp::{BrowserDriver, ChromiumDriver, ChromiumOptions, Target, is_fake_url};
 use plumb_config::ConfigError;
-use plumb_core::{Config, PlumbSnapshot, register_builtin, run};
+use plumb_core::{Config, PlumbSnapshot, ViewportKey, register_builtin, run};
 use plumb_format::mcp_compact;
 use rmcp::{
     RoleServer, ServerHandler, ServiceExt,
@@ -74,7 +76,7 @@ pub struct EchoArgs {
 /// Arguments to the `lint_url` tool.
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct LintUrlArgs {
-    /// URL to lint. Walking-skeleton accepts `plumb-fake://` URLs only.
+    /// URL to lint. Accepts `http(s)://` and `plumb-fake://` URLs.
     pub url: String,
 }
 
@@ -118,12 +120,26 @@ impl PlumbServer {
     }
 
     async fn lint_url(&self, args: LintUrlArgs) -> Result<CallToolResult, ErrorData> {
-        if !args.url.starts_with("plumb-fake://") {
-            return Ok(CallToolResult::success(vec![Content::text(
-                "lint_url currently only accepts plumb-fake:// URLs in the walking skeleton.",
-            )]));
-        }
-        let snapshot = PlumbSnapshot::canned();
+        let snapshot = if is_fake_url(&args.url) {
+            PlumbSnapshot::canned()
+        } else {
+            let target = Target {
+                url: args.url.clone(),
+                viewport: ViewportKey::new("desktop"),
+                width: 1280,
+                height: 800,
+                device_pixel_ratio: 1.0,
+            };
+            let driver = ChromiumDriver::new(ChromiumOptions::default());
+            match driver.snapshot(target).await {
+                Ok(snap) => snap,
+                Err(err) => {
+                    return Ok(CallToolResult::error(vec![Content::text(format!(
+                        "lint_url failed: {err}"
+                    ))]));
+                }
+            }
+        };
         let config = Config::default();
         let violations = run(&snapshot, &config);
         let (text, structured) = mcp_compact(&violations);
@@ -325,7 +341,7 @@ impl ServerHandler for PlumbServer {
             tool_descriptor::<EchoArgs>("echo", "Echo a message — smoke test the MCP transport."),
             tool_descriptor::<LintUrlArgs>(
                 "lint_url",
-                "Lint a URL with Plumb. Walking-skeleton accepts plumb-fake:// URLs only.",
+                "Lint a URL with Plumb. Accepts http(s):// and plumb-fake:// URLs.",
             ),
             tool_descriptor::<ExplainRuleArgs>(
                 "explain_rule",
