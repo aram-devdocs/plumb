@@ -110,6 +110,8 @@ fn mcp_initialize_and_tools_list() {
     let names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
     assert!(names.contains(&"echo"));
     assert!(names.contains(&"lint_url"));
+    assert!(names.contains(&"explain_rule"));
+    assert!(names.contains(&"list_rules"));
 
     let echo = tools
         .iter()
@@ -191,4 +193,36 @@ fn mcp_lint_url_returns_structured_content() {
         structured["violations"][0]["rule_id"].as_str(),
         Some("spacing/grid-conformance")
     );
+}
+
+#[test]
+fn mcp_list_rules_returns_every_rule() {
+    let list_rules = json!({
+        "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+        "params": { "name": "list_rules", "arguments": {} }
+    });
+    let responses = send_and_read(vec![init_request(1), initialized_notification(), list_rules]);
+    let resp = responses
+        .iter()
+        .find(|r| r["id"] == 2)
+        .unwrap_or_else(|| panic!("list_rules response missing: got {responses:?}"));
+    let result = &resp["result"];
+
+    assert_eq!(result["isError"].as_bool(), Some(false));
+
+    let structured = result["structuredContent"]
+        .as_object()
+        .expect("structuredContent object");
+    let count = structured["count"]
+        .as_u64()
+        .expect("count must be a u64");
+    assert!(count > 0, "list_rules must return at least one rule");
+    let rules = structured["rules"]
+        .as_array()
+        .expect("rules must be an array");
+    assert_eq!(rules.len() as u64, count);
+    let first_id = rules[0]["id"]
+        .as_str()
+        .expect("first rule must carry an id string");
+    assert!(!first_id.is_empty(), "rule id must not be empty");
 }

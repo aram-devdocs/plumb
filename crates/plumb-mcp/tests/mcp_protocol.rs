@@ -135,12 +135,13 @@ fn list_rules_returns_every_builtin_rule_sorted() {
     let server = PlumbServer::new();
     let (text, structured) = server.list_rules_payload();
 
+    let builtin_count = register_builtin().len();
+
     // Text block: bounded, one line per rule, deterministic.
     assert!(!text.is_empty(), "list_rules text must not be empty");
     let line_count = text.lines().count();
     assert_eq!(
-        line_count,
-        register_builtin().len(),
+        line_count, builtin_count,
         "list_rules text must have one line per rule"
     );
 
@@ -152,7 +153,6 @@ fn list_rules_returns_every_builtin_rule_sorted() {
         .get("rules")
         .and_then(serde_json::Value::as_array)
         .expect("rules array");
-    let builtin_count = register_builtin().len();
     assert_eq!(count, builtin_count as u64);
     assert_eq!(rules.len(), builtin_count);
 
