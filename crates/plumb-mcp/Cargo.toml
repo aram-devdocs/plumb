@@ -14,8 +14,9 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-# `test-fake` is enabled so the walking-skeleton `lint_url` tool can
-# serve the canned snapshot until the real Chromium driver lands.
+# `test-fake` keeps the canned snapshot path available for
+# `plumb-fake://` URLs alongside the real Chromium driver path.
+plumb-cdp = { workspace = true }
 plumb-core = { workspace = true, features = ["test-fake"] }
 plumb-format = { workspace = true }
 rmcp = { workspace = true }

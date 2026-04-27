@@ -46,6 +46,14 @@ case "$rel_path" in
     .claude/*|.agents/*|docs/*|.github/*) hook_allow ;;
 esac
 
+# Merge conflict resolution is mechanical arbitration, not new Rust
+# implementation work. Limit the exception to the Rust file that is
+# currently unmerged so unrelated implementation files stay guarded.
+conflicted_paths="$(git -C "$HOOK_CWD" diff --name-only --diff-filter=U 2>/dev/null || true)"
+if printf '%s\n' "$conflicted_paths" | grep -qxF "$rel_path"; then
+    hook_allow
+fi
+
 if [ "$role" = "root" ] || [ -z "$role" ]; then
     hook_block "Root orchestrator should dispatch to a subagent for Rust implementation (file: $file_path). Use the 01-implementer agent."
 fi

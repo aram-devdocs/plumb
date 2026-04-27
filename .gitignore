@@ -15,4 +15,5 @@
 .claude/worktrees/
 .claude/memory/
 .claude/settings.local.json
+.claude-pr/
 node_modules/

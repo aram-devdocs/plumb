@@ -3,12 +3,15 @@
 //! Model Context Protocol server for Plumb, backed by the official
 //! [`rmcp`] Rust SDK.
 //!
-//! The server exposes three tools to AI coding agents:
+//! The server exposes these tools to AI coding agents:
 //!
 //! - `echo` — smoke-tests the transport.
 //! - `lint_url` — lints a URL and returns violations in the MCP-compact
-//!   shape from `docs/local/prd.md` §14.2. Walking-skeleton accepts
-//!   `plumb-fake://` URLs only.
+//!   shape from `docs/local/prd.md` §14.2. Accepts `http(s)://` URLs
+//!   (driven by `plumb_cdp::ChromiumDriver`) and `plumb-fake://` URLs
+//!   (served from the canned snapshot).
+//! - `explain_rule` — returns the canonical markdown documentation and
+//!   metadata for a built-in rule by id.
 //! - `list_rules` — enumerates every built-in rule with id, default
 //!   severity, and one-line summary.
 //!
@@ -21,9 +24,15 @@
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 
+mod explain;
+
+#[doc(hidden)]
+pub use explain::rule_ids as documented_rule_ids;
+
 use std::io;
 
-use plumb_core::{Config, PlumbSnapshot, rules::register_builtin, run};
+use plumb_cdp::{BrowserDriver, ChromiumDriver, ChromiumOptions, Target, is_fake_url};
+use plumb_core::{Config, PlumbSnapshot, ViewportKey, register_builtin, run};
 use plumb_format::mcp_compact;
 use rmcp::{
     RoleServer, ServerHandler, ServiceExt,
@@ -63,8 +72,15 @@ pub struct EchoArgs {
 /// Arguments to the `lint_url` tool.
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct LintUrlArgs {
-    /// URL to lint. Walking-skeleton accepts `plumb-fake://` URLs only.
+    /// URL to lint. Accepts `http(s)://` and `plumb-fake://` URLs.
     pub url: String,
+}
+
+/// Arguments to the `explain_rule` tool.
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct ExplainRuleArgs {
+    /// Stable rule id, `<category>/<id>` (e.g. `spacing/scale-conformance`).
+    pub rule_id: String,
 }
 
 /// Arguments to the `list_rules` tool. Currently empty — agents call
@@ -90,16 +106,80 @@ impl PlumbServer {
     }
 
     async fn lint_url(&self, args: LintUrlArgs) -> Result<CallToolResult, ErrorData> {
-        if !args.url.starts_with("plumb-fake://") {
-            return Ok(CallToolResult::success(vec![Content::text(
-                "lint_url currently only accepts plumb-fake:// URLs in the walking skeleton.",
-            )]));
-        }
-        let snapshot = PlumbSnapshot::canned();
+        let snapshot = if is_fake_url(&args.url) {
+            PlumbSnapshot::canned()
+        } else {
+            let target = Target {
+                url: args.url.clone(),
+                viewport: ViewportKey::new("desktop"),
+                width: 1280,
+                height: 800,
+                device_pixel_ratio: 1.0,
+            };
+            let driver = ChromiumDriver::new(ChromiumOptions::default());
+            match driver.snapshot(target).await {
+                Ok(snap) => snap,
+                Err(err) => {
+                    return Ok(CallToolResult::error(vec![Content::text(format!(
+                        "lint_url failed: {err}"
+                    ))]));
+                }
+            }
+        };
         let config = Config::default();
         let violations = run(&snapshot, &config);
         let (text, structured) = mcp_compact(&violations);
         let mut result = CallToolResult::success(vec![Content::text(text)]);
+        result.structured_content = Some(structured);
+        Ok(result)
+    }
+
+    /// Look up the canonical documentation for a built-in rule.
+    ///
+    /// Returns a [`CallToolResult`] whose first content block is the
+    /// rule's markdown body and whose `structured_content` carries
+    /// `{ rule_id, severity, summary, doc_url, markdown }`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorData::invalid_params`] (JSON-RPC `-32602`) when
+    /// `args.rule_id` does not name a built-in rule.
+    pub async fn explain_rule(&self, args: ExplainRuleArgs) -> Result<CallToolResult, ErrorData> {
+        let Some(entry) = explain::lookup(&args.rule_id) else {
+            return Err(ErrorData::invalid_params(
+                format!("unknown rule id: {}", args.rule_id),
+                None,
+            ));
+        };
+
+        // Source severity + summary from the Rule trait so metadata
+        // never duplicates what `register_builtin` already exposes.
+        let Some(rule) = register_builtin()
+            .into_iter()
+            .find(|rule| rule.id() == entry.rule_id)
+        else {
+            return Err(ErrorData::internal_error(
+                format!(
+                    "rule {} has a doc entry but is not registered in register_builtin()",
+                    entry.rule_id
+                ),
+                None,
+            ));
+        };
+
+        let severity = rule.default_severity().label();
+        let summary = rule.summary();
+        let doc_url = explain::doc_url(entry.rule_id);
+
+        let structured = serde_json::json!({
+            "rule_id": entry.rule_id,
+            "severity": severity,
+            "summary": summary,
+            "doc_url": doc_url,
+            "markdown": entry.markdown,
+        });
+
+        let mut result = CallToolResult::success(vec![Content::text(entry.markdown.to_owned())]);
         result.structured_content = Some(structured);
         Ok(result)
     }
@@ -166,8 +246,9 @@ impl ServerHandler for PlumbServer {
         info.capabilities = ServerCapabilities::builder().enable_tools().build();
         info.server_info = Implementation::new("plumb", env!("CARGO_PKG_VERSION"));
         info.instructions = Some(
-            "Deterministic design-system linter. Call `lint_url` with a URL to get violations, \
-             `list_rules` to enumerate every built-in rule, or `echo` to smoke-test the transport."
+            "Deterministic design-system linter. Call `lint_url` with a URL to get violations; \
+             use `explain_rule` for canonical rule documentation; use `list_rules` to enumerate \
+             every built-in rule; use `echo` to smoke-test the transport."
                 .into(),
         );
         info
@@ -182,6 +263,7 @@ impl ServerHandler for PlumbServer {
         match request.name.as_ref() {
             "echo" => self.echo(parse_tool_args(arguments)?).await,
             "lint_url" => self.lint_url(parse_tool_args(arguments)?).await,
+            "explain_rule" => self.explain_rule(parse_tool_args(arguments)?).await,
             "list_rules" => self.list_rules(parse_tool_args(arguments)?).await,
             unknown => Err(ErrorData::invalid_params(
                 format!("unknown tool: {unknown}"),
@@ -199,7 +281,11 @@ impl ServerHandler for PlumbServer {
             tool_descriptor::<EchoArgs>("echo", "Echo a message — smoke test the MCP transport."),
             tool_descriptor::<LintUrlArgs>(
                 "lint_url",
-                "Lint a URL with Plumb. Walking-skeleton accepts plumb-fake:// URLs only.",
+                "Lint a URL with Plumb. Accepts http(s):// and plumb-fake:// URLs.",
+            ),
+            tool_descriptor::<ExplainRuleArgs>(
+                "explain_rule",
+                "Return canonical documentation and metadata for a Plumb rule by id.",
             ),
             tool_descriptor::<ListRulesArgs>(
                 "list_rules",

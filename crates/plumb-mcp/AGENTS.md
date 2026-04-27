@@ -33,19 +33,18 @@ Built on `rmcp 0.2.x` with the `#[tool_router]` + `#[tool]` +
 
 ## Adding a new tool
 
-See `.agents/rules/mcp-tool-patterns.md`. Summary:
+See `.agents/rules/mcp-tool-patterns.md` for the handoff path. Summary:
 
 1. Add a `Deserialize + JsonSchema` struct for the tool's args.
 2. Add a `#[tool(description = "…")]` async method on `PlumbServer`.
 3. Add a protocol test case in `crates/plumb-cli/tests/mcp_stdio.rs`.
 4. Update `docs/src/mcp.md` tool table.
 
-Use the `09-mcp-tool-author` subagent for cookie-cutter execution.
-
 ## Depends on
 
 - `plumb-core` (types; `test-fake` feature enabled so `lint_url` can
-  serve the canned snapshot until the real CDP driver lands).
+  serve the canned snapshot for `plumb-fake://` URLs).
+- `plumb-cdp` (drives Chromium for real `http(s)://` URLs in `lint_url`).
 - `plumb-format` (mcp_compact).
 - `rmcp` (server + macros + transport-io + schemars features).
 - `tokio`, `serde`, `serde_json`, `schemars`, `thiserror`, `tracing`.
