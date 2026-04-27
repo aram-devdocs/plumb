@@ -12,6 +12,8 @@
 //!   (served from the canned snapshot).
 //! - `explain_rule` — returns the canonical markdown documentation and
 //!   metadata for a built-in rule by id.
+//! - `list_rules` — enumerates every built-in rule with id, default
+//!   severity, and one-line summary.
 //! - `get_config` — resolves `plumb.toml` for a given working directory
 //!   and returns the [`Config`] as JSON. Memoized per `(path, mtime)`.
 //!
@@ -52,6 +54,7 @@ use rmcp::{
     transport::stdio,
 };
 use serde::Deserialize;
+use serde_json::{Value, json};
 use thiserror::Error;
 
 /// MCP server errors.
@@ -86,6 +89,11 @@ pub struct ExplainRuleArgs {
     /// Stable rule id, `<category>/<id>` (e.g. `spacing/scale-conformance`).
     pub rule_id: String,
 }
+
+/// Arguments to the `list_rules` tool. Currently empty — agents call
+/// it without parameters.
+#[derive(Debug, Default, Deserialize, JsonSchema)]
+pub struct ListRulesArgs {}
 
 /// Arguments to the `get_config` tool.
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -198,6 +206,60 @@ impl PlumbServer {
         Ok(result)
     }
 
+    async fn list_rules(&self, _args: ListRulesArgs) -> Result<CallToolResult, ErrorData> {
+        let (text, structured) = self.list_rules_payload();
+        let mut result = CallToolResult::success(vec![Content::text(text)]);
+        result.structured_content = Some(structured);
+        Ok(result)
+    }
+
+    /// Build the `list_rules` response payload — `(human text, structured JSON)`.
+    ///
+    /// Output is a deterministic function of the built-in rule registry: rules
+    /// are sorted by id (which encodes `<category>/<name>` and so sorts by
+    /// category first), severity is the lowercase [`Severity::label`] string,
+    /// and the structured block carries a `count` plus the `rules` array.
+    ///
+    /// Token budget: bounded by `register_builtin().len()` — one short line
+    /// per rule, well under 10 KB at the current rule count and growth rate.
+    ///
+    /// Takes `&self` for ergonomic call-site symmetry with other tool methods,
+    /// even though the response is purely a function of the built-in registry.
+    ///
+    /// [`Severity::label`]: plumb_core::report::Severity::label
+    #[must_use]
+    #[allow(clippy::unused_self)]
+    pub fn list_rules_payload(&self) -> (String, Value) {
+        let mut entries: Vec<(&'static str, &'static str, &'static str)> = register_builtin()
+            .iter()
+            .map(|rule| (rule.id(), rule.default_severity().label(), rule.summary()))
+            .collect();
+        entries.sort_unstable_by(|a, b| a.0.cmp(b.0));
+
+        let mut text = String::new();
+        for (id, severity, summary) in &entries {
+            use std::fmt::Write as _;
+            let _ = writeln!(text, "{severity} {id} — {summary}");
+        }
+
+        let rules: Vec<Value> = entries
+            .iter()
+            .map(|(id, severity, summary)| {
+                json!({
+                    "id": id,
+                    "default_severity": severity,
+                    "summary": summary,
+                })
+            })
+            .collect();
+        let structured = json!({
+            "rules": rules,
+            "count": entries.len(),
+        });
+
+        (text, structured)
+    }
+
     /// Resolve `<working_dir>/plumb.toml` and return the resolved [`Config`]
     /// as JSON.
     ///
@@ -306,9 +368,9 @@ impl ServerHandler for PlumbServer {
         info.server_info = Implementation::new("plumb", env!("CARGO_PKG_VERSION"));
         info.instructions = Some(
             "Deterministic design-system linter. Call `lint_url` with a URL to get violations; \
-             use `explain_rule` for canonical rule documentation; use `get_config` to fetch the \
-             resolved `plumb.toml` for a working directory; use `echo` to smoke-test the \
-             transport."
+             use `explain_rule` for canonical rule documentation; use `list_rules` to enumerate \
+             every built-in rule; use `get_config` to fetch the resolved `plumb.toml` for a \
+             working directory; use `echo` to smoke-test the transport."
                 .into(),
         );
         info
@@ -324,6 +386,7 @@ impl ServerHandler for PlumbServer {
             "echo" => self.echo(parse_tool_args(arguments)?).await,
             "lint_url" => self.lint_url(parse_tool_args(arguments)?).await,
             "explain_rule" => self.explain_rule(parse_tool_args(arguments)?).await,
+            "list_rules" => self.list_rules(parse_tool_args(arguments)?).await,
             "get_config" => self.get_config(parse_tool_args(arguments)?).await,
             unknown => Err(ErrorData::invalid_params(
                 format!("unknown tool: {unknown}"),
@@ -346,6 +409,10 @@ impl ServerHandler for PlumbServer {
             tool_descriptor::<ExplainRuleArgs>(
                 "explain_rule",
                 "Return canonical documentation and metadata for a Plumb rule by id.",
+            ),
+            tool_descriptor::<ListRulesArgs>(
+                "list_rules",
+                "List every built-in Plumb rule with id, default severity, and one-line summary.",
             ),
             tool_descriptor::<GetConfigArgs>(
                 "get_config",

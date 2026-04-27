@@ -129,3 +129,56 @@ fn every_builtin_rule_has_doc_entry() {
         "the explain_rule doc table must cover every rule in register_builtin() and nothing more",
     );
 }
+
+#[test]
+fn list_rules_returns_every_builtin_rule_sorted() {
+    let server = PlumbServer::new();
+    let (text, structured) = server.list_rules_payload();
+
+    let builtin_count = register_builtin().len();
+
+    // Text block: bounded, one line per rule, deterministic.
+    assert!(!text.is_empty(), "list_rules text must not be empty");
+    let line_count = text.lines().count();
+    assert_eq!(
+        line_count, builtin_count,
+        "list_rules text must have one line per rule"
+    );
+
+    let count = structured
+        .get("count")
+        .and_then(serde_json::Value::as_u64)
+        .expect("count field");
+    let rules = structured
+        .get("rules")
+        .and_then(serde_json::Value::as_array)
+        .expect("rules array");
+    assert_eq!(count, builtin_count as u64);
+    assert_eq!(rules.len(), builtin_count);
+
+    // Sorted by id ascending.
+    let ids: Vec<&str> = rules
+        .iter()
+        .map(|r| r["id"].as_str().expect("id string"))
+        .collect();
+    let mut sorted = ids.clone();
+    sorted.sort_unstable();
+    assert_eq!(ids, sorted, "rules must be sorted by id");
+
+    // First entry shape — exact id is sensitive to registry contents
+    // and asserted indirectly via the sort check above.
+    let first = &rules[0];
+    assert!(
+        first["id"].as_str().is_some_and(|id| !id.is_empty()),
+        "first entry must carry a non-empty id"
+    );
+    assert!(
+        matches!(
+            first["default_severity"].as_str(),
+            Some("info" | "warning" | "error")
+        ),
+        "default_severity must be a lowercase severity label"
+    );
+    let summary = first["summary"].as_str().expect("summary string");
+    assert!(!summary.is_empty(), "summary must not be empty");
+}
