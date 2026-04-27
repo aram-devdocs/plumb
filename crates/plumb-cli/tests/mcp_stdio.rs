@@ -201,7 +201,11 @@ fn mcp_list_rules_returns_every_rule() {
         "jsonrpc": "2.0", "id": 2, "method": "tools/call",
         "params": { "name": "list_rules", "arguments": {} }
     });
-    let responses = send_and_read(vec![init_request(1), initialized_notification(), list_rules]);
+    let responses = send_and_read(vec![
+        init_request(1),
+        initialized_notification(),
+        list_rules,
+    ]);
     let resp = responses
         .iter()
         .find(|r| r["id"] == 2)
@@ -213,9 +217,7 @@ fn mcp_list_rules_returns_every_rule() {
     let structured = result["structuredContent"]
         .as_object()
         .expect("structuredContent object");
-    let count = structured["count"]
-        .as_u64()
-        .expect("count must be a u64");
+    let count = structured["count"].as_u64().expect("count must be a u64");
     assert!(count > 0, "list_rules must return at least one rule");
     let rules = structured["rules"]
         .as_array()
