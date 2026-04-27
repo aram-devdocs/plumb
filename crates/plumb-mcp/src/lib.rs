@@ -14,6 +14,8 @@
 //!   metadata for a built-in rule by id.
 //! - `list_rules` — enumerates every built-in rule with id, default
 //!   severity, and one-line summary.
+//! - `get_config` — resolves `plumb.toml` for a given working directory
+//!   and returns the [`Config`] as JSON. Memoized per `(path, mtime)`.
 //!
 //! The [`PlumbServer`] type implements [`rmcp::ServerHandler`] directly.
 //! Extend it by adding a tool descriptor to `list_tools` and a matching
@@ -29,9 +31,14 @@ mod explain;
 #[doc(hidden)]
 pub use explain::rule_ids as documented_rule_ids;
 
+use std::collections::HashMap;
 use std::io;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+use std::time::SystemTime;
 
 use plumb_cdp::{BrowserDriver, ChromiumDriver, ChromiumOptions, Target, is_fake_url};
+use plumb_config::ConfigError;
 use plumb_core::{Config, PlumbSnapshot, ViewportKey, register_builtin, run};
 use plumb_format::mcp_compact;
 use rmcp::{
@@ -88,17 +95,32 @@ pub struct ExplainRuleArgs {
 #[derive(Debug, Default, Deserialize, JsonSchema)]
 pub struct ListRulesArgs {}
 
-/// The Plumb MCP server. Cheap to construct.
+/// Arguments to the `get_config` tool.
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct GetConfigArgs {
+    /// Absolute path to the working directory containing `plumb.toml`.
+    /// The tool resolves `<working_dir>/plumb.toml` deterministically;
+    /// it never reads the process current directory.
+    pub working_dir: String,
+}
+
+/// The Plumb MCP server. Cheap to construct; `Clone` shares the memo cache.
 #[derive(Clone, Default)]
 pub struct PlumbServer {
-    _private: (),
+    config_cache: Arc<Mutex<HashMap<PathBuf, ConfigCacheEntry>>>,
+}
+
+#[derive(Clone)]
+struct ConfigCacheEntry {
+    mtime: SystemTime,
+    value: serde_json::Value,
 }
 
 impl PlumbServer {
     /// Construct a new server.
     #[must_use]
     pub fn new() -> Self {
-        Self { _private: () }
+        Self::default()
     }
 
     async fn echo(&self, args: EchoArgs) -> Result<CallToolResult, ErrorData> {
@@ -237,6 +259,105 @@ impl PlumbServer {
 
         (text, structured)
     }
+
+    /// Resolve `<working_dir>/plumb.toml` and return the resolved [`Config`]
+    /// as JSON.
+    ///
+    /// The result is memoized per `(path, mtime)`. A subsequent call with
+    /// the same `working_dir` returns the cached JSON until the underlying
+    /// file is modified.
+    ///
+    /// When no `plumb.toml` exists at the requested path, the tool returns
+    /// the result of [`Config::default`] with `source = "default"`. This
+    /// keeps a fresh checkout usable without scaffolding a config file.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorData::invalid_params`] if `working_dir` is empty or
+    /// not absolute, and [`ErrorData::internal_error`] when reading or
+    /// parsing an existing `plumb.toml` fails.
+    pub async fn get_config(&self, args: GetConfigArgs) -> Result<CallToolResult, ErrorData> {
+        if args.working_dir.is_empty() {
+            return Err(ErrorData::invalid_params(
+                "working_dir must not be empty".to_string(),
+                None,
+            ));
+        }
+        let working_dir = PathBuf::from(&args.working_dir);
+        if !working_dir.is_absolute() {
+            return Err(ErrorData::invalid_params(
+                format!("working_dir must be absolute: {}", args.working_dir),
+                None,
+            ));
+        }
+
+        let config_path = working_dir.join("plumb.toml");
+
+        let (structured, summary) = if config_path.exists() {
+            let mtime = std::fs::metadata(&config_path)
+                .and_then(|m| m.modified())
+                .map_err(|err| {
+                    ErrorData::internal_error(
+                        format!("stat {}: {err}", config_path.display()),
+                        None,
+                    )
+                })?;
+
+            if let Some(entry) = self.cache_lookup(&config_path, mtime)? {
+                let summary = format!("plumb.toml @ {} (cached)", config_path.display());
+                (entry, summary)
+            } else {
+                let config =
+                    plumb_config::load(&config_path).map_err(|err| map_config_error(&err))?;
+                let value = serialize_config(&config, &config_path, ConfigSource::File)?;
+                self.cache_store(&config_path, mtime, value.clone())?;
+                let summary = format!("plumb.toml @ {}", config_path.display());
+                (value, summary)
+            }
+        } else {
+            let value = serialize_config(&Config::default(), &config_path, ConfigSource::Default)?;
+            let summary = format!(
+                "no plumb.toml at {} — returning Config::default()",
+                config_path.display()
+            );
+            (value, summary)
+        };
+
+        let mut result = CallToolResult::success(vec![Content::text(summary)]);
+        result.structured_content = Some(structured);
+        Ok(result)
+    }
+
+    fn cache_lookup(
+        &self,
+        path: &Path,
+        mtime: SystemTime,
+    ) -> Result<Option<serde_json::Value>, ErrorData> {
+        let hit = self
+            .config_cache
+            .lock()
+            .map_err(|err| {
+                ErrorData::internal_error(format!("config cache poisoned: {err}"), None)
+            })?
+            .get(path)
+            .and_then(|entry| (entry.mtime == mtime).then(|| entry.value.clone()));
+        Ok(hit)
+    }
+
+    fn cache_store(
+        &self,
+        path: &Path,
+        mtime: SystemTime,
+        value: serde_json::Value,
+    ) -> Result<(), ErrorData> {
+        self.config_cache
+            .lock()
+            .map_err(|err| {
+                ErrorData::internal_error(format!("config cache poisoned: {err}"), None)
+            })?
+            .insert(path.to_path_buf(), ConfigCacheEntry { mtime, value });
+        Ok(())
+    }
 }
 
 impl ServerHandler for PlumbServer {
@@ -248,7 +369,8 @@ impl ServerHandler for PlumbServer {
         info.instructions = Some(
             "Deterministic design-system linter. Call `lint_url` with a URL to get violations; \
              use `explain_rule` for canonical rule documentation; use `list_rules` to enumerate \
-             every built-in rule; use `echo` to smoke-test the transport."
+             every built-in rule; use `get_config` to fetch the resolved `plumb.toml` for a \
+             working directory; use `echo` to smoke-test the transport."
                 .into(),
         );
         info
@@ -265,6 +387,7 @@ impl ServerHandler for PlumbServer {
             "lint_url" => self.lint_url(parse_tool_args(arguments)?).await,
             "explain_rule" => self.explain_rule(parse_tool_args(arguments)?).await,
             "list_rules" => self.list_rules(parse_tool_args(arguments)?).await,
+            "get_config" => self.get_config(parse_tool_args(arguments)?).await,
             unknown => Err(ErrorData::invalid_params(
                 format!("unknown tool: {unknown}"),
                 None,
@@ -291,6 +414,10 @@ impl ServerHandler for PlumbServer {
                 "list_rules",
                 "List every built-in Plumb rule with id, default severity, and one-line summary.",
             ),
+            tool_descriptor::<GetConfigArgs>(
+                "get_config",
+                "Return the resolved plumb.toml for a working directory as JSON. Memoized per (path, mtime).",
+            ),
         ];
         std::future::ready(Ok(ListToolsResult::with_all_items(tools)))
     }
@@ -313,6 +440,39 @@ where
     T: JsonSchema + 'static,
 {
     Tool::new(name, description, schema_for_type::<T>())
+}
+
+#[derive(Copy, Clone)]
+enum ConfigSource {
+    Default,
+    File,
+}
+
+impl ConfigSource {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Default => "default",
+            Self::File => "file",
+        }
+    }
+}
+
+fn serialize_config(
+    config: &Config,
+    path: &Path,
+    source: ConfigSource,
+) -> Result<serde_json::Value, ErrorData> {
+    let inner = serde_json::to_value(config)
+        .map_err(|err| ErrorData::internal_error(format!("serialize config: {err}"), None))?;
+    Ok(serde_json::json!({
+        "config": inner,
+        "source": source.as_str(),
+        "path": path.display().to_string(),
+    }))
+}
+
+fn map_config_error(err: &ConfigError) -> ErrorData {
+    ErrorData::internal_error(format!("load plumb.toml: {err}"), None)
 }
 
 /// Run the MCP server on stdin/stdout until EOF.
