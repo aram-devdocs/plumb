@@ -149,6 +149,27 @@ decision="$(printf '%s' "$guard_output" | jq -r '.decision // empty' 2>/dev/null
 [ "$decision" = "allow" ] || fail "guard should ALLOW root .rs edit during merge conflict resolution, got: $guard_output"
 pass "guard allows root Rust edits while unmerged paths exist"
 
+unrelated_merge_input="$(jq -n \
+    --arg sid "$session_id" \
+    --arg cwd "$merge_repo" \
+    --arg fp "$merge_repo/crates/plumb-cli/src/main.rs" \
+    '{session_id: $sid, cwd: $cwd, hook_event_name: "PreToolUse", tool_name: "Edit", tool_input: {file_path: $fp, content: "x"}}')"
+guard_output="$(env -u CLAUDE_SESSION_ID \
+    CLAUDE_PROJECT_DIR="$merge_repo" \
+    bash "$HOOKS_DIR/delegation-guard.sh" <<<"$unrelated_merge_input")"
+decision="$(printf '%s' "$guard_output" | jq -r '.decision // empty' 2>/dev/null || true)"
+[ "$decision" = "block" ] || fail "guard should BLOCK unrelated root .rs edit during merge conflict resolution, got: $guard_output"
+pass "guard keeps unrelated Rust files blocked during merge conflict resolution"
+
+printf 'pub fn value() -> u8 { 2 }\n' > "$merge_repo/crates/plumb-core/src/lib.rs"
+git -C "$merge_repo" add crates/plumb-core/src/lib.rs
+guard_output="$(env -u CLAUDE_SESSION_ID \
+    CLAUDE_PROJECT_DIR="$merge_repo" \
+    bash "$HOOKS_DIR/delegation-guard.sh" <<<"$merge_input")"
+decision="$(printf '%s' "$guard_output" | jq -r '.decision // empty' 2>/dev/null || true)"
+[ "$decision" = "block" ] || fail "guard should BLOCK root .rs edit after conflict resolution, got: $guard_output"
+pass "guard blocks root Rust edits after the conflict is resolved"
+
 # --- Step 7: Backwards-compat — if a role file exists with
 # subagent:<name>, guard still allows. This preserves the existing
 # escape hatch for harnesses that DO populate agent_type at

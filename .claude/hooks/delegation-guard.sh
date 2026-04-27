@@ -47,9 +47,10 @@ case "$rel_path" in
 esac
 
 # Merge conflict resolution is mechanical arbitration, not new Rust
-# implementation work. Let the root orchestrator edit Rust sources while
-# the worktree has unmerged paths.
-if [ -n "$(git -C "$HOOK_CWD" diff --name-only --diff-filter=U 2>/dev/null || true)" ]; then
+# implementation work. Limit the exception to the Rust file that is
+# currently unmerged so unrelated implementation files stay guarded.
+conflicted_paths="$(git -C "$HOOK_CWD" diff --name-only --diff-filter=U 2>/dev/null || true)"
+if printf '%s\n' "$conflicted_paths" | grep -qxF "$rel_path"; then
     hook_allow
 fi
 

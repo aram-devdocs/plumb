@@ -33,7 +33,7 @@ Built on `rmcp 0.2.x` with the `#[tool_router]` + `#[tool]` +
 
 ## Adding a new tool
 
-See `.agents/rules/mcp-tool-patterns.md`. Summary:
+See `.agents/rules/mcp-tool-patterns.md` for the handoff path. Summary:
 
 1. Add a `Deserialize + JsonSchema` struct for the tool's args.
 2. Add a `#[tool(description = "…")]` async method on `PlumbServer`.
