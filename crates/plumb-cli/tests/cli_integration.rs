@@ -363,3 +363,31 @@ fn lint_with_selector_matching_nothing_exits_input_error() -> Result<(), Box<dyn
         .stderr(contains("matched no elements"));
     Ok(())
 }
+
+/// End-to-end regression for #121: when `plumb lint plumb-fake://hello
+/// --format json --viewport mobile` runs against a multi-viewport
+/// config, the JSON `rect` field MUST carry the mobile dimensions, not
+/// the canned desktop ones. Before #125 this would emit `1280x800`
+/// even for the mobile target.
+#[test]
+fn lint_fake_url_json_rect_matches_requested_viewport() -> Result<(), Box<dyn std::error::Error>> {
+    let workspace = workspace_with_two_viewports()?;
+    Command::cargo_bin("plumb")?
+        .args([
+            "lint",
+            "plumb-fake://hello",
+            "--viewport",
+            "mobile",
+            "--format",
+            "json",
+        ])
+        .current_dir(workspace.path())
+        .assert()
+        .code(3)
+        .stdout(contains("\"viewport\": \"mobile\""))
+        .stdout(contains("\"width\": 375"))
+        .stdout(contains("\"height\": 812"))
+        .stdout(contains("\"width\": 1280").not())
+        .stdout(contains("\"height\": 800").not());
+    Ok(())
+}
