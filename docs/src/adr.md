@@ -7,6 +7,9 @@ ADRs capture the why behind non-obvious choices. The index lives at
 
 - [`0001-bootstrap-conventions`](https://github.com/aram-devdocs/plumb/blob/main/docs/adr/0001-bootstrap-conventions.md)
   — workspace layout, lint policy, release pipeline.
+- [`0002-chromium-version-range`](https://github.com/aram-devdocs/plumb/blob/main/docs/adr/0002-chromium-version-range.md)
+  — exact-pin replaced by `MIN_SUPPORTED_CHROMIUM_MAJOR..=MAX_SUPPORTED_CHROMIUM_MAJOR`,
+  with the contract for moving the upper bound.
 
 ## When to write an ADR
 
