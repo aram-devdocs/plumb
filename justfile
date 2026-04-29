@@ -37,8 +37,20 @@ setup:
     @echo "▸ Verifying Rust toolchain…"
     @rustc --version
     @cargo --version
-    @echo "▸ Verifying Chrome/Chromium requirement for Phase 3…"
-    bash scripts/check-phase3-gate-env.sh
+    @echo "▸ Checking Chrome/Chromium requirement for Phase 3…"
+    @if command -v google-chrome >/dev/null 2>&1; then \
+        echo "▸ Browser found: $$(command -v google-chrome)"; \
+    elif command -v google-chrome-stable >/dev/null 2>&1; then \
+        echo "▸ Browser found: $$(command -v google-chrome-stable)"; \
+    elif command -v chromium >/dev/null 2>&1; then \
+        echo "▸ Browser found: $$(command -v chromium)"; \
+    elif command -v chromium-browser >/dev/null 2>&1; then \
+        echo "▸ Browser found: $$(command -v chromium-browser)"; \
+    else \
+        echo "▸ Chrome/Chromium not found."; \
+        echo "  just setup is continuing, but just phase3-gate-env still requires Chrome/Chromium for the Phase 3 gate."; \
+        echo "  Install one of: google-chrome, google-chrome-stable, chromium, chromium-browser."; \
+    fi
     @echo "▸ Done."
 
 # Format the workspace.

@@ -12,7 +12,6 @@ From the first release onward, this file is maintained automatically by [`releas
 
 - Repository hooks now enforce the talking-stick workflow for agent-driven changes.
 - Initial workspace scaffold, tooling, and walking skeleton.
-- `requirements-dev.txt`, `scripts/check-phase3-gate-env.sh`, and `just phase3-gate-env` now codify the Python (`PyYAML`, `jsonschema`) and Chrome/Chromium prerequisites for the Phase 3 MCP gate.
 - PRD-style `[spacing]` and `[type]` config sections with schema validation.
 - `plumb mcp` `lint_url` now accepts an optional `detail` argument. The default `compact` mode preserves the existing MCP payload, while `detail: "full"` returns the canonical full JSON envelope and rejects structured payloads above 50 KB.
 - `plumb mcp` now exposes a `plumb://config` resource that returns the resolved `plumb.toml` for the server working directory as JSON.
