@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>plumb isolation fixture</title>
+  </head>
+  <body style="margin:0; padding:13px;">
+    <header style="font-size:18px; padding-top:8px;">Header</header>
+    <!--
+      Renders one of two markers based on whether origin-scoped state from
+      a prior visit is observable. With a fresh incognito BrowserContext
+      the read returns null, so we render `state-fresh`; if the context
+      were reused, the read would surface the value written by the
+      previous visit and render `state-leaked` instead.
+    -->
+    <main id="state-marker" style="display:flex; gap:16px;" data-marker="state-pending">
+      <div style="width:120px; height:80px; background-color:#3b82f7; border-radius:4px;">A</div>
+      <div style="width:120px; height:80px; background-color:#ef4444; border-radius:4px;">B</div>
+    </main>
+    <script>
+      (() => {
+        const marker = document.getElementById('state-marker');
+        let leaked = false;
+        try {
+          leaked = window.localStorage.getItem('plumb-isolation-marker') !== null;
+          window.localStorage.setItem('plumb-isolation-marker', 'set-by-prior-call');
+        } catch (_err) {
+          // localStorage may be unavailable on some configurations; fall
+          // through and render `state-fresh` so the test's positive
+          // assertion still has a chance to verify the isolation path.
+        }
+        marker.dataset.marker = leaked ? 'state-leaked' : 'state-fresh';
+      })();
+    </script>
+  </body>
+</html>
