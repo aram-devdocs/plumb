@@ -25,7 +25,9 @@ roadmap.
 
 ## Next
 
+- [Install](./install.md) — pick a release channel.
+- [Quick start](./quickstart.md) — five minutes from install to first violation.
+- [Configuration](./configuration.md) — `plumb.toml` reference.
 - [CLI](./cli.md) — commands, flags, exit codes.
 - [MCP server](./mcp.md) — JSON-RPC surface, tool list.
-- [Configuration](./configuration.md) — `plumb.toml` reference.
 - [Rules](./rules/overview.md) — the catalog.

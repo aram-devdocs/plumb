@@ -2,12 +2,17 @@
 
 [Introduction](./introduction.md)
 
+# Getting started
+
+- [Install](./install.md)
+- [Quick start](./quickstart.md)
+- [Install Chromium](./install-chromium.md)
+
 # Using Plumb
 
 - [CLI](./cli.md)
 - [MCP server](./mcp.md)
 - [Configuration](./configuration.md)
-- [Install Chromium](./install-chromium.md)
 
 # Rules
 
