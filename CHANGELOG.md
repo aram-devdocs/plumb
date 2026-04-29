@@ -12,6 +12,7 @@ From the first release onward, this file is maintained automatically by [`releas
 
 - v3 autonomous full-flow proof
 - v3 ACP-allowed proof
+- v3.1.1 ignoreOtherMentions proof
 - Initial workspace scaffold, tooling, and walking skeleton.
 - PRD-style `[spacing]` and `[type]` config sections with schema validation.
 - Rule `spacing/grid-conformance`: flags `margin-*`, `padding-*`, `gap`, `row-gap`, and `column-gap` values that aren't multiples of `spacing.base_unit`.
