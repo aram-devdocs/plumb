@@ -34,27 +34,14 @@ JetBrains: open Settings → Languages & Frameworks → Schemas and DTDs →
 JSON Schema Mappings, and add the URL above against the file pattern
 `plumb.toml`.
 
-If you prefer a JSON config file with the schema declared inline,
-emit the schema and reference it:
+The schema is for editor association only. Do not add a `$schema`
+field to `plumb.toml` or any JSON config file; Plumb rejects unknown
+configuration fields.
+
+To vendor the schema locally instead of using the docs URL:
 
 ```bash
 plumb schema > plumb.schema.json
-```
-
-```json
-{
-  "$schema": "./plumb.schema.json",
-  "viewports": { "desktop": { "width": 1280, "height": 800 } }
-}
-```
-
-The same URL is served from the docs site so you can skip the local
-file entirely:
-
-```json
-{
-  "$schema": "https://plumb.aramhammoudeh.com/schemas/plumb.toml.json"
-}
 ```
 
 ## Top-level shape
@@ -124,7 +111,7 @@ tokens = { caption = 12, body = 16, heading = 24 }
 | Field | Type | Default | Meaning |
 |-------|------|---------|---------|
 | `families` | `[string]` | `[]` | Allowed `font-family` values. Empty skips the family check. |
-| `weights` | `[u32]` | `[]` | Allowed `font-weight` numeric values. |
+| `weights` | `[u16]` | `[]` | Allowed `font-weight` numeric values. |
 | `scale` | `[u32]` | `[]` | Allowed `font-size` values in CSS pixels. |
 | `tokens` | `{string => u32}` | `{}` | Named font-size aliases. |
 
