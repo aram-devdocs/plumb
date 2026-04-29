@@ -39,8 +39,8 @@ use std::time::SystemTime;
 
 use plumb_cdp::{BrowserDriver, ChromiumDriver, ChromiumOptions, Target, is_fake_url};
 use plumb_config::ConfigError;
-use plumb_core::{Config, PlumbSnapshot, ViewportKey, register_builtin, run};
-use plumb_format::mcp_compact;
+use plumb_core::{Config, PlumbSnapshot, ViewportKey, Violation, register_builtin, run};
+use plumb_format::{json as full_json, mcp_compact};
 use rmcp::{
     RoleServer, ServerHandler, ServiceExt,
     handler::server::tool::schema_for_type,
@@ -81,6 +81,20 @@ pub struct EchoArgs {
 pub struct LintUrlArgs {
     /// URL to lint. Accepts `http(s)://` and `plumb-fake://` URLs.
     pub url: String,
+    /// Response detail level. Defaults to the compact MCP payload.
+    #[serde(default)]
+    pub detail: LintUrlDetail,
+}
+
+/// Structured response detail level for `lint_url`.
+#[derive(Debug, Clone, Copy, Default, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum LintUrlDetail {
+    /// Current token-efficient MCP payload.
+    #[default]
+    Compact,
+    /// Canonical full JSON envelope with complete per-violation fields.
+    Full,
 }
 
 /// Arguments to the `explain_rule` tool.
@@ -150,10 +164,7 @@ impl PlumbServer {
         };
         let config = Config::default();
         let violations = run(&snapshot, &config);
-        let (text, structured) = mcp_compact(&violations);
-        let mut result = CallToolResult::success(vec![Content::text(text)]);
-        result.structured_content = Some(structured);
-        Ok(result)
+        build_lint_url_result(&violations, args.detail)
     }
 
     /// Look up the canonical documentation for a built-in rule.
@@ -360,6 +371,57 @@ impl PlumbServer {
     }
 }
 
+const LINT_URL_FULL_RESPONSE_CAP_BYTES: usize = 50 * 1024;
+
+fn build_lint_url_result(
+    violations: &[Violation],
+    detail: LintUrlDetail,
+) -> Result<CallToolResult, ErrorData> {
+    let (text, compact_structured) = mcp_compact(violations);
+    let structured = match detail {
+        LintUrlDetail::Compact => compact_structured,
+        LintUrlDetail::Full => build_full_lint_payload(violations)?,
+    };
+
+    let mut result = CallToolResult::success(vec![Content::text(text)]);
+    result.structured_content = Some(structured);
+    Ok(result)
+}
+
+fn build_full_lint_payload(violations: &[Violation]) -> Result<Value, ErrorData> {
+    let payload = full_json(violations).map_err(|err| {
+        ErrorData::internal_error(format!("serialize full lint payload: {err}"), None)
+    })?;
+    let structured: Value = serde_json::from_str(&payload).map_err(|err| {
+        ErrorData::internal_error(format!("parse full lint payload: {err}"), None)
+    })?;
+    enforce_response_cap(
+        &structured,
+        LINT_URL_FULL_RESPONSE_CAP_BYTES,
+        "lint_url detail=full payload exceeds 50 KB response cap",
+    )?;
+    Ok(structured)
+}
+
+fn enforce_response_cap(
+    structured: &Value,
+    limit_bytes: usize,
+    error_message: &'static str,
+) -> Result<(), ErrorData> {
+    let payload_len = serde_json::to_vec(structured)
+        .map_err(|err| {
+            ErrorData::internal_error(format!("serialize lint payload size: {err}"), None)
+        })?
+        .len();
+    if payload_len > limit_bytes {
+        return Err(ErrorData::invalid_params(
+            format!("{error_message} ({payload_len} bytes)"),
+            None,
+        ));
+    }
+    Ok(())
+}
+
 impl ServerHandler for PlumbServer {
     fn get_info(&self) -> ServerInfo {
         let mut info = ServerInfo::default();
@@ -492,4 +554,75 @@ pub async fn run_stdio() -> Result<(), McpError> {
         .await
         .map_err(|e| McpError::Service(e.to_string()))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use plumb_core::Severity;
+    use rmcp::model::ErrorCode;
+
+    use super::*;
+
+    fn violation_with_message(message_len: usize, dom_order: u64) -> Violation {
+        Violation {
+            rule_id: "spacing/grid-conformance".to_owned(),
+            severity: Severity::Warning,
+            message: "x".repeat(message_len),
+            selector: "html > body".to_owned(),
+            viewport: ViewportKey::new("desktop"),
+            rect: None,
+            dom_order,
+            fix: None,
+            doc_url: "https://plumb.aramhammoudeh.com/rules/spacing-grid-conformance".to_owned(),
+            metadata: Default::default(),
+        }
+    }
+
+    #[test]
+    fn full_lint_payload_includes_json_envelope() {
+        let structured =
+            build_full_lint_payload(&[violation_with_message(32, 1)]).expect("full payload");
+
+        assert_eq!(
+            structured["plumb_version"].as_str(),
+            Some(env!("CARGO_PKG_VERSION"))
+        );
+        assert_eq!(structured["summary"]["total"].as_u64(), Some(1));
+        assert!(
+            structured["run_id"]
+                .as_str()
+                .expect("run_id")
+                .starts_with("sha256:")
+        );
+    }
+
+    #[test]
+    fn full_lint_payload_rejects_payloads_above_cap() {
+        let violations: Vec<Violation> = (0_u64..32)
+            .map(|dom_order| violation_with_message(2_000, dom_order))
+            .collect();
+
+        let err = build_full_lint_payload(&violations).expect_err("payload must exceed 50 KB");
+        assert!(
+            err.to_string()
+                .contains("detail=full payload exceeds 50 KB response cap"),
+            "unexpected error: {err:?}"
+        );
+    }
+
+    #[test]
+    fn build_lint_url_result_rejects_full_payloads_above_cap() {
+        let violations: Vec<Violation> = (0_u64..32)
+            .map(|dom_order| violation_with_message(2_000, dom_order))
+            .collect();
+
+        let err = build_lint_url_result(&violations, LintUrlDetail::Full)
+            .expect_err("full mode must reject payloads above the response cap");
+        assert_eq!(err.code, ErrorCode::INVALID_PARAMS);
+        assert!(
+            err.to_string()
+                .contains("detail=full payload exceeds 50 KB response cap"),
+            "unexpected error: {err:?}"
+        );
+    }
 }
