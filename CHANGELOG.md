@@ -13,6 +13,7 @@ From the first release onward, this file is maintained automatically by [`releas
 - Repository hooks now enforce the talking-stick workflow for agent-driven changes.
 - Initial workspace scaffold, tooling, and walking skeleton.
 - PRD-style `[spacing]` and `[type]` config sections with schema validation.
+- `plumb mcp` `lint_url` now accepts an optional `detail` argument. The default `compact` mode preserves the existing MCP payload, while `detail: "full"` returns the canonical full JSON envelope and rejects structured payloads above 50 KB.
 - Rule `spacing/grid-conformance`: flags `margin-*`, `padding-*`, `gap`, `row-gap`, and `column-gap` values that aren't multiples of `spacing.base_unit`.
 - Rule `spacing/scale-conformance`: flags the same property set when values aren't members of `spacing.scale`.
 - Rule `type/scale-conformance`: flags `font-size` values that aren't members of `type.scale`.

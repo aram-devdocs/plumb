@@ -86,6 +86,20 @@ fn initialized_notification() -> Value {
     })
 }
 
+fn lint_url_request(id: u32, url: &str, detail: Option<&str>) -> Value {
+    let mut arguments = json!({ "url": url });
+    if let Some(detail) = detail {
+        arguments["detail"] = Value::String(detail.to_owned());
+    }
+
+    json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "method": "tools/call",
+        "params": { "name": "lint_url", "arguments": arguments }
+    })
+}
+
 #[test]
 fn mcp_initialize_and_tools_list() {
     let tools_list = json!({
@@ -139,6 +153,26 @@ fn mcp_initialize_and_tools_list() {
         lint_url["inputSchema"]["properties"]["url"]["type"],
         "string"
     );
+    assert!(
+        lint_url["inputSchema"]["properties"]["detail"].is_object(),
+        "lint_url detail property missing from schema: {lint_url:?}"
+    );
+    assert_eq!(
+        lint_url["inputSchema"]["required"].as_array(),
+        Some(&vec![Value::String("url".to_owned())]),
+        "lint_url must require only url: {lint_url:?}"
+    );
+    let detail_variants: Vec<&str> = lint_url["inputSchema"]["$defs"]["LintUrlDetail"]["oneOf"]
+        .as_array()
+        .expect("detail oneOf variants")
+        .iter()
+        .map(|variant| variant["const"].as_str().expect("detail variant const"))
+        .collect();
+    assert_eq!(
+        detail_variants,
+        vec!["compact", "full"],
+        "lint_url detail enum must expose compact/full: {lint_url:?}"
+    );
 
     let get_config = tools
         .iter()
@@ -173,10 +207,7 @@ fn mcp_echo_round_trip() {
 
 #[test]
 fn mcp_lint_url_returns_structured_content() {
-    let lint_url = json!({
-        "jsonrpc": "2.0", "id": 2, "method": "tools/call",
-        "params": { "name": "lint_url", "arguments": { "url": "plumb-fake://hello" } }
-    });
+    let lint_url = lint_url_request(2, "plumb-fake://hello", None);
     let responses = send_and_read(vec![init_request(1), initialized_notification(), lint_url]);
     let lint_resp = responses
         .iter()
@@ -206,6 +237,92 @@ fn mcp_lint_url_returns_structured_content() {
     assert_eq!(
         structured["violations"][0]["rule_id"].as_str(),
         Some("spacing/grid-conformance")
+    );
+}
+
+#[test]
+fn mcp_lint_url_explicit_compact_matches_default() {
+    let responses = send_and_read(vec![
+        init_request(1),
+        initialized_notification(),
+        lint_url_request(2, "plumb-fake://hello", None),
+        lint_url_request(3, "plumb-fake://hello", Some("compact")),
+    ]);
+    let default_resp = responses
+        .iter()
+        .find(|r| r["id"] == 2)
+        .unwrap_or_else(|| panic!("default lint_url response missing: got {responses:?}"));
+    let compact_resp = responses
+        .iter()
+        .find(|r| r["id"] == 3)
+        .unwrap_or_else(|| panic!("compact lint_url response missing: got {responses:?}"));
+
+    assert_eq!(default_resp["result"], compact_resp["result"]);
+}
+
+#[test]
+fn mcp_lint_url_full_returns_json_envelope() {
+    let responses = send_and_read(vec![
+        init_request(1),
+        initialized_notification(),
+        lint_url_request(2, "plumb-fake://hello", Some("full")),
+    ]);
+    let lint_resp = responses
+        .iter()
+        .find(|r| r["id"] == 2)
+        .unwrap_or_else(|| panic!("full lint_url response missing: got {responses:?}"));
+    let result = &lint_resp["result"];
+
+    assert_eq!(result["isError"].as_bool(), Some(false));
+    assert!(
+        result["content"][0]["text"]
+            .as_str()
+            .expect("text content")
+            .contains("warning spacing/grid-conformance @ html > body [desktop]")
+    );
+
+    let structured = result["structuredContent"]
+        .as_object()
+        .expect("structuredContent object");
+    assert_eq!(
+        structured["plumb_version"].as_str(),
+        Some(env!("CARGO_PKG_VERSION"))
+    );
+    assert!(
+        structured["run_id"]
+            .as_str()
+            .expect("run_id string")
+            .starts_with("sha256:")
+    );
+    assert_eq!(structured["summary"]["total"].as_u64(), Some(1));
+    assert_eq!(
+        structured["violations"][0]["doc_url"].as_str(),
+        Some("https://plumb.aramhammoudeh.com/rules/spacing-grid-conformance")
+    );
+}
+
+#[test]
+fn mcp_lint_url_invalid_detail_returns_jsonrpc_error() {
+    let responses = send_and_read(vec![
+        init_request(1),
+        initialized_notification(),
+        lint_url_request(2, "plumb-fake://hello", Some("bogus")),
+    ]);
+    let lint_resp = responses
+        .iter()
+        .find(|r| r["id"] == 2)
+        .unwrap_or_else(|| panic!("invalid-detail response missing: got {responses:?}"));
+    let error = lint_resp["error"].as_object().expect("error object");
+
+    assert_eq!(error["code"].as_i64(), Some(-32602));
+    let message = error["message"].as_str().expect("error message");
+    assert!(
+        message.contains("failed to deserialize tool arguments"),
+        "unexpected error message: {message}"
+    );
+    assert!(
+        message.contains("unknown variant `bogus`, expected `compact` or `full`"),
+        "unexpected error message: {message}"
     );
 }
 
