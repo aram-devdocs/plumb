@@ -13,14 +13,32 @@ set dotenv-load := false
 default:
     @just --list --unsorted
 
-# One-time developer setup. Installs git hooks, verifies toolchain and deps.
+# One-time developer setup. Installs git hooks and Python deps, then verifies
+# the toolchain and phase-3 gate environment.
 setup:
     @echo "▸ Installing git hooks via lefthook…"
     @command -v lefthook >/dev/null 2>&1 || { echo "✖ lefthook not installed. See CONTRIBUTING.md."; exit 1; }
     lefthook install
+    @echo "▸ Installing Python dev dependencies from requirements-dev.txt…"
+    @command -v python3 >/dev/null 2>&1 || { echo "✖ python3 not installed. See requirements-dev.txt."; exit 1; }
+    @python3 -m pip --version >/dev/null 2>&1 || { echo "✖ python3 -m pip is unavailable. Install pip for your Python 3 interpreter."; exit 1; }
+    @if [ -n "${VIRTUAL_ENV:-}" ]; then \
+        python3 -m pip install --requirement requirements-dev.txt; \
+    elif python3 -m pip install --dry-run --user --requirement requirements-dev.txt >/dev/null 2>&1; then \
+        python3 -m pip install --user --requirement requirements-dev.txt; \
+    else \
+        echo "✖ Python dev dependencies were not installed."; \
+        echo "  This interpreter does not allow direct pip installs."; \
+        echo "  Create a virtual environment and rerun just setup:"; \
+        echo "    python3 -m venv .venv && . .venv/bin/activate"; \
+        echo "  Or install distro packages such as python3-yaml, python3-jsonschema, and python3-venv."; \
+        exit 1; \
+    fi
     @echo "▸ Verifying Rust toolchain…"
     @rustc --version
     @cargo --version
+    @echo "▸ Verifying Chrome/Chromium requirement for Phase 3…"
+    bash scripts/check-phase3-gate-env.sh
     @echo "▸ Done."
 
 # Format the workspace.
@@ -36,6 +54,10 @@ check: check-agents
 # symlinks + no drift phrases).
 check-agents:
     bash scripts/check-agents-md.sh
+
+# Verify the local environment required by the Phase 3 gate.
+phase3-gate-env:
+    bash scripts/check-phase3-gate-env.sh
 
 # Full test run.
 test:
