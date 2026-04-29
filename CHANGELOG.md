@@ -10,6 +10,7 @@ From the first release onward, this file is maintained automatically by [`releas
 
 ### Added
 
+- v3 autonomous full-flow proof
 - v3 ACP-allowed proof
 - Initial workspace scaffold, tooling, and walking skeleton.
 - PRD-style `[spacing]` and `[type]` config sections with schema validation.
