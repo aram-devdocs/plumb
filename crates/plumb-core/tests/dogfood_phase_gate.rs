@@ -15,11 +15,21 @@ use plumb_core::report::Rect;
 use plumb_core::snapshot::SnapshotNode;
 use plumb_core::{Config, PlumbSnapshot, ViewportKey, run};
 
+#[allow(clippy::too_many_lines)]
 fn dogfood_snapshot() -> PlumbSnapshot {
     let nodes = vec![
         node(0, "html", "html", None, None, &[], &[], &[1]),
         node(1, "html > body", "body", Some(0), None, &[], &[], &[]),
-        node(10, "#spacing-grid", "section", Some(1), None, &[], &[], &[11]),
+        node(
+            10,
+            "#spacing-grid",
+            "section",
+            Some(1),
+            None,
+            &[],
+            &[],
+            &[11],
+        ),
         node(
             11,
             "#spacing-grid > .off-grid",
@@ -30,7 +40,16 @@ fn dogfood_snapshot() -> PlumbSnapshot {
             &[],
             &[],
         ),
-        node(20, "#spacing-scale", "section", Some(1), None, &[], &[], &[21]),
+        node(
+            20,
+            "#spacing-scale",
+            "section",
+            Some(1),
+            None,
+            &[],
+            &[],
+            &[21],
+        ),
         node(
             21,
             "#spacing-scale > .off-scale",
@@ -85,7 +104,16 @@ fn dogfood_snapshot() -> PlumbSnapshot {
             &[],
             &[],
         ),
-        node(70, "#siblings", "section", Some(1), None, &[], &[], &[71, 72, 73]),
+        node(
+            70,
+            "#siblings",
+            "section",
+            Some(1),
+            None,
+            &[],
+            &[],
+            &[71, 72, 73],
+        ),
         node(
             71,
             "#siblings > .card:nth-child(1)",
@@ -137,7 +165,16 @@ fn dogfood_snapshot() -> PlumbSnapshot {
             &[],
             &[],
         ),
-        node(90, "#controls", "section", Some(1), None, &[], &[], &[91, 92, 93]),
+        node(
+            90,
+            "#controls",
+            "section",
+            Some(1),
+            None,
+            &[],
+            &[],
+            &[91, 92, 93],
+        ),
         node(
             91,
             "#controls > .spacing-clean",
@@ -164,10 +201,7 @@ fn dogfood_snapshot() -> PlumbSnapshot {
             "div",
             Some(90),
             Some(rect(240, 0, 100, 40)),
-            &[
-                ("border-top-left-radius", "4px"),
-                ("color", "#0b7285"),
-            ],
+            &[("border-top-left-radius", "4px"), ("color", "#0b7285")],
             &[],
             &[],
         ),
@@ -259,13 +293,13 @@ fn node(
 #[test]
 fn phase_2_dogfood_fixture_exercises_all_mvp_rules_without_extra_findings() {
     let violations = run(&dogfood_snapshot(), &dogfood_config());
-    let by_rule = violations.into_iter().fold(
-        BTreeMap::<String, usize>::new(),
-        |mut counts, violation| {
-            *counts.entry(violation.rule_id).or_default() += 1;
-            counts
-        },
-    );
+    let by_rule =
+        violations
+            .into_iter()
+            .fold(BTreeMap::<String, usize>::new(), |mut counts, violation| {
+                *counts.entry(violation.rule_id).or_default() += 1;
+                counts
+            });
 
     let expected = BTreeMap::from([
         ("a11y/touch-target".to_owned(), 1),
