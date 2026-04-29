@@ -37,7 +37,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
-use plumb_cdp::{BrowserDriver, ChromiumDriver, ChromiumOptions, Target, is_fake_url};
+use plumb_cdp::{ChromiumOptions, PersistentBrowser, Target, is_fake_url};
 use plumb_config::ConfigError;
 use plumb_core::{Config, PlumbSnapshot, ViewportKey, register_builtin, run};
 use plumb_format::mcp_compact;
@@ -56,6 +56,7 @@ use rmcp::{
 use serde::Deserialize;
 use serde_json::{Value, json};
 use thiserror::Error;
+use tokio::sync::OnceCell;
 
 /// MCP server errors.
 #[derive(Debug, Error)]
@@ -104,10 +105,16 @@ pub struct GetConfigArgs {
     pub working_dir: String,
 }
 
-/// The Plumb MCP server. Cheap to construct; `Clone` shares the memo cache.
+/// The Plumb MCP server.
+///
+/// Cheap to construct; `Clone` shares the memo cache and the persistent
+/// browser handle. The browser is warmed lazily on the first non-fake
+/// `lint_url` call and reused for the rest of the session — see
+/// [`PersistentBrowser`] for the per-call incognito-context invariant.
 #[derive(Clone, Default)]
 pub struct PlumbServer {
     config_cache: Arc<Mutex<HashMap<PathBuf, ConfigCacheEntry>>>,
+    browser: Arc<OnceCell<PersistentBrowser>>,
 }
 
 #[derive(Clone)]
@@ -127,7 +134,22 @@ impl PlumbServer {
         Ok(CallToolResult::success(vec![Content::text(args.message)]))
     }
 
-    async fn lint_url(&self, args: LintUrlArgs) -> Result<CallToolResult, ErrorData> {
+    /// Lint a URL and return aggregated violations.
+    ///
+    /// `plumb-fake://` URLs are served from [`PlumbSnapshot::canned`]
+    /// without ever spinning up a browser. The first non-fake call
+    /// warms a single persistent Chromium process via
+    /// [`PersistentBrowser::launch`]; subsequent calls reuse the same
+    /// process and run inside fresh incognito contexts so that state
+    /// from one URL never leaks into another.
+    ///
+    /// # Errors
+    ///
+    /// Driver failures (Chromium not found, version out of range,
+    /// CDP error, malformed snapshot) are returned as a successful
+    /// JSON-RPC response with `isError = true` and a single text
+    /// content block — never as a JSON-RPC error.
+    pub async fn lint_url(&self, args: LintUrlArgs) -> Result<CallToolResult, ErrorData> {
         let snapshot = if is_fake_url(&args.url) {
             PlumbSnapshot::canned()
         } else {
@@ -138,9 +160,19 @@ impl PlumbServer {
                 height: 800,
                 device_pixel_ratio: 1.0,
             };
-            let driver = ChromiumDriver::new(ChromiumOptions::default());
-            match driver.snapshot(target).await {
-                Ok(snap) => snap,
+            match self
+                .browser
+                .get_or_try_init(|| PersistentBrowser::launch(ChromiumOptions::default()))
+                .await
+            {
+                Ok(browser) => match browser.snapshot(target).await {
+                    Ok(snap) => snap,
+                    Err(err) => {
+                        return Ok(CallToolResult::error(vec![Content::text(format!(
+                            "lint_url failed: {err}"
+                        ))]));
+                    }
+                },
                 Err(err) => {
                     return Ok(CallToolResult::error(vec![Content::text(format!(
                         "lint_url failed: {err}"
@@ -154,6 +186,26 @@ impl PlumbServer {
         let mut result = CallToolResult::success(vec![Content::text(text)]);
         result.structured_content = Some(structured);
         Ok(result)
+    }
+
+    /// Gracefully shut down the persistent browser, if any.
+    ///
+    /// Idempotent: when no browser was warmed (every call so far
+    /// targeted `plumb-fake://`, or `shutdown` has already run), this
+    /// is a no-op and returns `Ok(())`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`McpError::Service`] if the underlying
+    /// [`PersistentBrowser::shutdown`] call surfaces an error.
+    pub async fn shutdown(&self) -> Result<(), McpError> {
+        if let Some(browser) = self.browser.get() {
+            browser
+                .shutdown()
+                .await
+                .map_err(|err| McpError::Service(err.to_string()))?;
+        }
+        Ok(())
     }
 
     /// Look up the canonical documentation for a built-in rule.
@@ -477,19 +529,34 @@ fn map_config_error(err: &ConfigError) -> ErrorData {
 
 /// Run the MCP server on stdin/stdout until EOF.
 ///
+/// On clean exit (EOF on stdin) the persistent browser, if it was
+/// warmed during the session, is shut down gracefully via
+/// [`PlumbServer::shutdown`]. Service-loop errors take priority over
+/// shutdown errors so the original cause surfaces to the caller.
+///
 /// # Errors
 ///
-/// Returns [`McpError::Service`] if rmcp's service loop fails or [`McpError::Io`]
+/// Returns [`McpError::Service`] if rmcp's service loop fails or
+/// [`PlumbServer::shutdown`] surfaces an error, and [`McpError::Io`]
 /// on transport errors.
 pub async fn run_stdio() -> Result<(), McpError> {
     let handler = PlumbServer::new();
     let service = handler
+        .clone()
         .serve(stdio())
         .await
         .map_err(|e| McpError::Service(e.to_string()))?;
-    service
+    let service_result = service
         .waiting()
         .await
-        .map_err(|e| McpError::Service(e.to_string()))?;
+        .map_err(|e| McpError::Service(e.to_string()));
+
+    let shutdown_result = handler.shutdown().await;
+
+    // Surface the service-loop error first so the original cause
+    // wins; only report a shutdown failure when the service itself
+    // returned cleanly.
+    service_result?;
+    shutdown_result?;
     Ok(())
 }

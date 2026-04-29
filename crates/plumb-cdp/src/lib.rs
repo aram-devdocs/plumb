@@ -34,6 +34,13 @@
 //! over `snapshot_all` for callers that only want a single target.
 //! The `plumb-fake://` URL scheme in `plumb-cli` is handled by
 //! [`FakeDriver`] from this crate's `test-fake` wiring.
+//!
+//! [`PersistentBrowser`] is the long-lived counterpart for callers
+//! that lint many URLs in one process (the MCP server). It launches
+//! Chromium once, validates the version, and gives each
+//! [`PersistentBrowser::snapshot`] call a fresh incognito
+//! `BrowserContext` so cookies and localStorage from call N do not
+//! leak into call N+1.
 
 #![deny(unsafe_op_in_unsafe_fn)]
 #![deny(missing_docs)]
@@ -45,13 +52,18 @@ use plumb_core::snapshot::SnapshotNode;
 use plumb_core::{PlumbSnapshot, ViewportKey};
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 use chromiumoxide::Page;
+use chromiumoxide::cdp::browser_protocol::browser::CloseParams as BrowserCloseParams;
 use chromiumoxide::cdp::browser_protocol::dom_snapshot::{
     CaptureSnapshotParams, CaptureSnapshotReturns, DocumentSnapshot,
 };
 use chromiumoxide::cdp::browser_protocol::emulation::SetDeviceMetricsOverrideParams;
 use chromiumoxide::cdp::browser_protocol::page::AddScriptToEvaluateOnNewDocumentParams;
+use chromiumoxide::cdp::browser_protocol::target::{
+    CreateBrowserContextParams, CreateTargetParams,
+};
 use chromiumoxide::detection::DetectionOptions;
 use chromiumoxide::{Browser, BrowserConfig, Handler};
 use futures_util::StreamExt;
@@ -317,8 +329,17 @@ async fn capture_target(browser: &Browser, target: &Target) -> Result<PlumbSnaps
         .await
         .map_err(driver_error)?;
 
-    apply_viewport(&page, target).await?;
-    inject_animation_killer(&page).await?;
+    capture_on_page(&page, target).await
+}
+
+/// Apply viewport / animation hooks, navigate, capture a DOM snapshot.
+///
+/// Shared between `ChromiumDriver::capture_target` and
+/// [`PersistentBrowser::snapshot`] so that the per-target work is
+/// expressed in exactly one place.
+async fn capture_on_page(page: &Page, target: &Target) -> Result<PlumbSnapshot, CdpError> {
+    apply_viewport(page, target).await?;
+    inject_animation_killer(page).await?;
 
     page.goto(target.url.as_str()).await.map_err(driver_error)?;
     page.wait_for_navigation().await.map_err(driver_error)?;
@@ -336,6 +357,215 @@ async fn capture_target(browser: &Browser, target: &Target) -> Result<PlumbSnaps
 
     let response = page.execute(params).await.map_err(driver_error)?;
     flatten_snapshot(target, &response.result)
+}
+
+/// A persistent Chromium browser kept warm across multiple snapshots.
+///
+/// Each [`PersistentBrowser::snapshot`] call creates a fresh
+/// **incognito browser context** (`Target.createBrowserContext`),
+/// opens a page in it, captures the snapshot, and disposes the
+/// context — so cookies, localStorage, and any other origin-scoped
+/// state from call N never leak into call N+1. The underlying Chromium
+/// process stays alive until [`PersistentBrowser::shutdown`] is called
+/// or the value is dropped.
+///
+/// Cheap to clone — clones share the same underlying browser via
+/// [`Arc`]. Implements [`BrowserDriver`].
+#[derive(Clone, Debug)]
+pub struct PersistentBrowser {
+    inner: Arc<PersistentBrowserInner>,
+}
+
+#[derive(Debug)]
+struct PersistentBrowserInner {
+    browser: Browser,
+    handler_task: Mutex<Option<JoinHandle<()>>>,
+}
+
+impl PersistentBrowser {
+    /// Launch Chromium and validate its version.
+    ///
+    /// Per-call viewport and DPR are applied via
+    /// `Emulation.setDeviceMetricsOverride` inside [`Self::snapshot`],
+    /// so the launch-time defaults here are placeholders sized to a
+    /// 1280×800 desktop window.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CdpError::ChromiumNotFound`] when no Chromium binary
+    /// can be located, [`CdpError::UnsupportedChromium`] when the
+    /// detected Chromium reports a major version outside the supported
+    /// range, or [`CdpError::Driver`] for any other launch failure.
+    pub async fn launch(options: ChromiumOptions) -> Result<Self, CdpError> {
+        let config = persistent_browser_config(&options)?;
+        let (browser, handler) = Browser::launch(config).await.map_err(map_launch_error)?;
+        let handler_task = poll_handler(handler);
+
+        // Validate the version before stashing the browser in `Arc` —
+        // on failure, dropping the browser here causes
+        // `Browser::drop` to reap the child synchronously.
+        if let Err(err) = validate_browser_version(&browser).await {
+            handler_task.abort();
+            drop(browser);
+            return Err(err);
+        }
+
+        Ok(Self {
+            inner: Arc::new(PersistentBrowserInner {
+                browser,
+                handler_task: Mutex::new(Some(handler_task)),
+            }),
+        })
+    }
+
+    /// Snapshot a single target inside a fresh incognito browser context.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same error variants as [`ChromiumDriver::snapshot`]:
+    /// [`CdpError::Driver`] for CDP failures and
+    /// [`CdpError::MalformedSnapshot`] when the response cannot be
+    /// flattened.
+    pub async fn snapshot(&self, target: Target) -> Result<PlumbSnapshot, CdpError> {
+        let ctx_id = self
+            .inner
+            .browser
+            .create_browser_context(CreateBrowserContextParams::default())
+            .await
+            .map_err(driver_error)?;
+
+        let result: Result<PlumbSnapshot, CdpError> = async {
+            let create_params = CreateTargetParams {
+                url: "about:blank".to_string(),
+                left: None,
+                top: None,
+                width: None,
+                height: None,
+                window_state: None,
+                browser_context_id: Some(ctx_id.clone()),
+                enable_begin_frame_control: None,
+                new_window: None,
+                background: None,
+                for_tab: None,
+                hidden: None,
+            };
+            let page = self
+                .inner
+                .browser
+                .new_page(create_params)
+                .await
+                .map_err(driver_error)?;
+            capture_on_page(&page, &target).await
+        }
+        .await;
+
+        // Always dispose the incognito context, even on failure. Mirror
+        // the swallow-and-log pattern from `ChromiumSession::shutdown`
+        // so cleanup errors never mask the underlying snapshot result.
+        if let Err(err) = self
+            .inner
+            .browser
+            .dispose_browser_context(ctx_id)
+            .await
+            .map_err(driver_error)
+        {
+            tracing::debug!(error = %err, "failed to dispose incognito browser context");
+        }
+
+        result
+    }
+
+    /// Gracefully close the underlying browser and abort the handler
+    /// task.
+    ///
+    /// Idempotent — safe to call more than once. The first call sends
+    /// `Browser.close` over CDP and aborts the handler task; subsequent
+    /// calls observe the absent handle and return `Ok(())`.
+    ///
+    /// # Errors
+    ///
+    /// Currently never returns an error: cleanup failures are logged
+    /// at `debug` and swallowed so callers can use `shutdown` as a
+    /// best-effort hook on MCP exit. The signature retains `Result`
+    /// for forward-compatibility.
+    pub async fn shutdown(&self) -> Result<(), CdpError> {
+        let handler_task = match self.inner.handler_task.lock() {
+            Ok(mut guard) => guard.take(),
+            Err(poisoned) => poisoned.into_inner().take(),
+        };
+
+        if handler_task.is_none() {
+            // Already shut down — preserve idempotence.
+            return Ok(());
+        }
+
+        if let Err(err) = self
+            .inner
+            .browser
+            .execute(BrowserCloseParams::default())
+            .await
+        {
+            tracing::debug!(error = %err, "failed to send Browser.close on shutdown");
+        }
+
+        if let Some(task) = handler_task {
+            task.abort();
+        }
+
+        Ok(())
+    }
+}
+
+impl Drop for PersistentBrowserInner {
+    fn drop(&mut self) {
+        // Best-effort sync abort of the handler task. Sending CDP
+        // commands here would require a runtime; `Browser::drop`
+        // already reaps the child synchronously, so we only stop the
+        // event loop.
+        let task = match self.handler_task.lock() {
+            Ok(mut guard) => guard.take(),
+            Err(poisoned) => poisoned.into_inner().take(),
+        };
+        if let Some(task) = task {
+            task.abort();
+        }
+    }
+}
+
+impl BrowserDriver for PersistentBrowser {
+    async fn snapshot(&self, target: Target) -> Result<PlumbSnapshot, CdpError> {
+        Self::snapshot(self, target).await
+    }
+}
+
+fn persistent_browser_config(options: &ChromiumOptions) -> Result<BrowserConfig, CdpError> {
+    // PRD §16: pinning launch args removes a class of nondeterminism
+    // (scrollbar overlay differences across DPRs, OS-level scaling).
+    // `PersistentBrowser` does not fix a launch-time DPR — every
+    // snapshot calls `Emulation.setDeviceMetricsOverride` to drive
+    // both viewport and DPR per-call.
+    let builder = BrowserConfig::builder()
+        .chrome_detection(DetectionOptions {
+            msedge: false,
+            unstable: false,
+        })
+        .window_size(1280, 800)
+        .arg("--hide-scrollbars");
+
+    let builder = if let Some(path) = &options.executable_path {
+        ensure_executable_path(path)?;
+        builder.chrome_executable(path)
+    } else {
+        builder
+    };
+
+    let builder = if let Some(profile) = &options.user_data_dir {
+        builder.user_data_dir(profile)
+    } else {
+        builder
+    };
+
+    builder.build().map_err(|_| chromium_not_found())
 }
 
 async fn apply_viewport(page: &Page, target: &Target) -> Result<(), CdpError> {

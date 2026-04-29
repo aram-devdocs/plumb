@@ -10,7 +10,7 @@
 use std::collections::BTreeSet;
 
 use plumb_core::register_builtin;
-use plumb_mcp::{ExplainRuleArgs, PlumbServer, documented_rule_ids};
+use plumb_mcp::{ExplainRuleArgs, LintUrlArgs, PlumbServer, documented_rule_ids};
 use rmcp::ServerHandler;
 use rmcp::model::ErrorCode;
 
@@ -181,4 +181,64 @@ fn list_rules_returns_every_builtin_rule_sorted() {
     );
     let summary = first["summary"].as_str().expect("summary string");
     assert!(!summary.is_empty(), "summary must not be empty");
+}
+
+/// `plumb-fake://` URLs MUST be served from the canned snapshot
+/// without warming Chromium. We assert this behaviorally: on hosts
+/// without Chromium, a fake-url `lint_url` succeeds, then `shutdown`
+/// is a no-op (no browser was launched, so there is nothing to close).
+#[tokio::test]
+async fn fake_url_lint_does_not_warm_chromium_and_shutdown_is_noop() {
+    let server = PlumbServer::new();
+    let result = server
+        .lint_url(LintUrlArgs {
+            url: "plumb-fake://hello".to_owned(),
+        })
+        .await
+        .expect("fake-url lint must succeed without a browser");
+
+    assert!(
+        !result.is_error.unwrap_or(false),
+        "fake-url lint must not surface a driver error"
+    );
+    let structured = result
+        .structured_content
+        .expect("fake-url lint must return structured content");
+    assert!(
+        structured.get("violations").is_some() && structured.get("counts").is_some(),
+        "structured payload follows the mcp_compact shape (violations + counts)"
+    );
+
+    server
+        .shutdown()
+        .await
+        .expect("shutdown must be a no-op when no browser was warmed");
+    server
+        .shutdown()
+        .await
+        .expect("shutdown must remain idempotent across repeated calls");
+}
+
+/// Ten back-to-back fake-url calls all succeed and never trip the
+/// browser-warm path — a regression guard against a future refactor
+/// that accidentally routes the fake scheme through Chromium.
+#[tokio::test]
+async fn many_fake_url_lints_share_one_server_without_warming_chromium() {
+    let server = PlumbServer::new();
+    for _ in 0..10 {
+        let result = server
+            .lint_url(LintUrlArgs {
+                url: "plumb-fake://hello".to_owned(),
+            })
+            .await
+            .expect("fake-url lint must succeed without a browser");
+        assert!(
+            !result.is_error.unwrap_or(false),
+            "fake-url lint must not surface a driver error"
+        );
+    }
+    server
+        .shutdown()
+        .await
+        .expect("shutdown must be a no-op after only fake-url calls");
 }
