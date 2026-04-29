@@ -1,5 +1,8 @@
 # Phase 3 gate
 
+Internal runbook only. This file is not part of the mdBook site, and
+`just phase3-gate-env` is a manual preflight check rather than a CI job.
+
 This gate closes Phase 3. Do not mark the phase done until every item
 below is captured in the PR or issue thread.
 

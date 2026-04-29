@@ -13,9 +13,9 @@ set dotenv-load := false
 default:
     @just --list --unsorted
 
-# One-time developer setup. Installs git hooks and Python deps, then verifies
-# the base Rust toolchain. Run `just phase3-gate-env` for the full Phase 3
-# browser gate.
+# One-time developer setup. Installs git hooks and attempts the optional
+# Phase 3 Python deps, then verifies the base Rust toolchain. Run
+# `just phase3-gate-env` for the manual Phase 3 environment preflight.
 setup:
     @echo "▸ Installing git hooks via lefthook…"
     @command -v lefthook >/dev/null 2>&1 || { echo "✖ lefthook not installed. See CONTRIBUTING.md."; exit 1; }
@@ -25,21 +25,23 @@ setup:
     @python3 -m pip --version >/dev/null 2>&1 || { echo "✖ python3 -m pip is unavailable. Install pip for your Python 3 interpreter."; exit 1; }
     @if [ -n "${VIRTUAL_ENV:-}" ]; then \
         python3 -m pip install --requirement requirements-dev.txt; \
-    elif python3 -m pip install --dry-run --user --requirement requirements-dev.txt >/dev/null 2>&1; then \
-        python3 -m pip install --user --requirement requirements-dev.txt; \
     else \
-        echo "✖ Python dev dependencies were not installed."; \
-        echo "  This interpreter does not allow direct pip installs."; \
-        echo "  Create a virtual environment and rerun just setup:"; \
-        echo "    python3 -m venv .venv && . .venv/bin/activate"; \
-        echo "  Or install distro packages such as python3-yaml, python3-jsonschema, and python3-venv."; \
-        exit 1; \
+        if python3 -m pip install --user --requirement requirements-dev.txt; then \
+            :; \
+        else \
+            echo "⚠ Python dev dependencies were not installed."; \
+            echo "  Continue if you only need the Rust toolchain."; \
+            echo "  For Phase 3 tooling, create a virtual environment and rerun just setup:"; \
+            echo "    python3 -m venv .venv && . .venv/bin/activate"; \
+            echo "  Or install distro packages such as python3-yaml, python3-jsonschema, and python3-venv."; \
+            echo "  Then run just phase3-gate-env before working on the Phase 3 gate."; \
+        fi; \
     fi
     @echo "▸ Verifying Rust toolchain…"
     @rustc --version
     @cargo --version
-    @echo "▸ Phase 3 browser gate not run during setup."
-    @echo "  Run `just phase3-gate-env` to verify Chrome/Chromium before the Phase 3 gate."
+    @echo "▸ Phase 3 environment preflight not run during setup."
+    @echo '  Run `just phase3-gate-env` to verify the Python imports and Chrome/Chromium before the Phase 3 gate.'
     @echo "▸ Done."
 
 # Format the workspace.
