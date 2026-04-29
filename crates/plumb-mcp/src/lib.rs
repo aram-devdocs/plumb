@@ -127,8 +127,9 @@ pub struct GetConfigArgs {
 /// browser handle. The browser is warmed lazily on the first non-fake
 /// `lint_url` call and reused for the rest of the session — see
 /// [`PersistentBrowser`] for the per-call incognito-context invariant.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct PlumbServer {
+    cwd: PathBuf,
     config_cache: Arc<Mutex<HashMap<PathBuf, ConfigCacheEntry>>>,
     browser: Arc<OnceCell<PersistentBrowser>>,
 }
@@ -153,8 +154,12 @@ struct ResolvedConfig {
 impl PlumbServer {
     /// Construct a new server.
     #[must_use]
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(cwd: PathBuf) -> Self {
+        Self {
+            cwd,
+            config_cache: Arc::default(),
+            browser: Arc::default(),
+        }
     }
 
     async fn echo(&self, args: EchoArgs) -> Result<CallToolResult, ErrorData> {
@@ -593,9 +598,7 @@ impl PlumbServer {
             ));
         }
 
-        let working_dir = std::env::current_dir()
-            .map_err(|err| ErrorData::internal_error(format!("current_dir: {err}"), None))?;
-        let resolved = self.resolve_config_for_dir(&working_dir)?;
+        let resolved = self.resolve_config_for_dir(&self.cwd)?;
         let text = serde_json::to_string(&resolved.value).map_err(|err| {
             ErrorData::internal_error(format!("serialize config resource: {err}"), None)
         })?;
@@ -671,8 +674,8 @@ fn map_config_error(err: &ConfigError) -> ErrorData {
 /// Returns [`McpError::Service`] if rmcp's service loop fails or
 /// [`PlumbServer::shutdown`] surfaces an error, and [`McpError::Io`]
 /// on transport errors.
-pub async fn run_stdio() -> Result<(), McpError> {
-    let handler = PlumbServer::new();
+pub async fn run_stdio(cwd: PathBuf) -> Result<(), McpError> {
+    let handler = PlumbServer::new(cwd);
     let service = handler
         .clone()
         .serve(stdio())

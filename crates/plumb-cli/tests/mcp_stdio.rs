@@ -442,10 +442,18 @@ fn mcp_read_config_resource_returns_resolved_config_json() {
     let text = content["text"].as_str().expect("resource text");
     let structured: Value = serde_json::from_str(text).expect("resource text must be JSON");
     assert_eq!(structured["source"].as_str(), Some("file"));
-    assert_eq!(
-        structured["path"].as_str(),
-        Some(config_path.to_string_lossy().as_ref())
+    let resource_path = Path::new(
+        structured["path"]
+            .as_str()
+            .expect("resource path must be a string"),
     );
+    let expected_path = config_path
+        .canonicalize()
+        .expect("canonicalize config path");
+    let actual_path = resource_path
+        .canonicalize()
+        .expect("canonicalize resource path");
+    assert_eq!(actual_path, expected_path);
     assert_eq!(
         structured["config"]["viewports"]["desktop"]["width"].as_u64(),
         Some(1440)
@@ -453,6 +461,38 @@ fn mcp_read_config_resource_returns_resolved_config_json() {
     assert_eq!(
         structured["config"]["viewports"]["desktop"]["device_pixel_ratio"].as_f64(),
         Some(2.0)
+    );
+}
+
+#[test]
+fn mcp_read_unknown_resource_returns_jsonrpc_error() {
+    let read_config = json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "resources/read",
+        "params": { "uri": "plumb://bogus" }
+    });
+    let responses = send_and_read(vec![
+        init_request(1),
+        initialized_notification(),
+        read_config,
+    ]);
+    let resp = responses
+        .iter()
+        .find(|r| r["id"] == 2)
+        .unwrap_or_else(|| panic!("resources/read error response missing: got {responses:?}"));
+
+    assert!(
+        resp.get("result").is_none(),
+        "unknown resource must not return a result payload: {resp:?}"
+    );
+    assert_eq!(resp["error"]["code"].as_i64(), Some(-32002));
+    let message = resp["error"]["message"]
+        .as_str()
+        .expect("error message must be a string");
+    assert!(
+        message.contains("unknown resource: plumb://bogus"),
+        "unexpected error message: {message}"
     );
 }
 

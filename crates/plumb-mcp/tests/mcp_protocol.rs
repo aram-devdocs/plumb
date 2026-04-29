@@ -3,20 +3,25 @@
 //! Protocol-level tests that spawn the real `plumb mcp` subprocess and
 //! speak JSON-RPC over stdio live in `crates/plumb-cli/tests/mcp_stdio.rs`.
 //! This file exercises only what's verifiable in-process: server info,
-//! construction, default shape.
+//! construction, and default shape.
 
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::missing_panics_doc)]
 
 use std::collections::BTreeSet;
+use std::path::PathBuf;
 
 use plumb_core::register_builtin;
 use plumb_mcp::{ExplainRuleArgs, LintUrlArgs, LintUrlDetail, PlumbServer, documented_rule_ids};
 use rmcp::ServerHandler;
 use rmcp::model::ErrorCode;
 
+fn server() -> PlumbServer {
+    PlumbServer::new(PathBuf::from("/"))
+}
+
 #[test]
 fn server_info_declares_plumb() {
-    let server = PlumbServer::new();
+    let server = server();
     let info = server.get_info();
     assert_eq!(info.server_info.name, "plumb");
     assert_eq!(info.server_info.version, env!("CARGO_PKG_VERSION"));
@@ -24,7 +29,7 @@ fn server_info_declares_plumb() {
 
 #[test]
 fn server_info_declares_tool_capability() {
-    let server = PlumbServer::new();
+    let server = server();
     let info = server.get_info();
     assert!(
         info.capabilities.tools.is_some(),
@@ -34,7 +39,7 @@ fn server_info_declares_tool_capability() {
 
 #[test]
 fn server_info_declares_resource_capability() {
-    let server = PlumbServer::new();
+    let server = server();
     let info = server.get_info();
     assert!(
         info.capabilities.resources.is_some(),
@@ -44,7 +49,7 @@ fn server_info_declares_resource_capability() {
 
 #[test]
 fn server_info_includes_instructions() {
-    let server = PlumbServer::new();
+    let server = server();
     let info = server.get_info();
     assert!(
         info.instructions.is_some(),
@@ -52,15 +57,9 @@ fn server_info_includes_instructions() {
     );
 }
 
-#[test]
-fn default_is_equivalent_to_new() {
-    // Smoke-test that Default::default() constructs a usable server.
-    let _server = PlumbServer::default();
-}
-
 #[tokio::test]
 async fn explain_rule_happy_path_returns_markdown_and_metadata() {
-    let server = PlumbServer::new();
+    let server = server();
     let result = server
         .explain_rule(ExplainRuleArgs {
             rule_id: "spacing/scale-conformance".to_owned(),
@@ -115,7 +114,7 @@ async fn explain_rule_happy_path_returns_markdown_and_metadata() {
 
 #[tokio::test]
 async fn explain_rule_unknown_rule_id_returns_invalid_params() {
-    let server = PlumbServer::new();
+    let server = server();
     let error = server
         .explain_rule(ExplainRuleArgs {
             rule_id: "does/not-exist".to_owned(),
@@ -142,7 +141,7 @@ fn every_builtin_rule_has_doc_entry() {
 
 #[test]
 fn list_rules_returns_every_builtin_rule_sorted() {
-    let server = PlumbServer::new();
+    let server = server();
     let (text, structured) = server.list_rules_payload();
 
     let builtin_count = register_builtin().len();
@@ -199,7 +198,7 @@ fn list_rules_returns_every_builtin_rule_sorted() {
 /// is a no-op (no browser was launched, so there is nothing to close).
 #[tokio::test]
 async fn fake_url_lint_does_not_warm_chromium_and_shutdown_is_noop() {
-    let server = PlumbServer::new();
+    let server = server();
     let result = server
         .lint_url(LintUrlArgs {
             url: "plumb-fake://hello".to_owned(),
@@ -235,7 +234,7 @@ async fn fake_url_lint_does_not_warm_chromium_and_shutdown_is_noop() {
 /// that accidentally routes the fake scheme through Chromium.
 #[tokio::test]
 async fn many_fake_url_lints_share_one_server_without_warming_chromium() {
-    let server = PlumbServer::new();
+    let server = server();
     for _ in 0..10 {
         let result = server
             .lint_url(LintUrlArgs {
