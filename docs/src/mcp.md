@@ -42,6 +42,12 @@ For local development against a source checkout:
 | `list_rules` | List every built-in Plumb rule with id, default severity, and one-line summary. No args. |
 | `get_config` | Return resolved `plumb.toml` for a working directory as JSON. Memoized per `(path, mtime)`. |
 
+## Resources
+
+| Resource | Description |
+|----------|-------------|
+| `plumb://config` | Return the resolved `plumb.toml` for the MCP server's current working directory as JSON. The payload matches `get_config`'s `structuredContent` shape: `{ "config": { ... }, "source": "file" | "default", "path": "/abs/path/to/plumb.toml" }`. |
+
 The response shape follows the MCP `content` + `structuredContent`
 convention:
 
