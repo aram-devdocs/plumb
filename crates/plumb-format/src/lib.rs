@@ -25,6 +25,8 @@ use plumb_core::{Severity, Violation};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
+mod rule_meta;
+
 /// Plumb version string embedded in the JSON envelope.
 ///
 /// Pinned to `plumb-format`'s `CARGO_PKG_VERSION` because the envelope
@@ -145,18 +147,33 @@ fn hex_digest(bytes: &[u8]) -> String {
 
 /// Render a slice of violations as SARIF 2.1.0.
 ///
-/// This is a minimal conformant document — the real rule metadata is
-/// attached as a placeholder. Downstream PRs enrich it with `helpUri`,
-/// `defaultConfiguration`, etc. per the SARIF spec.
+/// The output includes full rule metadata in `tool.driver.rules` (one
+/// `reportingDescriptor` per built-in rule with `shortDescription`,
+/// `fullDescription`, `helpUri`, and `defaultConfiguration`), and each
+/// result carries a `ruleIndex` pointing back into that array.
+///
+/// Results are sorted defensively by violation sort key, matching the
+/// JSON formatter's behavior.
 ///
 /// # Errors
 ///
 /// Returns an error if serialization fails.
 pub fn sarif(violations: &[Violation]) -> Result<String, serde_json::Error> {
-    let results: Vec<Value> = violations
+    let rules = rule_meta::driver_rules();
+    let index_map = rule_meta::rule_index_map();
+
+    let mut sorted: Vec<&Violation> = violations.iter().collect();
+    sorted.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
+
+    let results: Vec<Value> = sorted
         .iter()
         .map(|v| {
-            json!({
+            let rule_index = index_map
+                .iter()
+                .find(|(id, _)| *id == v.rule_id)
+                .map(|(_, idx)| *idx);
+
+            let mut result = json!({
                 "ruleId": v.rule_id,
                 "level": match v.severity {
                     Severity::Error => "error",
@@ -177,7 +194,15 @@ pub fn sarif(violations: &[Violation]) -> Result<String, serde_json::Error> {
                 "properties": {
                     "docUrl": v.doc_url,
                 }
-            })
+            });
+
+            if let Some(idx) = rule_index {
+                result
+                    .as_object_mut()
+                    .map(|obj| obj.insert("ruleIndex".to_owned(), json!(idx)));
+            }
+
+            result
         })
         .collect();
 
@@ -189,7 +214,7 @@ pub fn sarif(violations: &[Violation]) -> Result<String, serde_json::Error> {
                 "driver": {
                     "name": "plumb",
                     "informationUri": "https://plumb.aramhammoudeh.com",
-                    "rules": [],
+                    "rules": rules,
                 }
             },
             "results": results,
