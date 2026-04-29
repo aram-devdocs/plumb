@@ -392,29 +392,24 @@ fn build_full_lint_payload(violations: &[Violation]) -> Result<Value, ErrorData>
     let payload = full_json(violations).map_err(|err| {
         ErrorData::internal_error(format!("serialize full lint payload: {err}"), None)
     })?;
-    let structured: Value = serde_json::from_str(&payload).map_err(|err| {
-        ErrorData::internal_error(format!("parse full lint payload: {err}"), None)
-    })?;
     enforce_response_cap(
-        &structured,
+        payload.len(),
         LINT_URL_FULL_RESPONSE_CAP_BYTES,
         "lint_url detail=full payload exceeds 50 KB response cap",
     )?;
+    let structured: Value = serde_json::from_str(&payload).map_err(|err| {
+        ErrorData::internal_error(format!("parse full lint payload: {err}"), None)
+    })?;
     Ok(structured)
 }
 
 fn enforce_response_cap(
-    structured: &Value,
+    payload_len: usize,
     limit_bytes: usize,
     error_message: &'static str,
 ) -> Result<(), ErrorData> {
-    let payload_len = serde_json::to_vec(structured)
-        .map_err(|err| {
-            ErrorData::internal_error(format!("serialize lint payload size: {err}"), None)
-        })?
-        .len();
     if payload_len > limit_bytes {
-        return Err(ErrorData::invalid_params(
+        return Err(ErrorData::internal_error(
             format!("{error_message} ({payload_len} bytes)"),
             None,
         ));
@@ -574,7 +569,7 @@ mod tests {
             dom_order,
             fix: None,
             doc_url: "https://plumb.aramhammoudeh.com/rules/spacing-grid-conformance".to_owned(),
-            metadata: Default::default(),
+            metadata: std::iter::empty().collect(),
         }
     }
 
@@ -618,7 +613,7 @@ mod tests {
 
         let err = build_lint_url_result(&violations, LintUrlDetail::Full)
             .expect_err("full mode must reject payloads above the response cap");
-        assert_eq!(err.code, ErrorCode::INVALID_PARAMS);
+        assert_eq!(err.code, ErrorCode::INTERNAL_ERROR);
         assert!(
             err.to_string()
                 .contains("detail=full payload exceeds 50 KB response cap"),

@@ -302,6 +302,31 @@ fn mcp_lint_url_full_returns_json_envelope() {
 }
 
 #[test]
+fn mcp_lint_url_invalid_detail_returns_jsonrpc_error() {
+    let responses = send_and_read(vec![
+        init_request(1),
+        initialized_notification(),
+        lint_url_request(2, "plumb-fake://hello", Some("bogus")),
+    ]);
+    let lint_resp = responses
+        .iter()
+        .find(|r| r["id"] == 2)
+        .unwrap_or_else(|| panic!("invalid-detail response missing: got {responses:?}"));
+    let error = lint_resp["error"].as_object().expect("error object");
+
+    assert_eq!(error["code"].as_i64(), Some(-32602));
+    let message = error["message"].as_str().expect("error message");
+    assert!(
+        message.contains("failed to deserialize tool arguments"),
+        "unexpected error message: {message}"
+    );
+    assert!(
+        message.contains("unknown variant `bogus`, expected `compact` or `full`"),
+        "unexpected error message: {message}"
+    );
+}
+
+#[test]
 fn mcp_get_config_returns_default_when_no_file() {
     let tmp = tempfile::tempdir().expect("tempdir");
     let working_dir = tmp.path().to_string_lossy().into_owned();
