@@ -145,12 +145,41 @@ fn hex_digest(bytes: &[u8]) -> String {
     hex
 }
 
+/// Stable synthetic artifact URI used for every SARIF result.
+///
+/// GitHub Code Scanning's `locationFromSarifResult` rejects any result
+/// whose first location does not carry a `physicalLocation`. Plumb
+/// lints rendered URLs, not source files — and the [`sarif`] entry
+/// point takes no URL parameter — so there is no real source artifact
+/// to point at. The formatter emits this deterministic placeholder
+/// instead. Viewport, DOM order, and the original CSS selector live on
+/// the result's `logicalLocations` and location-level `properties`.
+const SARIF_ARTIFACT_URI: &str = "plumb-lint-target";
+
 /// Render a slice of violations as SARIF 2.1.0.
 ///
 /// The output includes full rule metadata in `tool.driver.rules` (one
 /// `reportingDescriptor` per built-in rule with `shortDescription`,
 /// `fullDescription`, `helpUri`, and `defaultConfiguration`), and each
 /// result carries a `ruleIndex` pointing back into that array.
+///
+/// Each result's first location carries a `physicalLocation` of the
+/// shape:
+///
+/// ```json
+/// "physicalLocation": {
+///   "artifactLocation": { "uri": "plumb-lint-target" },
+///   "region": { "startLine": 1 }
+/// }
+/// ```
+///
+/// The artifact URI is a stable synthetic placeholder
+/// ([`SARIF_ARTIFACT_URI`]). GitHub Code Scanning's
+/// `locationFromSarifResult` requires every result to have a
+/// `physicalLocation`, but Plumb violations have no source file — they
+/// are tied to a rendered URL, and the formatter signature does not
+/// take that URL. The original selector, viewport, and DOM order
+/// remain on the location's `logicalLocations` and `properties` blocks.
 ///
 /// Results are sorted defensively by violation sort key, matching the
 /// JSON formatter's behavior.
@@ -182,6 +211,10 @@ pub fn sarif(violations: &[Violation]) -> Result<String, serde_json::Error> {
                 },
                 "message": { "text": v.message },
                 "locations": [{
+                    "physicalLocation": {
+                        "artifactLocation": { "uri": SARIF_ARTIFACT_URI },
+                        "region": { "startLine": 1 },
+                    },
                     "logicalLocations": [{
                         "fullyQualifiedName": v.selector,
                         "kind": "element",

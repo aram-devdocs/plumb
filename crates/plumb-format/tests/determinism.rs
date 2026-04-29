@@ -310,6 +310,49 @@ fn sarif_rule_help_uri_uses_canonical_slug() {
 }
 
 #[test]
+fn sarif_results_have_physical_location() {
+    // GitHub Code Scanning's `locationFromSarifResult` rejects results
+    // that don't carry a `physicalLocation`. Plumb's violations are
+    // tied to rendered URLs, not source files, so the formatter emits
+    // a stable synthetic placeholder. Lock the shape in.
+    let violations = fixture();
+    let out = sarif(&violations).expect("sarif serialize");
+    let parsed: serde_json::Value = serde_json::from_str(&out).expect("parse sarif");
+
+    let results = parsed["runs"][0]["results"]
+        .as_array()
+        .expect("results array present");
+    assert!(
+        !results.is_empty(),
+        "fixture must produce at least one result"
+    );
+
+    for (i, result) in results.iter().enumerate() {
+        let physical = result["locations"][0]
+            .get("physicalLocation")
+            .unwrap_or_else(|| panic!("result {i} missing locations[0].physicalLocation"));
+
+        let uri = physical
+            .get("artifactLocation")
+            .and_then(|al| al.get("uri"))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_else(|| panic!("result {i} missing physicalLocation.artifactLocation.uri"));
+        assert!(
+            !uri.is_empty(),
+            "result {i} physicalLocation.artifactLocation.uri must be non-empty"
+        );
+
+        assert!(
+            physical
+                .get("region")
+                .and_then(|r| r.get("startLine"))
+                .is_some(),
+            "result {i} missing physicalLocation.region.startLine"
+        );
+    }
+}
+
+#[test]
 fn sarif_document_passes_basic_schema_shape() {
     let violations = fixture();
     let out = sarif(&violations).expect("sarif serialize");
@@ -390,6 +433,10 @@ fn sarif_document_passes_basic_schema_shape() {
         assert!(
             !locations.is_empty(),
             "each result must have at least one location"
+        );
+        assert!(
+            locations[0].get("physicalLocation").is_some(),
+            "each result must have locations[0].physicalLocation"
         );
     }
 }

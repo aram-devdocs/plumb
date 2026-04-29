@@ -1,5 +1,6 @@
 ---
 source: crates/plumb-format/tests/format_snapshots.rs
+assertion_line: 27
 expression: out
 ---
 {
@@ -168,6 +169,14 @@ expression: out
           },
           "locations": [
             {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "plumb-lint-target"
+                },
+                "region": {
+                  "startLine": 1
+                }
+              },
               "logicalLocations": [
                 {
                   "fullyQualifiedName": "html > body",
