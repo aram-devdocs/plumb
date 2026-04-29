@@ -6,17 +6,19 @@ written by `plumb init`; the canonical example is
 [`examples/plumb.toml`](https://github.com/aram-devdocs/plumb/blob/main/examples/plumb.toml)
 in the repo.
 
-This page is the full reference. Every section is optional. Omit a
-section and the rules that depend on it skip silently — they MUST NOT
-fire on partially configured input.
+This page is the full reference. Every section is optional. When you
+omit a section, Plumb uses that section's defaults. Rules with usable
+defaults can still run — for example `spacing/grid-conformance`,
+`edge/near-alignment`, and `a11y/touch-target`. Rules that need a
+non-empty scale or token list skip when that input is empty.
 
 ## Editor autocomplete
 
-Point your editor at the canonical JSON Schema for inline validation
-and hover docs:
+Generate the canonical JSON Schema and point your editor at the local
+file for inline validation and hover docs:
 
-```text
-https://plumb.aramhammoudeh.com/schemas/plumb.toml.json
+```bash
+plumb schema > plumb.schema.json
 ```
 
 VS Code with the Even Better TOML extension:
@@ -25,24 +27,18 @@ VS Code with the Even Better TOML extension:
 // .vscode/settings.json
 {
   "evenBetterToml.schema.associations": {
-    "plumb.toml": "https://plumb.aramhammoudeh.com/schemas/plumb.toml.json"
+    "plumb.toml": "./plumb.schema.json"
   }
 }
 ```
 
 JetBrains: open Settings → Languages & Frameworks → Schemas and DTDs →
-JSON Schema Mappings, and add the URL above against the file pattern
-`plumb.toml`.
+JSON Schema Mappings, and add `plumb.schema.json` against the file
+pattern `plumb.toml`.
 
 The schema is for editor association only. Do not add a `$schema`
 field to `plumb.toml` or any JSON config file; Plumb rejects unknown
 configuration fields.
-
-To vendor the schema locally instead of using the docs URL:
-
-```bash
-plumb schema > plumb.schema.json
-```
 
 ## Top-level shape
 

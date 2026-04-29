@@ -96,24 +96,23 @@ documents the config it reads.
 
 ## 6. Hook into your editor
 
-If your editor speaks JSON Schema (VS Code, JetBrains, Helix), point
-it at the canonical schema URL:
+If your editor speaks JSON Schema (VS Code, JetBrains, Helix), generate
+the canonical schema and point the editor at the local file:
+
+```bash
+plumb schema > plumb.schema.json
+```
 
 ```jsonc
 // .vscode/settings.json
 {
   "evenBetterToml.schema.associations": {
-    "plumb.toml": "https://plumb.aramhammoudeh.com/schemas/plumb.toml.json"
+    "plumb.toml": "./plumb.schema.json"
   }
 }
 ```
 
-You get hover docs, completion, and inline validation. The schema is
-also emitted on demand:
-
-```bash
-plumb schema > plumb.schema.json
-```
+You get hover docs, completion, and inline validation.
 
 ## 7. Wire it to your AI coding agent
 
