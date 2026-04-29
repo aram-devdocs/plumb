@@ -46,12 +46,14 @@ use rmcp::{
     handler::server::tool::schema_for_type,
     model::{
         CallToolRequestParams, CallToolResult, Content, ErrorData, Implementation, JsonObject,
-        ListToolsResult, PaginatedRequestParams, ProtocolVersion, ServerCapabilities, ServerInfo,
-        Tool,
+        ListResourcesResult, ListToolsResult, PaginatedRequestParams, ProtocolVersion,
+        RawResource, ReadResourceRequestParams, ReadResourceResult, ResourceContents,
+        ServerCapabilities, ServerInfo, Tool,
     },
     schemars::{self, JsonSchema},
     service::RequestContext,
     transport::stdio,
+    model::AnnotateAble,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -131,10 +133,21 @@ pub struct PlumbServer {
     browser: Arc<OnceCell<PersistentBrowser>>,
 }
 
+const CONFIG_RESOURCE_URI: &str = "plumb://config";
+const CONFIG_RESOURCE_NAME: &str = "resolved_config";
+const CONFIG_RESOURCE_DESCRIPTION: &str =
+    "Resolved plumb.toml for the server working directory as JSON.";
+const CONFIG_RESOURCE_MIME_TYPE: &str = "application/json";
+
 #[derive(Clone)]
 struct ConfigCacheEntry {
     mtime: SystemTime,
     value: serde_json::Value,
+}
+
+struct ResolvedConfig {
+    value: serde_json::Value,
+    summary: String,
 }
 
 impl PlumbServer {
@@ -340,23 +353,34 @@ impl PlumbServer {
     /// not absolute, and [`ErrorData::internal_error`] when reading or
     /// parsing an existing `plumb.toml` fails.
     pub async fn get_config(&self, args: GetConfigArgs) -> Result<CallToolResult, ErrorData> {
-        if args.working_dir.is_empty() {
+        let resolved = self.resolve_config_for_tool(&args.working_dir)?;
+        let mut result = CallToolResult::success(vec![Content::text(resolved.summary)]);
+        result.structured_content = Some(resolved.value);
+        Ok(result)
+    }
+
+    fn resolve_config_for_tool(&self, working_dir: &str) -> Result<ResolvedConfig, ErrorData> {
+        if working_dir.is_empty() {
             return Err(ErrorData::invalid_params(
                 "working_dir must not be empty".to_string(),
                 None,
             ));
         }
-        let working_dir = PathBuf::from(&args.working_dir);
+        let working_dir = PathBuf::from(working_dir);
         if !working_dir.is_absolute() {
             return Err(ErrorData::invalid_params(
-                format!("working_dir must be absolute: {}", args.working_dir),
+                format!("working_dir must be absolute: {}", working_dir.display()),
                 None,
             ));
         }
 
+        self.resolve_config_for_dir(&working_dir)
+    }
+
+    fn resolve_config_for_dir(&self, working_dir: &Path) -> Result<ResolvedConfig, ErrorData> {
         let config_path = working_dir.join("plumb.toml");
 
-        let (structured, summary) = if config_path.exists() {
+        if config_path.exists() {
             let mtime = std::fs::metadata(&config_path)
                 .and_then(|m| m.modified())
                 .map_err(|err| {
@@ -368,14 +392,17 @@ impl PlumbServer {
 
             if let Some(entry) = self.cache_lookup(&config_path, mtime)? {
                 let summary = format!("plumb.toml @ {} (cached)", config_path.display());
-                (entry, summary)
+                Ok(ResolvedConfig {
+                    value: entry,
+                    summary,
+                })
             } else {
                 let config =
                     plumb_config::load(&config_path).map_err(|err| map_config_error(&err))?;
                 let value = serialize_config(&config, &config_path, ConfigSource::File)?;
                 self.cache_store(&config_path, mtime, value.clone())?;
                 let summary = format!("plumb.toml @ {}", config_path.display());
-                (value, summary)
+                Ok(ResolvedConfig { value, summary })
             }
         } else {
             let value = serialize_config(&Config::default(), &config_path, ConfigSource::Default)?;
@@ -383,12 +410,8 @@ impl PlumbServer {
                 "no plumb.toml at {} — returning Config::default()",
                 config_path.display()
             );
-            (value, summary)
-        };
-
-        let mut result = CallToolResult::success(vec![Content::text(summary)]);
-        result.structured_content = Some(structured);
-        Ok(result)
+            Ok(ResolvedConfig { value, summary })
+        }
     }
 
     fn cache_lookup(
@@ -473,13 +496,17 @@ impl ServerHandler for PlumbServer {
     fn get_info(&self) -> ServerInfo {
         let mut info = ServerInfo::default();
         info.protocol_version = ProtocolVersion::V_2024_11_05;
-        info.capabilities = ServerCapabilities::builder().enable_tools().build();
+        info.capabilities = ServerCapabilities::builder()
+            .enable_resources()
+            .enable_tools()
+            .build();
         info.server_info = Implementation::new("plumb", env!("CARGO_PKG_VERSION"));
         info.instructions = Some(
             "Deterministic design-system linter. Call `lint_url` with a URL to get violations; \
              use `explain_rule` for canonical rule documentation; use `list_rules` to enumerate \
              every built-in rule; use `get_config` to fetch the resolved `plumb.toml` for a \
-             working directory; use `echo` to smoke-test the transport."
+             working directory; read `plumb://config` to fetch the resolved config for the \
+             server working directory; use `echo` to smoke-test the transport."
                 .into(),
         );
         info
@@ -529,6 +556,52 @@ impl ServerHandler for PlumbServer {
             ),
         ];
         std::future::ready(Ok(ListToolsResult::with_all_items(tools)))
+    }
+
+    fn list_resources(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> impl Future<Output = Result<ListResourcesResult, ErrorData>> + Send + '_ {
+        let resources = vec![RawResource::new(CONFIG_RESOURCE_URI, CONFIG_RESOURCE_NAME)
+            .with_description(CONFIG_RESOURCE_DESCRIPTION)
+            .with_mime_type(CONFIG_RESOURCE_MIME_TYPE)
+            .no_annotation()];
+        std::future::ready(Ok(ListResourcesResult::with_all_items(resources)))
+    }
+
+    fn read_resource(
+        &self,
+        request: ReadResourceRequestParams,
+        _context: RequestContext<RoleServer>,
+    ) -> impl Future<Output = Result<ReadResourceResult, ErrorData>> + Send + '_ {
+        std::future::ready(self.read_resource_impl(&request))
+    }
+}
+
+impl PlumbServer {
+    fn read_resource_impl(
+        &self,
+        request: &ReadResourceRequestParams,
+    ) -> Result<ReadResourceResult, ErrorData> {
+        if request.uri != CONFIG_RESOURCE_URI {
+            return Err(ErrorData::resource_not_found(
+                format!("unknown resource: {}", request.uri),
+                None,
+            ));
+        }
+
+        let working_dir = std::env::current_dir()
+            .map_err(|err| ErrorData::internal_error(format!("current_dir: {err}"), None))?;
+        let resolved = self.resolve_config_for_dir(&working_dir)?;
+        let text = serde_json::to_string(&resolved.value).map_err(|err| {
+            ErrorData::internal_error(format!("serialize config resource: {err}"), None)
+        })?;
+
+        Ok(ReadResourceResult::new(vec![
+            ResourceContents::text(text, CONFIG_RESOURCE_URI)
+                .with_mime_type(CONFIG_RESOURCE_MIME_TYPE),
+        ]))
     }
 }
 

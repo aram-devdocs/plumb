@@ -10,7 +10,7 @@
 use std::collections::BTreeSet;
 
 use plumb_core::register_builtin;
-use plumb_mcp::{ExplainRuleArgs, LintUrlArgs, PlumbServer, documented_rule_ids};
+use plumb_mcp::{ExplainRuleArgs, LintUrlArgs, LintUrlDetail, PlumbServer, documented_rule_ids};
 use rmcp::ServerHandler;
 use rmcp::model::ErrorCode;
 
@@ -29,6 +29,16 @@ fn server_info_declares_tool_capability() {
     assert!(
         info.capabilities.tools.is_some(),
         "server must advertise the `tools` capability"
+    );
+}
+
+#[test]
+fn server_info_declares_resource_capability() {
+    let server = PlumbServer::new();
+    let info = server.get_info();
+    assert!(
+        info.capabilities.resources.is_some(),
+        "server must advertise the `resources` capability"
     );
 }
 
@@ -193,6 +203,7 @@ async fn fake_url_lint_does_not_warm_chromium_and_shutdown_is_noop() {
     let result = server
         .lint_url(LintUrlArgs {
             url: "plumb-fake://hello".to_owned(),
+            detail: LintUrlDetail::default(),
         })
         .await
         .expect("fake-url lint must succeed without a browser");
@@ -229,6 +240,7 @@ async fn many_fake_url_lints_share_one_server_without_warming_chromium() {
         let result = server
             .lint_url(LintUrlArgs {
                 url: "plumb-fake://hello".to_owned(),
+                detail: LintUrlDetail::default(),
             })
             .await
             .expect("fake-url lint must succeed without a browser");

@@ -4,6 +4,7 @@
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::missing_panics_doc)]
 
 use std::io::{BufRead, BufReader, Write};
+use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
@@ -14,11 +15,24 @@ fn bin() -> std::path::PathBuf {
 }
 
 fn send_and_read(requests: Vec<Value>) -> Vec<Value> {
-    let mut child = Command::new(bin())
+    send_and_read_in_dir(requests, None::<&Path>)
+}
+
+fn send_and_read_in_dir(
+    requests: Vec<Value>,
+    working_dir: Option<impl AsRef<Path>>,
+) -> Vec<Value> {
+    let mut command = Command::new(bin());
+    command
         .arg("mcp")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(Stdio::null());
+    if let Some(working_dir) = working_dir {
+        command.current_dir(working_dir);
+    }
+
+    let mut child = command
         .spawn()
         .expect("spawn plumb mcp");
 
@@ -100,6 +114,26 @@ fn lint_url_request(id: u32, url: &str, detail: Option<&str>) -> Value {
     })
 }
 
+fn assert_get_config_schema(tool: &Value) {
+    assert_eq!(
+        tool["description"],
+        "Return the resolved plumb.toml for a working directory as JSON. Memoized per (path, mtime)."
+    );
+    assert_eq!(
+        tool["inputSchema"]["properties"]["working_dir"]["type"],
+        "string"
+    );
+}
+
+fn assert_config_resource(resource: &Value) {
+    assert_eq!(resource["name"], "resolved_config");
+    assert_eq!(resource["mimeType"], "application/json");
+    assert_eq!(
+        resource["description"],
+        "Resolved plumb.toml for the server working directory as JSON."
+    );
+}
+
 #[test]
 fn mcp_initialize_and_tools_list() {
     let tools_list = json!({
@@ -107,10 +141,16 @@ fn mcp_initialize_and_tools_list() {
         "id": 2,
         "method": "tools/list"
     });
+    let resources_list = json!({
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "resources/list"
+    });
     let responses = send_and_read(vec![
         init_request(1),
         initialized_notification(),
         tools_list,
+        resources_list,
     ]);
     assert!(!responses.is_empty(), "expected responses, got none");
 
@@ -178,14 +218,20 @@ fn mcp_initialize_and_tools_list() {
         .iter()
         .find(|tool| tool["name"] == "get_config")
         .unwrap_or_else(|| panic!("get_config tool missing: got {tools:?}"));
-    assert_eq!(
-        get_config["description"],
-        "Return the resolved plumb.toml for a working directory as JSON. Memoized per (path, mtime)."
-    );
-    assert_eq!(
-        get_config["inputSchema"]["properties"]["working_dir"]["type"],
-        "string"
-    );
+    assert_get_config_schema(get_config);
+
+    let resources_resp = responses
+        .iter()
+        .find(|r| r["id"] == 3)
+        .unwrap_or_else(|| panic!("resources/list response missing: got {responses:?}"));
+    let resources = resources_resp["result"]["resources"]
+        .as_array()
+        .expect("resources array");
+    let config = resources
+        .iter()
+        .find(|resource| resource["uri"] == "plumb://config")
+        .unwrap_or_else(|| panic!("plumb://config resource missing: got {resources:?}"));
+    assert_config_resource(config);
 }
 
 #[test]
@@ -361,6 +407,57 @@ fn mcp_get_config_returns_default_when_no_file() {
     assert!(
         structured["config"]["viewports"].is_object(),
         "default config must include viewports map: {structured:?}"
+    );
+}
+
+#[test]
+fn mcp_read_config_resource_returns_resolved_config_json() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let config_path = tmp.path().join("plumb.toml");
+    std::fs::write(
+        &config_path,
+        "[viewports.desktop]\nwidth = 1440\nheight = 900\ndevice_pixel_ratio = 2.0\n",
+    )
+    .expect("write plumb.toml");
+
+    let read_config = json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "resources/read",
+        "params": { "uri": "plumb://config" }
+    });
+    let responses = send_and_read_in_dir(
+        vec![init_request(1), initialized_notification(), read_config],
+        Some(tmp.path()),
+    );
+    let resp = responses
+        .iter()
+        .find(|r| r["id"] == 2)
+        .unwrap_or_else(|| panic!("resources/read response missing: got {responses:?}"));
+
+    let contents = resp["result"]["contents"]
+        .as_array()
+        .expect("contents array");
+    assert_eq!(contents.len(), 1, "expected one resource payload: {resp:?}");
+
+    let content = &contents[0];
+    assert_eq!(content["uri"], "plumb://config");
+    assert_eq!(content["mimeType"], "application/json");
+
+    let text = content["text"].as_str().expect("resource text");
+    let structured: Value = serde_json::from_str(text).expect("resource text must be JSON");
+    assert_eq!(structured["source"].as_str(), Some("file"));
+    assert_eq!(
+        structured["path"].as_str(),
+        Some(config_path.to_string_lossy().as_ref())
+    );
+    assert_eq!(
+        structured["config"]["viewports"]["desktop"]["width"].as_u64(),
+        Some(1440)
+    );
+    assert_eq!(
+        structured["config"]["viewports"]["desktop"]["device_pixel_ratio"].as_f64(),
+        Some(2.0)
     );
 }
 
