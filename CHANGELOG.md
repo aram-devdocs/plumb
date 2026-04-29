@@ -10,9 +10,7 @@ From the first release onward, this file is maintained automatically by [`releas
 
 ### Added
 
-- v3 autonomous full-flow proof
-- v3 ACP-allowed proof
-- v3.2 hook-enforced talking-stick proof
+- Repository hooks now enforce the talking-stick workflow for agent-driven changes.
 - Initial workspace scaffold, tooling, and walking skeleton.
 - PRD-style `[spacing]` and `[type]` config sections with schema validation.
 - Rule `spacing/grid-conformance`: flags `margin-*`, `padding-*`, `gap`, `row-gap`, and `column-gap` values that aren't multiples of `spacing.base_unit`.
