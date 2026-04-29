@@ -1,31 +1,20 @@
 //! Contract tests for [`plumb_cdp::PersistentBrowser`].
 //!
-//! Unit-scope checks (idempotent shutdown when nothing was launched)
+//! Unit-scope checks (target-helper shape, missing-executable rejection)
 //! always run; the rest are gated on `feature = "e2e-chromium"` because
 //! they need a real Chromium binary in the supported major-version
 //! range. The e2e suite covers:
 //!
-//! - State isolation: cookies set in call N do not leak into call N+1.
+//! - State isolation: localStorage written in call N does not leak into
+//!   call N+1.
 //! - Warm reuse: the second snapshot is meaningfully faster than the
 //!   first because Chromium is already running.
 //! - Graceful shutdown: `shutdown` is idempotent across repeated calls.
 
-// `Instant::now` is banned in library code (PRD §9 determinism), but
-// these tests time how long a Chromium snapshot takes — a property of
-// the test harness, not of `PlumbSnapshot` output. Scoped to this file
-// so the production ban stays intact.
-#![allow(
-    clippy::expect_used,
-    clippy::unwrap_used,
-    clippy::missing_panics_doc,
-    clippy::disallowed_methods
-)]
+#![allow(clippy::expect_used, clippy::unwrap_used, clippy::missing_panics_doc)]
 
-use plumb_cdp::Target;
+use plumb_cdp::{CdpError, ChromiumOptions, PersistentBrowser, Target};
 use plumb_core::ViewportKey;
-
-#[cfg(feature = "e2e-chromium")]
-use plumb_cdp::{CdpError, ChromiumOptions, PersistentBrowser};
 
 fn target(url: &str) -> Target {
     Target {
@@ -72,8 +61,9 @@ fn target_helper_builds_desktop_viewport() {
 
 /// A bogus executable path produces `ChromiumNotFound` even on the
 /// persistent path — the error never blocks construction of an `Arc`
-/// holding a half-initialized browser.
-#[cfg(feature = "e2e-chromium")]
+/// holding a half-initialized browser. Runs without `e2e-chromium`
+/// because `ensure_executable_path` rejects the missing file
+/// synchronously, before any browser launch.
 #[tokio::test]
 async fn persistent_browser_rejects_missing_executable() {
     let result = PersistentBrowser::launch(ChromiumOptions {
@@ -113,8 +103,13 @@ fn isolated_options() -> std::io::Result<(ChromiumOptions, tempfile::TempDir)> {
 ///
 /// Timing here is in the test harness only — never fed into a
 /// `PlumbSnapshot`, which would violate the determinism invariant.
+/// `Instant::now` is banned in library code (PRD §9), so the allow is
+/// scoped to this single function rather than the whole file — that
+/// keeps the ban active for any other timing source someone might
+/// accidentally reach for elsewhere in this file.
 #[cfg(feature = "e2e-chromium")]
 #[tokio::test]
+#[allow(clippy::disallowed_methods)]
 async fn persistent_browser_warm_call_is_faster_than_cold() {
     let url = match fixture_url("static_page.html") {
         Ok(u) => u,
@@ -157,16 +152,21 @@ async fn persistent_browser_warm_call_is_faster_than_cold() {
     );
 }
 
-/// Cookies set by call N must not be visible to call N+1, because each
-/// snapshot opens a fresh incognito `BrowserContext`. Verified end-to-end
-/// against a static fixture: navigate, set `document.cookie`, then on the
-/// next snapshot navigate to the same fixture and confirm the cookie is
-/// gone. Done indirectly here by inspecting the snapshot — both
-/// snapshots are identical because the page state is reset.
+/// State written by call N must not leak into call N+1 because each
+/// snapshot opens a fresh incognito `BrowserContext`.
+///
+/// The `stateful_page.html` fixture writes a marker into
+/// `window.localStorage` on every visit and renders one of two values
+/// into the `data-marker` attribute of `<main>`: `state-fresh` when
+/// the read-before-write returned `null`, `state-leaked` when a prior
+/// call's write was still observable. With incognito isolation working
+/// the second snapshot reads `null` again and renders `state-fresh`;
+/// without isolation it would render `state-leaked` and the assertion
+/// below would fail.
 #[cfg(feature = "e2e-chromium")]
 #[tokio::test]
 async fn persistent_browser_isolates_state_between_calls() {
-    let url = match fixture_url("static_page.html") {
+    let url = match fixture_url("stateful_page.html") {
         Ok(u) => u,
         Err(err) => panic!("fixture path: {err}"),
     };
@@ -192,12 +192,41 @@ async fn persistent_browser_isolates_state_between_calls() {
 
     let _ = browser.shutdown().await;
 
+    let first_marker = state_marker(&first);
+    let second_marker = state_marker(&second);
+
+    assert_eq!(
+        first_marker, "state-fresh",
+        "first snapshot must render `state-fresh` — the fixture writes \
+         localStorage on every visit, so a value other than `state-fresh` \
+         here means the read-before-write surfaced state from a prior call"
+    );
+    assert_eq!(
+        second_marker, "state-fresh",
+        "second snapshot must render `state-fresh` — observing \
+         `state-leaked` would mean call 1's localStorage write was still \
+         visible to call 2, proving the incognito BrowserContext was reused"
+    );
+
     let first_json = serde_json::to_string(&first).expect("serialize first");
     let second_json = serde_json::to_string(&second).expect("serialize second");
     assert_eq!(
         first_json, second_json,
         "back-to-back snapshots over fresh incognito contexts must be byte-identical"
     );
+}
+
+/// Pull the `data-marker` attribute off the fixture's `<main>` element.
+/// Returns the literal string `"state-missing"` if the element or its
+/// attribute are absent — surfaced in the assertion message rather than
+/// panicking so the test failure points at what was actually wrong.
+#[cfg(feature = "e2e-chromium")]
+fn state_marker(snap: &plumb_core::PlumbSnapshot) -> String {
+    snap.nodes
+        .iter()
+        .find(|n| n.tag == "main")
+        .and_then(|n| n.attrs.get("data-marker").cloned())
+        .unwrap_or_else(|| "state-missing".to_string())
 }
 
 /// `shutdown` survives being called twice — the second call observes
