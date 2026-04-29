@@ -34,6 +34,8 @@ jobs:
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       - name: cargo check
         run: cargo check --workspace --all-targets --all-features
+      - name: cargo xtask pre-release
+        run: cargo xtask pre-release
 
   test:
     name: Test (${{ matrix.os }})

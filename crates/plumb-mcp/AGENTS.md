@@ -1,7 +1,6 @@
 # crates/plumb-mcp — rmcp MCP server
 
 See `/AGENTS.md` for repo-wide rules. This file scopes to `plumb-mcp`.
-
 ## Purpose
 
 Model Context Protocol server exposed over stdio. Public surface:
