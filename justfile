@@ -14,7 +14,8 @@ default:
     @just --list --unsorted
 
 # One-time developer setup. Installs git hooks and Python deps, then verifies
-# the toolchain and phase-3 gate environment.
+# the base Rust toolchain. Run `just phase3-gate-env` for the full Phase 3
+# browser gate.
 setup:
     @echo "▸ Installing git hooks via lefthook…"
     @command -v lefthook >/dev/null 2>&1 || { echo "✖ lefthook not installed. See CONTRIBUTING.md."; exit 1; }
@@ -37,20 +38,8 @@ setup:
     @echo "▸ Verifying Rust toolchain…"
     @rustc --version
     @cargo --version
-    @echo "▸ Checking Chrome/Chromium requirement for Phase 3…"
-    @if command -v google-chrome >/dev/null 2>&1; then \
-        echo "▸ Browser found: $$(command -v google-chrome)"; \
-    elif command -v google-chrome-stable >/dev/null 2>&1; then \
-        echo "▸ Browser found: $$(command -v google-chrome-stable)"; \
-    elif command -v chromium >/dev/null 2>&1; then \
-        echo "▸ Browser found: $$(command -v chromium)"; \
-    elif command -v chromium-browser >/dev/null 2>&1; then \
-        echo "▸ Browser found: $$(command -v chromium-browser)"; \
-    else \
-        echo "▸ Chrome/Chromium not found."; \
-        echo "  just setup is continuing, but just phase3-gate-env still requires Chrome/Chromium for the Phase 3 gate."; \
-        echo "  Install one of: google-chrome, google-chrome-stable, chromium, chromium-browser."; \
-    fi
+    @echo "▸ Phase 3 browser gate not run during setup."
+    @echo "  Run `just phase3-gate-env` to verify Chrome/Chromium before the Phase 3 gate."
     @echo "▸ Done."
 
 # Format the workspace.
