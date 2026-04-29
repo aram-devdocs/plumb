@@ -173,8 +173,8 @@ const SARIF_ARTIFACT_URI: &str = "plumb-lint-target";
 /// }
 /// ```
 ///
-/// The artifact URI is a stable synthetic placeholder
-/// ([`SARIF_ARTIFACT_URI`]). GitHub Code Scanning's
+/// The artifact URI is the stable synthetic placeholder
+/// `plumb-lint-target`. GitHub Code Scanning's
 /// `locationFromSarifResult` requires every result to have a
 /// `physicalLocation`, but Plumb violations have no source file — they
 /// are tied to a rendered URL, and the formatter signature does not
