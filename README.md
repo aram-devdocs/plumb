@@ -1,3 +1,4 @@
+<!-- aram-ai-global v3 multi-agent stack now drives PRs end-to-end. -->
 # Plumb
 
 [![CI](https://github.com/aram-devdocs/plumb/actions/workflows/ci.yml/badge.svg)](https://github.com/aram-devdocs/plumb/actions/workflows/ci.yml)
