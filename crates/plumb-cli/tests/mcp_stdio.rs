@@ -18,10 +18,7 @@ fn send_and_read(requests: Vec<Value>) -> Vec<Value> {
     send_and_read_in_dir(requests, None::<&Path>)
 }
 
-fn send_and_read_in_dir(
-    requests: Vec<Value>,
-    working_dir: Option<impl AsRef<Path>>,
-) -> Vec<Value> {
+fn send_and_read_in_dir(requests: Vec<Value>, working_dir: Option<impl AsRef<Path>>) -> Vec<Value> {
     let mut command = Command::new(bin());
     command
         .arg("mcp")
@@ -32,9 +29,7 @@ fn send_and_read_in_dir(
         command.current_dir(working_dir);
     }
 
-    let mut child = command
-        .spawn()
-        .expect("spawn plumb mcp");
+    let mut child = command.spawn().expect("spawn plumb mcp");
 
     let stdin = child.stdin.take().expect("stdin");
     let stdout = child.stdout.take().expect("stdout");

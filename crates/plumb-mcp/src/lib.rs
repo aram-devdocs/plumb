@@ -44,16 +44,16 @@ use plumb_format::{json as full_json, mcp_compact};
 use rmcp::{
     RoleServer, ServerHandler, ServiceExt,
     handler::server::tool::schema_for_type,
+    model::AnnotateAble,
     model::{
         CallToolRequestParams, CallToolResult, Content, ErrorData, Implementation, JsonObject,
-        ListResourcesResult, ListToolsResult, PaginatedRequestParams, ProtocolVersion,
-        RawResource, ReadResourceRequestParams, ReadResourceResult, ResourceContents,
-        ServerCapabilities, ServerInfo, Tool,
+        ListResourcesResult, ListToolsResult, PaginatedRequestParams, ProtocolVersion, RawResource,
+        ReadResourceRequestParams, ReadResourceResult, ResourceContents, ServerCapabilities,
+        ServerInfo, Tool,
     },
     schemars::{self, JsonSchema},
     service::RequestContext,
     transport::stdio,
-    model::AnnotateAble,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -563,10 +563,12 @@ impl ServerHandler for PlumbServer {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<ListResourcesResult, ErrorData>> + Send + '_ {
-        let resources = vec![RawResource::new(CONFIG_RESOURCE_URI, CONFIG_RESOURCE_NAME)
-            .with_description(CONFIG_RESOURCE_DESCRIPTION)
-            .with_mime_type(CONFIG_RESOURCE_MIME_TYPE)
-            .no_annotation()];
+        let resources = vec![
+            RawResource::new(CONFIG_RESOURCE_URI, CONFIG_RESOURCE_NAME)
+                .with_description(CONFIG_RESOURCE_DESCRIPTION)
+                .with_mime_type(CONFIG_RESOURCE_MIME_TYPE)
+                .no_annotation(),
+        ];
         std::future::ready(Ok(ListResourcesResult::with_all_items(resources)))
     }
 
