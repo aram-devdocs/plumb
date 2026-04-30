@@ -1,0 +1,214 @@
+name: Install smoke test
+
+# Verifies that each install channel produces a working `plumb` binary
+# across platforms. Runs weekly and on every release tag.
+#
+# Matrix: {cargo, brew, npm, curl} x {ubuntu, macos, windows}.
+# Brew and npm channels are gated — they skip until the external
+# prerequisites (plumb-dev org, homebrew-tap repo, npm scope) exist.
+# See dist-workspace.toml and docs/src/ci/release-prep.md for details.
+#
+# Non-gated failures open or update a single tracking issue so the team
+# gets notified without duplicate noise.
+
+on:
+  schedule:
+    - cron: "15 4 * * 1" # Weekly, Monday 04:15 UTC
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: install-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The tag to install. On tag push this is the pushed tag; on schedule
+  # or manual dispatch we discover the latest release dynamically.
+  SMOKE_TAG: ""
+
+jobs:
+  resolve-tag:
+    name: Resolve release tag
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      version: ${{ steps.tag.outputs.version }}
+    steps:
+      - name: Determine tag
+        id: tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            tag="${{ github.ref_name }}"
+          else
+            tag="$(gh release view --repo "${{ github.repository }}" --json tagName -q .tagName 2>/dev/null || true)"
+          fi
+          if [[ -z "$tag" ]]; then
+            echo "::warning::No release tag found — skipping smoke tests."
+            echo "tag=" >> "$GITHUB_OUTPUT"
+            echo "version=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+          echo "Resolved tag: $tag"
+
+  smoke:
+    name: "${{ matrix.channel }} / ${{ matrix.os }}"
+    needs: resolve-tag
+    if: needs.resolve-tag.outputs.tag != ''
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.gated }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ── cargo ───────────────────────────────────────────────
+          - channel: cargo
+            os: ubuntu-latest
+            gated: false
+          - channel: cargo
+            os: macos-latest
+            gated: false
+          - channel: cargo
+            os: windows-latest
+            gated: false
+
+          # ── curl (install script) ───────────────────────────────
+          - channel: curl
+            os: ubuntu-latest
+            gated: false
+          - channel: curl
+            os: macos-latest
+            gated: false
+          - channel: curl
+            os: windows-latest
+            gated: false
+
+          # ── brew (gated — no tap yet) ───────────────────────────
+          - channel: brew
+            os: ubuntu-latest
+            gated: true
+          - channel: brew
+            os: macos-latest
+            gated: true
+
+          # ── npm (gated — no scope yet) ──────────────────────────
+          - channel: npm
+            os: ubuntu-latest
+            gated: true
+          - channel: npm
+            os: macos-latest
+            gated: true
+          - channel: npm
+            os: windows-latest
+            gated: true
+
+    steps:
+      - name: Skip gated channel
+        if: matrix.gated
+        run: |
+          echo "::notice::${{ matrix.channel }} is gated — external prerequisites not yet available. Skipping."
+          exit 0
+
+      # ── cargo install ─────────────────────────────────────────
+      - name: Install via cargo
+        if: "!matrix.gated && matrix.channel == 'cargo'"
+        shell: bash
+        run: |
+          cargo install plumb-cli --version "${{ needs.resolve-tag.outputs.version }}" --locked
+
+      # ── curl / install script ─────────────────────────────────
+      - name: Install via curl (unix)
+        if: "!matrix.gated && matrix.channel == 'curl' && runner.os != 'Windows'"
+        shell: bash
+        env:
+          INSTALLER_URL: "https://github.com/${{ github.repository }}/releases/download/${{ needs.resolve-tag.outputs.tag }}/plumb-installer.sh"
+        run: |
+          curl -LsSf "$INSTALLER_URL" | sh
+
+      - name: Install via curl (windows)
+        if: "!matrix.gated && matrix.channel == 'curl' && runner.os == 'Windows'"
+        shell: pwsh
+        env:
+          INSTALLER_URL: "https://github.com/${{ github.repository }}/releases/download/${{ needs.resolve-tag.outputs.tag }}/plumb-installer.ps1"
+        run: |
+          irm "$env:INSTALLER_URL" | iex
+
+      # ── brew ──────────────────────────────────────────────────
+      - name: Install via brew
+        if: "!matrix.gated && matrix.channel == 'brew'"
+        shell: bash
+        run: |
+          brew install plumb-dev/tap/plumb
+
+      # ── npm ───────────────────────────────────────────────────
+      - name: Install via npm
+        if: "!matrix.gated && matrix.channel == 'npm'"
+        shell: bash
+        run: |
+          npm install -g @plumb/cli
+
+      # ── Verify ────────────────────────────────────────────────
+      - name: Verify plumb
+        if: "!matrix.gated"
+        shell: bash
+        run: |
+          echo "--- plumb --version ---"
+          plumb --version
+          echo "--- plumb lint plumb-fake://hello ---"
+          plumb lint plumb-fake://hello
+
+  report:
+    name: Report failures
+    needs: [resolve-tag, smoke]
+    if: always() && needs.resolve-tag.outputs.tag != '' && needs.smoke.result == 'failure'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create or update tracking issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          repo="${{ github.repository }}"
+          title="Install smoke test failure (${{ needs.resolve-tag.outputs.tag }})"
+          label="bug"
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          body="$(cat <<EOF
+          ## Install smoke test failure
+
+          **Tag:** \`${{ needs.resolve-tag.outputs.tag }}\`
+          **Run:** $run_url
+          **Triggered by:** ${{ github.event_name }}
+
+          One or more non-gated install channels failed. Check the workflow
+          run linked above for per-job logs.
+
+          _This issue was created automatically by the install-smoke workflow._
+          EOF
+          )"
+
+          # Look for an existing open issue with this title prefix.
+          existing="$(gh issue list --repo "$repo" --state open \
+            --search "Install smoke test failure" \
+            --json number,title -q '.[0].number' 2>/dev/null || true)"
+
+          if [[ -n "$existing" ]]; then
+            echo "Updating existing issue #$existing"
+            gh issue comment "$existing" --repo "$repo" \
+              --body "New failure for tag \`${{ needs.resolve-tag.outputs.tag }}\`: $run_url"
+          else
+            echo "Creating new tracking issue"
+            gh issue create --repo "$repo" \
+              --title "$title" \
+              --body "$body" \
+              --label "$label"
+          fi

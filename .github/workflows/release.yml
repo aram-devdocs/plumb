@@ -122,6 +122,9 @@ jobs:
       - run: cargo binstall --no-confirm --force --locked cargo-dist@0.28.0
       - name: cargo dist build installers
         run: cargo dist build --tag "${{ github.ref_name }}" --artifacts=global
+      - uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: target/distrib/*
       - uses: actions/upload-artifact@v7
         with:
           name: artifacts-installers
