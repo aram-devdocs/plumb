@@ -22,7 +22,6 @@ on:
 
 permissions:
   contents: read
-  issues: write
 
 concurrency:
   group: install-smoke-${{ github.ref }}
@@ -172,6 +171,8 @@ jobs:
     needs: [resolve-tag, smoke]
     if: always() && needs.resolve-tag.outputs.tag != '' && needs.smoke.result == 'failure'
     runs-on: ubuntu-latest
+    permissions:
+      issues: write
     steps:
       - name: Create or update tracking issue
         env:

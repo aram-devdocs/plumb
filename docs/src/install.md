@@ -153,7 +153,7 @@ command exits 0 if the attestation is valid.
 | Artifact kind | Attested? |
 |---------------|-----------|
 | Platform archives (`.tar.xz`, `.zip`) | Yes |
-| Installer scripts (`install.sh`, `install.ps1`) | Yes |
+| Installer scripts (`plumb-installer.sh`, `plumb-installer.ps1`) | Yes |
 
 The attestation binds each file's SHA-256 digest to the GitHub Actions
 workflow run that produced it. You can inspect the full SLSA provenance
@@ -168,13 +168,21 @@ gh attestation verify plumb-x86_64-unknown-linux-gnu.tar.xz \
 
 ### Offline verification
 
-If you need to verify without network access to GitHub, download the
-`.sigstore` bundle from the release assets and use
-[`cosign`](https://github.com/sigstore/cosign):
+GitHub attestations are stored in the GitHub attestation API, not as
+release assets. To verify offline, first export the attestation bundle
+while you have network access:
+
+```bash
+gh attestation download plumb-x86_64-unknown-linux-gnu.tar.xz \
+  --repo aram-devdocs/plumb
+```
+
+This saves a `.jsonl` bundle locally. You can then verify the artifact
+offline with [`cosign`](https://github.com/sigstore/cosign):
 
 ```bash
 cosign verify-blob \
-  --bundle plumb-x86_64-unknown-linux-gnu.tar.xz.sigstore \
+  --bundle plumb-x86_64-unknown-linux-gnu.tar.xz.sigstore.jsonl \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   --certificate-identity-regexp 'github.com/aram-devdocs/plumb' \
   plumb-x86_64-unknown-linux-gnu.tar.xz
