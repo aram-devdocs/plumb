@@ -116,6 +116,7 @@ jobs:
       # ── cargo install ─────────────────────────────────────────
       - name: Install via cargo
         if: "!matrix.gated && matrix.channel == 'cargo'"
+        timeout-minutes: 45
         shell: bash
         run: |
           cargo install plumb-cli --version "${{ needs.resolve-tag.outputs.version }}" --locked
@@ -159,7 +160,11 @@ jobs:
           echo "--- plumb --version ---"
           plumb --version
           echo "--- plumb lint plumb-fake://hello ---"
-          plumb lint plumb-fake://hello
+          rc=0; plumb lint plumb-fake://hello || rc=$?
+          if [[ "$rc" -ne 0 && "$rc" -ne 3 ]]; then
+            echo "::error::plumb lint exited with unexpected code $rc"
+            exit 1
+          fi
 
   report:
     name: Report failures

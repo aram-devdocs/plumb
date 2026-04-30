@@ -124,7 +124,7 @@ jobs:
         run: cargo dist build --tag "${{ github.ref_name }}" --artifacts=global
       - uses: actions/attest-build-provenance@v4
         with:
-          subject-path: target/distrib/*
+          subject-path: target/distrib/plumb-installer.*
       - uses: actions/upload-artifact@v7
         with:
           name: artifacts-installers
