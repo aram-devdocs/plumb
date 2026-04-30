@@ -1,9 +1,9 @@
 # Codex
 
-> **Reviewer check:** The Codex MCP config shape below is based on
-> published documentation as of April 2026. If you have access to a
-> Codex environment, verify that the config path and format are
-> correct.
+> **Note:** The config format below follows Codex's published MCP
+> documentation as of April 2026. If Codex updates its config schema,
+> check the [Codex docs](https://platform.openai.com/docs) for the
+> current format.
 
 OpenAI Codex connects to MCP servers through a `.codex/mcp.json` file
 in your project root. See the

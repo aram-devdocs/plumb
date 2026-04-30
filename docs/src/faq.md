@@ -61,23 +61,23 @@ lints the rendered result, not the source.
 
 See: [Introduction](./introduction.md).
 
-## 5. I get false positives on hidden or off-screen elements
+## 5. I get false positives on off-screen elements
 
-Plumb snapshots the full DOM at each viewport, including elements with
-`display: none`, `visibility: hidden`, or positioned off-screen.
-Elements that are invisible to users can still produce violations
-(e.g. a hidden button with a small touch target).
+Plumb snapshots the full DOM at each viewport. Elements positioned
+off-screen (e.g. a mobile nav drawer translated to `left: -9999px`) are
+still part of the layout and can trigger spacing or typography rules
+even though users never see them at that breakpoint.
 
 **Fix:** Suppress specific rules for known false positives using
 per-rule overrides in `plumb.toml`:
 
 ```toml
-[rules."a11y/touch-target"]
+[rules."spacing/scale-conformance"]
 enabled = false
 ```
 
-Or narrow the scope by adjusting your viewports so hidden breakpoint
-elements are not rendered.
+Or narrow the scope by adjusting your viewports so off-screen
+breakpoint elements are not rendered.
 
 See: [Configuration — per-rule overrides](./configuration.md),
 [Rules overview](./rules/overview.md).
