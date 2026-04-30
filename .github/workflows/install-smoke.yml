@@ -207,7 +207,12 @@ jobs:
           workflow_path = Path(".github/workflows/install-smoke.yml")
           lines = workflow_path.read_text().splitlines()
 
+          # This is a small stdlib guard for this workflow, not a general
+          # YAML parser. It intentionally fail-closes on syntax it does not
+          # recognize instead of trying to accept every GitHub Actions form.
           expr_open = "$" + "{{"
+          # ubuntu-latest currently provides Python 3.10+, so `str | None`
+          # is valid here without importing Optional.
           supported_run_markers = {"|", "|-", "|+"}
 
           in_jobs = False
@@ -219,6 +224,9 @@ jobs:
           bad_lines = []
           unsupported = []
 
+          # The scanner assumes the repo-standard 2-space GitHub Actions
+          # indentation used in this file and block-scalar `run: |`,
+          # `run: |-`, and `run: |+` forms.
           def step_label(step_name: str | None) -> str:
               return step_name or "<unnamed step>"
 
