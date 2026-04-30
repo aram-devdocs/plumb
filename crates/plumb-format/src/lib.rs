@@ -11,7 +11,7 @@
 //!
 //! - [`pretty`] — human-readable TTY output.
 //! - [`json()`] — canonical machine-readable format.
-//! - [`sarif`] — SARIF 2.1.0 for GitHub code-scanning and IDEs.
+//! - [`sarif_with_rules`] — SARIF 2.1.0 for GitHub code-scanning and IDEs.
 //! - [`mcp_compact`] — token-efficient output for the MCP server; returns
 //!   a `(text, structured)` pair matching PRD §14.2.
 
@@ -21,7 +21,7 @@
 
 use std::fmt::Write as _;
 
-use plumb_core::{Severity, Violation};
+use plumb_core::{RuleMetadata, Severity, Violation};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
@@ -143,20 +143,102 @@ fn hex_digest(bytes: &[u8]) -> String {
     hex
 }
 
-/// Render a slice of violations as SARIF 2.1.0.
+/// Stable synthetic artifact URI used for every SARIF result.
 ///
-/// This is a minimal conformant document — the real rule metadata is
-/// attached as a placeholder. Downstream PRs enrich it with `helpUri`,
-/// `defaultConfiguration`, etc. per the SARIF spec.
+/// GitHub Code Scanning's `locationFromSarifResult` rejects any result
+/// whose first location does not carry a `physicalLocation`. Plumb
+/// lints rendered URLs, not source files, so there is no real source artifact
+/// to point at. The formatter emits this deterministic placeholder
+/// instead. Viewport, DOM order, and the original CSS selector live on
+/// the result's `logicalLocations` and location-level `properties`.
+const SARIF_ARTIFACT_URI: &str = "plumb-lint-target";
+
+/// Map a [`Severity`] to the SARIF `defaultConfiguration.level` string.
+fn severity_to_sarif_level(severity: Severity) -> &'static str {
+    match severity {
+        Severity::Error => "error",
+        Severity::Warning => "warning",
+        Severity::Info => "note",
+    }
+}
+
+/// Build the SARIF `tool.driver.rules` array plus rule-id index map.
+fn sarif_driver_rules_and_index(metadata: &[RuleMetadata]) -> (Vec<Value>, Vec<(String, usize)>) {
+    let mut sorted: Vec<&RuleMetadata> = metadata.iter().collect();
+    sorted.sort_by(|a, b| a.id.cmp(&b.id));
+
+    let mut index = Vec::with_capacity(sorted.len());
+    let mut descriptors = Vec::with_capacity(sorted.len());
+
+    for (i, rule) in sorted.iter().enumerate() {
+        index.push((rule.id.clone(), i));
+        let rule_name = rule.id.replace('/', "-");
+        descriptors.push(json!({
+            "id": rule.id,
+            "name": rule_name,
+            "shortDescription": { "text": rule.summary },
+            "fullDescription": { "text": rule.summary },
+            "helpUri": rule.doc_url,
+            "defaultConfiguration": {
+                "level": severity_to_sarif_level(rule.default_severity),
+            },
+        }));
+    }
+
+    (descriptors, index)
+}
+
+/// Render a slice of violations as SARIF 2.1.0 with caller-supplied rule metadata.
+///
+/// The output includes full rule metadata in `tool.driver.rules` (one
+/// `reportingDescriptor` per rule with `shortDescription`,
+/// `fullDescription`, `helpUri`, and `defaultConfiguration`), and each
+/// result carries a `ruleIndex` pointing back into that array. Callers that
+/// want a complete built-in rule table should pass
+/// `plumb_core::builtin_rule_metadata()`. Keeping the registry lookup at
+/// the caller boundary preserves this crate's formatter contract: output is
+/// a pure function of explicit inputs.
+///
+/// Each result's first location carries a `physicalLocation` of the shape:
+///
+/// ```json
+/// "physicalLocation": {
+///   "artifactLocation": { "uri": "plumb-lint-target" },
+///   "region": { "startLine": 1 }
+/// }
+/// ```
+///
+/// The artifact URI is the stable synthetic placeholder
+/// `plumb-lint-target`. GitHub Code Scanning's
+/// `locationFromSarifResult` requires every result to have a
+/// `physicalLocation`, but Plumb violations have no source file — they are
+/// tied to a rendered URL. The original selector, viewport, and DOM order
+/// remain on the location's `logicalLocations` and `properties` blocks.
+///
+/// Results are sorted defensively by violation sort key, matching the JSON
+/// formatter's behavior.
 ///
 /// # Errors
 ///
 /// Returns an error if serialization fails.
-pub fn sarif(violations: &[Violation]) -> Result<String, serde_json::Error> {
-    let results: Vec<Value> = violations
+pub fn sarif_with_rules(
+    violations: &[Violation],
+    rule_metadata: &[RuleMetadata],
+) -> Result<String, serde_json::Error> {
+    let (rules, index_map) = sarif_driver_rules_and_index(rule_metadata);
+
+    let mut sorted: Vec<&Violation> = violations.iter().collect();
+    sorted.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
+
+    let results: Vec<Value> = sorted
         .iter()
         .map(|v| {
-            json!({
+            let rule_index = index_map
+                .iter()
+                .find(|(id, _)| id == &v.rule_id)
+                .map(|(_, idx)| *idx);
+
+            let mut result = json!({
                 "ruleId": v.rule_id,
                 "level": match v.severity {
                     Severity::Error => "error",
@@ -165,6 +247,10 @@ pub fn sarif(violations: &[Violation]) -> Result<String, serde_json::Error> {
                 },
                 "message": { "text": v.message },
                 "locations": [{
+                    "physicalLocation": {
+                        "artifactLocation": { "uri": SARIF_ARTIFACT_URI },
+                        "region": { "startLine": 1 },
+                    },
                     "logicalLocations": [{
                         "fullyQualifiedName": v.selector,
                         "kind": "element",
@@ -177,7 +263,15 @@ pub fn sarif(violations: &[Violation]) -> Result<String, serde_json::Error> {
                 "properties": {
                     "docUrl": v.doc_url,
                 }
-            })
+            });
+
+            if let Some(idx) = rule_index
+                && let Some(obj) = result.as_object_mut()
+            {
+                obj.insert("ruleIndex".to_owned(), json!(idx));
+            }
+
+            result
         })
         .collect();
 
@@ -189,7 +283,7 @@ pub fn sarif(violations: &[Violation]) -> Result<String, serde_json::Error> {
                 "driver": {
                     "name": "plumb",
                     "informationUri": "https://plumb.aramhammoudeh.com",
-                    "rules": [],
+                    "rules": rules,
                 }
             },
             "results": results,

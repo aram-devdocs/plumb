@@ -11,7 +11,120 @@ expression: out
         "driver": {
           "name": "plumb",
           "informationUri": "https://plumb.aramhammoudeh.com",
-          "rules": []
+          "rules": [
+            {
+              "id": "a11y/touch-target",
+              "name": "a11y-touch-target",
+              "shortDescription": {
+                "text": "Flags interactive elements smaller than the configured minimum target size."
+              },
+              "fullDescription": {
+                "text": "Flags interactive elements smaller than the configured minimum target size."
+              },
+              "helpUri": "https://plumb.aramhammoudeh.com/rules/a11y-touch-target",
+              "defaultConfiguration": {
+                "level": "warning"
+              }
+            },
+            {
+              "id": "color/palette-conformance",
+              "name": "color-palette-conformance",
+              "shortDescription": {
+                "text": "Flags computed colors that aren't on `color.tokens` (CIEDE2000)."
+              },
+              "fullDescription": {
+                "text": "Flags computed colors that aren't on `color.tokens` (CIEDE2000)."
+              },
+              "helpUri": "https://plumb.aramhammoudeh.com/rules/color-palette-conformance",
+              "defaultConfiguration": {
+                "level": "warning"
+              }
+            },
+            {
+              "id": "edge/near-alignment",
+              "name": "edge-near-alignment",
+              "shortDescription": {
+                "text": "Flags element edges that almost-but-not-quite line up with sibling edges."
+              },
+              "fullDescription": {
+                "text": "Flags element edges that almost-but-not-quite line up with sibling edges."
+              },
+              "helpUri": "https://plumb.aramhammoudeh.com/rules/edge-near-alignment",
+              "defaultConfiguration": {
+                "level": "note"
+              }
+            },
+            {
+              "id": "radius/scale-conformance",
+              "name": "radius-scale-conformance",
+              "shortDescription": {
+                "text": "Flags border-radius values that aren't members of `radius.scale`."
+              },
+              "fullDescription": {
+                "text": "Flags border-radius values that aren't members of `radius.scale`."
+              },
+              "helpUri": "https://plumb.aramhammoudeh.com/rules/radius-scale-conformance",
+              "defaultConfiguration": {
+                "level": "warning"
+              }
+            },
+            {
+              "id": "sibling/height-consistency",
+              "name": "sibling-height-consistency",
+              "shortDescription": {
+                "text": "Flags sibling elements in the same visual row whose heights drift from the row's median."
+              },
+              "fullDescription": {
+                "text": "Flags sibling elements in the same visual row whose heights drift from the row's median."
+              },
+              "helpUri": "https://plumb.aramhammoudeh.com/rules/sibling-height-consistency",
+              "defaultConfiguration": {
+                "level": "note"
+              }
+            },
+            {
+              "id": "spacing/grid-conformance",
+              "name": "spacing-grid-conformance",
+              "shortDescription": {
+                "text": "Flags spacing values that aren't multiples of `spacing.base_unit`."
+              },
+              "fullDescription": {
+                "text": "Flags spacing values that aren't multiples of `spacing.base_unit`."
+              },
+              "helpUri": "https://plumb.aramhammoudeh.com/rules/spacing-grid-conformance",
+              "defaultConfiguration": {
+                "level": "warning"
+              }
+            },
+            {
+              "id": "spacing/scale-conformance",
+              "name": "spacing-scale-conformance",
+              "shortDescription": {
+                "text": "Flags spacing values that aren't members of `spacing.scale`."
+              },
+              "fullDescription": {
+                "text": "Flags spacing values that aren't members of `spacing.scale`."
+              },
+              "helpUri": "https://plumb.aramhammoudeh.com/rules/spacing-scale-conformance",
+              "defaultConfiguration": {
+                "level": "warning"
+              }
+            },
+            {
+              "id": "type/scale-conformance",
+              "name": "type-scale-conformance",
+              "shortDescription": {
+                "text": "Flags `font-size` values that aren't members of `type.scale`."
+              },
+              "fullDescription": {
+                "text": "Flags `font-size` values that aren't members of `type.scale`."
+              },
+              "helpUri": "https://plumb.aramhammoudeh.com/rules/type-scale-conformance",
+              "defaultConfiguration": {
+                "level": "warning"
+              }
+            }
+          ]
         }
       },
       "results": [
@@ -23,6 +136,14 @@ expression: out
           },
           "locations": [
             {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "plumb-lint-target"
+                },
+                "region": {
+                  "startLine": 1
+                }
+              },
               "logicalLocations": [
                 {
                   "fullyQualifiedName": "html > body",
@@ -37,7 +158,8 @@ expression: out
           ],
           "properties": {
             "docUrl": "https://plumb.aramhammoudeh.com/rules/spacing-grid-conformance"
-          }
+          },
+          "ruleIndex": 5
         }
       ]
     }
