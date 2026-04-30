@@ -184,6 +184,6 @@ offline with [`cosign`](https://github.com/sigstore/cosign):
 cosign verify-blob \
   --bundle plumb-x86_64-unknown-linux-gnu.tar.xz.sigstore.jsonl \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  --certificate-identity-regexp 'github.com/aram-devdocs/plumb' \
+  --certificate-identity-regexp '^https://github\.com/aram-devdocs/plumb/' \
   plumb-x86_64-unknown-linux-gnu.tar.xz
 ```
