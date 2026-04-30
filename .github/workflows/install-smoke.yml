@@ -157,6 +157,13 @@ jobs:
         if: "!matrix.gated"
         shell: bash
         run: |
+          # On Windows the installer may update PATH outside bash's view.
+          # Refresh and show diagnostics so PATH failures are explicit.
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            export PATH="$USERPROFILE/.cargo/bin:$LOCALAPPDATA/Programs/plumb/bin:$PATH"
+            echo "--- PATH diagnostic ---"
+            which plumb || { echo "::error::plumb not found on PATH"; where plumb 2>/dev/null || true; echo "PATH=$PATH"; exit 1; }
+          fi
           echo "--- plumb --version ---"
           plumb --version
           echo "--- plumb lint plumb-fake://hello ---"
@@ -174,6 +181,15 @@ jobs:
     permissions:
       issues: write
     steps:
+      - name: Ensure install-smoke label exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh label create install-smoke \
+            --repo "${{ github.repository }}" \
+            --description "Auto-created by the install-smoke workflow" \
+            --color "D93F0B" 2>/dev/null || true
+
       - name: Create or update tracking issue
         env:
           GH_TOKEN: ${{ github.token }}
@@ -196,10 +212,10 @@ jobs:
           EOF
           )"
 
-          # Look for an existing open issue with this title prefix.
+          # Label-based lookup is consistent (no search-index delay).
           existing="$(gh issue list --repo "$repo" --state open \
-            --search "Install smoke test failure" \
-            --json number,title -q '.[0].number' 2>/dev/null || true)"
+            --label install-smoke \
+            --json number -q '.[0].number' 2>/dev/null || true)"
 
           if [[ -n "$existing" ]]; then
             echo "Updating existing issue #$existing"
@@ -209,5 +225,6 @@ jobs:
             echo "Creating new tracking issue"
             gh issue create --repo "$repo" \
               --title "$title" \
-              --body "$body"
+              --body "$body" \
+              --label install-smoke
           fi
