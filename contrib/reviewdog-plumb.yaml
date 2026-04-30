@@ -1,0 +1,41 @@
+runner:
+  plumb:
+    cmd: |
+      plumb lint plumb-fake://hello --format json | jq -c '
+        {
+          source: {
+            name: "plumb",
+            url: "https://plumb.aramhammoudeh.com"
+          },
+          diagnostics: [
+            .violations[] | {
+              message: (
+                .message
+                + " selector=" + (.selector // "<unknown>")
+                + " viewport=" + (.viewport // "<unknown>")
+              ),
+              location: {
+                path: "plumb-lint-target",
+                range: {
+                  start: {
+                    line: 1,
+                    column: 1
+                  }
+                }
+              },
+              severity: (
+                if .severity == "error" then "ERROR"
+                elif .severity == "warning" then "WARNING"
+                else "INFO"
+                end
+              ),
+              code: {
+                value: .rule_id,
+                url: .doc_url
+              }
+            }
+          ]
+        }
+      '
+    format: rdjson
+    name: plumb
