@@ -1,6 +1,7 @@
 runner:
   plumb:
     cmd: |
+      # Replace plumb-fake://hello with the real target URL for your project.
       plumb lint plumb-fake://hello --format json | jq -c '
         {
           source: {

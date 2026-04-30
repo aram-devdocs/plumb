@@ -5,6 +5,8 @@ here converts `plumb lint --format json` output to reviewdog's
 `rdjson` format with `jq`.
 
 The committed runner config lives at `contrib/reviewdog-plumb.yaml`.
+Copy that file from the Plumb repo into your own project before using
+`-conf=contrib/reviewdog-plumb.yaml`.
 
 ## What the config does
 
@@ -12,7 +14,8 @@ Plumb reports findings against a rendered target, not a source file in
 your repository. reviewdog expects file-based diagnostics. The config
 committed in `contrib/reviewdog-plumb.yaml` does four things:
 
-- running `plumb lint plumb-fake://hello --format json`;
+- running `plumb lint plumb-fake://hello --format json` (replace
+  `plumb-fake://hello` with the URL you want to lint);
 - converting `.violations[]` to `rdjson`;
 - attaching each diagnostic to the synthetic path
   `plumb-lint-target:1:1`;
@@ -23,6 +26,10 @@ That makes the output usable for reviewdog reporters such as
 layer, not source mapping.
 
 ## Local run
+
+Before running this, copy `contrib/reviewdog-plumb.yaml` from this repo
+into your project's `contrib/` directory. Then edit the copied file and
+replace `plumb-fake://hello` with the real target URL.
 
 ```bash
 reviewdog \
@@ -70,7 +77,8 @@ jobs:
 
 ## The JSON pipeline
 
-The runner config uses this exact pipeline:
+The runner config uses this exact pipeline. Replace `plumb-fake://hello`
+with the real target URL in your copied config.
 
 ```bash
 plumb lint plumb-fake://hello --format json | jq -c '
