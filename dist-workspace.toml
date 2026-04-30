@@ -25,8 +25,12 @@ github-attestations = true
 pr-run-mode = "plan"
 allow-dirty = ["ci"]
 
-# tap and npm-scope are intentionally commented out until the
-# plumb-dev/homebrew-tap repo and @plumb npm org exist.
+# Homebrew and npm publishing stay disabled in this prep-only state.
+# Uncomment these only after:
+# 1. the `plumb-dev` GitHub org exists,
+# 2. the `plumb-dev/homebrew-tap` repo exists and is wired for cargo-dist,
+# 3. the release token/permissions for cargo-dist publishing are in place.
+# Issue #51 is intentionally narrowed so this PR does not enable either.
 # tap = "plumb-dev/homebrew-tap"
 # npm-scope = "@plumb"
 
