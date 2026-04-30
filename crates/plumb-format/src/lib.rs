@@ -21,7 +21,7 @@
 
 use std::fmt::Write as _;
 
-use plumb_core::{Severity, Violation, register_builtin};
+use plumb_core::{RuleMetadata, Severity, Violation};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
@@ -164,41 +164,35 @@ fn severity_to_sarif_level(severity: Severity) -> &'static str {
 }
 
 /// Build the SARIF `tool.driver.rules` array plus rule-id index map.
-fn sarif_driver_rules_and_index() -> (Vec<Value>, Vec<(&'static str, usize)>) {
-    let mut rules = register_builtin();
-    rules.sort_by(|a, b| a.id().cmp(b.id()));
+fn sarif_driver_rules_and_index(metadata: &[RuleMetadata]) -> (Vec<Value>, Vec<(String, usize)>) {
+    let mut sorted: Vec<&RuleMetadata> = metadata.iter().collect();
+    sorted.sort_by(|a, b| a.id.cmp(&b.id));
 
-    let mut index = Vec::with_capacity(rules.len());
-    let descriptors = rules
-        .iter()
-        .enumerate()
-        .map(|(i, rule)| {
-            let rule_id = rule.id();
-            let summary = rule.summary();
-            index.push((rule_id, i));
+    let mut index = Vec::with_capacity(sorted.len());
+    let mut descriptors = Vec::with_capacity(sorted.len());
 
-            json!({
-                "id": rule_id,
-                "name": rule_id,
-                "shortDescription": { "text": summary },
-                "fullDescription": { "text": summary },
-                "helpUri": rule.doc_url(),
-                "defaultConfiguration": {
-                    "level": severity_to_sarif_level(rule.default_severity()),
-                },
-            })
-        })
-        .collect();
+    for (i, rule) in sorted.iter().enumerate() {
+        index.push((rule.id.clone(), i));
+        descriptors.push(json!({
+            "id": rule.id,
+            "name": rule.id,
+            "shortDescription": { "text": rule.summary },
+            "fullDescription": { "text": rule.summary },
+            "helpUri": rule.doc_url,
+            "defaultConfiguration": {
+                "level": severity_to_sarif_level(rule.default_severity),
+            },
+        }));
+    }
 
     (descriptors, index)
 }
 
 /// Render a slice of violations as SARIF 2.1.0.
 ///
-/// The output includes full rule metadata in `tool.driver.rules` (one
-/// `reportingDescriptor` per built-in rule with `shortDescription`,
-/// `fullDescription`, `helpUri`, and `defaultConfiguration`), and each
-/// result carries a `ruleIndex` pointing back into that array.
+/// Prefer [`sarif_with_rules`] when the caller has rule metadata; this
+/// compatibility wrapper keeps the formatter pure by deriving a minimal
+/// descriptor set from the provided violations only.
 ///
 /// Each result's first location carries a `physicalLocation` of the
 /// shape:
@@ -225,7 +219,35 @@ fn sarif_driver_rules_and_index() -> (Vec<Value>, Vec<(&'static str, usize)>) {
 ///
 /// Returns an error if serialization fails.
 pub fn sarif(violations: &[Violation]) -> Result<String, serde_json::Error> {
-    let (rules, index_map) = sarif_driver_rules_and_index();
+    let mut metadata: Vec<RuleMetadata> = violations
+        .iter()
+        .map(|v| RuleMetadata {
+            id: v.rule_id.clone(),
+            summary: v.message.clone(),
+            doc_url: v.doc_url.clone(),
+            default_severity: v.severity,
+        })
+        .collect();
+    metadata.sort_by(|a, b| a.id.cmp(&b.id));
+    metadata.dedup_by(|a, b| a.id == b.id);
+    sarif_with_rules(violations, &metadata)
+}
+
+/// Render a slice of violations as SARIF 2.1.0 with caller-supplied rule metadata.
+///
+/// Callers that want a complete built-in rule table should pass
+/// `plumb_core::builtin_rule_metadata()`. Keeping the registry lookup at
+/// the caller boundary preserves this crate's formatter contract: output is
+/// a pure function of explicit inputs.
+///
+/// # Errors
+///
+/// Returns an error if serialization fails.
+pub fn sarif_with_rules(
+    violations: &[Violation],
+    rule_metadata: &[RuleMetadata],
+) -> Result<String, serde_json::Error> {
+    let (rules, index_map) = sarif_driver_rules_and_index(rule_metadata);
 
     let mut sorted: Vec<&Violation> = violations.iter().collect();
     sorted.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
@@ -235,7 +257,7 @@ pub fn sarif(violations: &[Violation]) -> Result<String, serde_json::Error> {
         .map(|v| {
             let rule_index = index_map
                 .iter()
-                .find(|(id, _)| *id == v.rule_id)
+                .find(|(id, _)| id == &v.rule_id)
                 .map(|(_, idx)| *idx);
 
             let mut result = json!({

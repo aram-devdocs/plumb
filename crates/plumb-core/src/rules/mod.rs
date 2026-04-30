@@ -22,6 +22,32 @@ use crate::config::Config;
 use crate::report::{Severity, ViolationSink};
 use crate::snapshot::SnapshotCtx;
 
+/// Static metadata needed by output formats and rule listings.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuleMetadata {
+    /// Stable identifier, `<category>/<id>` (e.g. `spacing/grid-conformance`).
+    pub id: String,
+    /// One-line human-readable summary.
+    pub summary: String,
+    /// Canonical documentation URL for this rule.
+    pub doc_url: String,
+    /// Default severity if the user's config doesn't override it.
+    pub default_severity: Severity,
+}
+
+impl RuleMetadata {
+    /// Build metadata from a registered rule.
+    #[must_use]
+    pub fn from_rule(rule: &dyn Rule) -> Self {
+        Self {
+            id: rule.id().to_owned(),
+            summary: rule.summary().to_owned(),
+            doc_url: rule.doc_url(),
+            default_severity: rule.default_severity(),
+        }
+    }
+}
+
 /// A rule — the fundamental unit of work in the engine.
 ///
 /// Rules are `Send + Sync` so the engine can evaluate built-in rules in
@@ -66,4 +92,15 @@ pub fn register_builtin() -> Vec<Box<dyn Rule>> {
         Box::new(spacing::scale_conformance::ScaleConformance),
         Box::new(type_::scale_conformance::ScaleConformance),
     ]
+}
+
+/// Return metadata for every built-in rule, sorted by rule id.
+#[must_use]
+pub fn builtin_rule_metadata() -> Vec<RuleMetadata> {
+    let mut metadata: Vec<RuleMetadata> = register_builtin()
+        .iter()
+        .map(|rule| RuleMetadata::from_rule(rule.as_ref()))
+        .collect();
+    metadata.sort_by(|a, b| a.id.cmp(&b.id));
+    metadata
 }

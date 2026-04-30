@@ -1,8 +1,8 @@
 //! Snapshot tests for every formatter against the canned walking-skeleton
 //! violation set.
 
-use plumb_core::{Config, PlumbSnapshot, run};
-use plumb_format::{json, mcp_compact, pretty, sarif};
+use plumb_core::{Config, PlumbSnapshot, builtin_rule_metadata, run};
+use plumb_format::{json, mcp_compact, pretty, sarif_with_rules};
 
 fn fixture() -> Vec<plumb_core::Violation> {
     let snapshot = PlumbSnapshot::canned();
@@ -23,7 +23,7 @@ fn json_snapshot() {
 
 #[test]
 fn sarif_snapshot() {
-    let out = sarif(&fixture()).expect("sarif serialize");
+    let out = sarif_with_rules(&fixture(), &builtin_rule_metadata()).expect("sarif serialize");
     insta::assert_snapshot!("sarif", out);
 }
 

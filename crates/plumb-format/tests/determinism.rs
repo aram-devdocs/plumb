@@ -5,8 +5,8 @@
 //! suite mirrors the `just determinism-check` recipe at the formatter
 //! level — i.e. before the CLI ever wraps it.
 
-use plumb_core::{Config, PlumbSnapshot, Severity, register_builtin, run};
-use plumb_format::{json, mcp_compact, pretty, sarif};
+use plumb_core::{Config, PlumbSnapshot, Severity, builtin_rule_metadata, register_builtin, run};
+use plumb_format::{json, mcp_compact, pretty, sarif_with_rules};
 
 fn fixture() -> Vec<plumb_core::Violation> {
     let snapshot = PlumbSnapshot::canned();
@@ -124,9 +124,9 @@ fn pretty_is_byte_identical_across_runs() {
 #[test]
 fn sarif_is_byte_identical_across_runs() {
     let violations = fixture();
-    let a = sarif(&violations).expect("sarif a");
-    let b = sarif(&violations).expect("sarif b");
-    let c = sarif(&violations).expect("sarif c");
+    let a = sarif_with_rules(&violations, &builtin_rule_metadata()).expect("sarif a");
+    let b = sarif_with_rules(&violations, &builtin_rule_metadata()).expect("sarif b");
+    let c = sarif_with_rules(&violations, &builtin_rule_metadata()).expect("sarif c");
     assert_eq!(a, b);
     assert_eq!(b, c);
 }
@@ -134,7 +134,7 @@ fn sarif_is_byte_identical_across_runs() {
 #[test]
 fn sarif_has_rule_metadata() {
     let violations = fixture();
-    let out = sarif(&violations).expect("sarif serialize");
+    let out = sarif_with_rules(&violations, &builtin_rule_metadata()).expect("sarif serialize");
     let parsed: serde_json::Value = serde_json::from_str(&out).expect("parse sarif");
 
     let rules = parsed["runs"][0]["tool"]["driver"]["rules"]
@@ -181,7 +181,7 @@ fn sarif_has_rule_metadata() {
 #[test]
 fn sarif_results_reference_rules() {
     let violations = fixture();
-    let out = sarif(&violations).expect("sarif serialize");
+    let out = sarif_with_rules(&violations, &builtin_rule_metadata()).expect("sarif serialize");
     let parsed: serde_json::Value = serde_json::from_str(&out).expect("parse sarif");
 
     let rules = parsed["runs"][0]["tool"]["driver"]["rules"]
@@ -221,7 +221,7 @@ fn sarif_results_reference_rules() {
 #[test]
 fn sarif_rules_sorted_by_id() {
     let violations = fixture();
-    let out = sarif(&violations).expect("sarif serialize");
+    let out = sarif_with_rules(&violations, &builtin_rule_metadata()).expect("sarif serialize");
     let parsed: serde_json::Value = serde_json::from_str(&out).expect("parse sarif");
 
     let rules = parsed["runs"][0]["tool"]["driver"]["rules"]
@@ -241,7 +241,7 @@ fn sarif_rules_sorted_by_id() {
 #[test]
 fn sarif_default_severity_matches_rule_registry() {
     let violations = fixture();
-    let out = sarif(&violations).expect("sarif serialize");
+    let out = sarif_with_rules(&violations, &builtin_rule_metadata()).expect("sarif serialize");
     let parsed: serde_json::Value = serde_json::from_str(&out).expect("parse sarif");
 
     let rules = parsed["runs"][0]["tool"]["driver"]["rules"]
@@ -284,7 +284,7 @@ fn sarif_default_severity_matches_rule_registry() {
 #[test]
 fn sarif_rule_help_uri_uses_canonical_slug() {
     let violations = fixture();
-    let out = sarif(&violations).expect("sarif serialize");
+    let out = sarif_with_rules(&violations, &builtin_rule_metadata()).expect("sarif serialize");
     let parsed: serde_json::Value = serde_json::from_str(&out).expect("parse sarif");
 
     let rules = parsed["runs"][0]["tool"]["driver"]["rules"]
@@ -316,7 +316,7 @@ fn sarif_results_have_physical_location() {
     // tied to rendered URLs, not source files, so the formatter emits
     // a stable synthetic placeholder. Lock the shape in.
     let violations = fixture();
-    let out = sarif(&violations).expect("sarif serialize");
+    let out = sarif_with_rules(&violations, &builtin_rule_metadata()).expect("sarif serialize");
     let parsed: serde_json::Value = serde_json::from_str(&out).expect("parse sarif");
 
     let results = parsed["runs"][0]["results"]
@@ -355,7 +355,7 @@ fn sarif_results_have_physical_location() {
 #[test]
 fn sarif_document_passes_basic_schema_shape() {
     let violations = fixture();
-    let out = sarif(&violations).expect("sarif serialize");
+    let out = sarif_with_rules(&violations, &builtin_rule_metadata()).expect("sarif serialize");
     let parsed: serde_json::Value = serde_json::from_str(&out).expect("parse sarif");
 
     assert_eq!(

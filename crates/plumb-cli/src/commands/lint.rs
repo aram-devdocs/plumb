@@ -93,7 +93,10 @@ pub async fn run(
     let out = match format {
         OutputFormat::Pretty => plumb_format::pretty(&violations),
         OutputFormat::Json => plumb_format::json(&violations).context("serialize JSON")?,
-        OutputFormat::Sarif => plumb_format::sarif(&violations).context("serialize SARIF")?,
+        OutputFormat::Sarif => {
+            plumb_format::sarif_with_rules(&violations, &plumb_core::builtin_rule_metadata())
+                .context("serialize SARIF")?
+        }
     };
     // CLI is the one place writing to stdout is permitted — hence the
     // crate-level allow(clippy::print_stdout) above.
