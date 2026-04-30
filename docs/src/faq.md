@@ -162,9 +162,14 @@ See: [CLI — exit codes](./cli.md).
 
 ## 12. How do I integrate Plumb into GitHub Actions CI?
 
-Use `plumb lint` in a workflow step and check the exit code. Exit 0
-means no violations; exit 1 means at least one error-severity
-violation was found.
+Use `plumb lint` in a workflow step and check the exit code:
+
+| Code | Meaning |
+|------|---------|
+| 0 | No violations. |
+| 1 | One or more `error`-severity violations. |
+| 3 | Only `warning`-severity violations (no errors). |
+| 2 | CLI or infrastructure failure (bad URL, missing config, etc.). |
 
 ```yaml
 - name: Lint with Plumb
