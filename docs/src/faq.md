@@ -182,6 +182,8 @@ Use `plumb lint` in a workflow step and check the exit code:
       exit 1
     fi
     # rc 0 = clean, rc 1 = errors, rc 3 = warnings only
+    # Pass on warnings-only (exit 3) by default
+    if [ "$rc" -eq 3 ]; then exit 0; fi
     exit "$rc"
 
 - name: Upload SARIF
@@ -193,8 +195,8 @@ Use `plumb lint` in a workflow step and check the exit code:
 
 By default this step fails on exit code 1 (errors) and exit code 2
 (infrastructure failure), but passes on exit code 3 (warnings only).
-To also fail on warnings, replace the `exit "$rc"` line with
-`exit $( [ "$rc" -eq 3 ] && echo 1 || echo "$rc" )`.
+To also fail on warnings, remove the `if [ "$rc" -eq 3 ]; then exit 0; fi`
+guard so the step exits non-zero on code 3.
 
 SARIF output integrates with GitHub Code Scanning, so violations
 appear as annotations on the PR. The `if: always()` on the upload
