@@ -12,7 +12,11 @@
 
 - [CLI](./cli.md)
 - [MCP server](./mcp.md)
+  - [Claude Code](./mcp/claude.md)
+  - [Cursor](./mcp/cursor.md)
+  - [Codex](./mcp/codex.md)
 - [Configuration](./configuration.md)
+- [FAQ and troubleshooting](./faq.md)
 
 # CI
 
