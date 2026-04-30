@@ -7,6 +7,11 @@ name: release
 # This workflow is a hand-authored version of what `cargo dist init`
 # would generate. It stays in sync with `dist-workspace.toml`. Re-run
 # `cargo dist generate` locally and diff before editing.
+#
+# Homebrew tap publishing is intentionally inactive here. Do not add the
+# `tap` field in `dist-workspace.toml` until the external prerequisites
+# exist: the `plumb-dev` org, the `plumb-dev/homebrew-tap` repo, and the
+# cargo-dist publishing token/permissions.
 
 on:
   push:
