@@ -41,6 +41,12 @@ pub trait Rule: Send + Sync {
     /// One-line human-readable summary. Shown in `plumb list-rules`.
     fn summary(&self) -> &'static str;
 
+    /// Canonical documentation URL for this rule.
+    fn doc_url(&self) -> String {
+        let slug = self.id().replace('/', "-");
+        format!("https://plumb.aramhammoudeh.com/rules/{slug}")
+    }
+
     /// Evaluate the rule against a snapshot.
     fn check(&self, ctx: &SnapshotCtx<'_>, config: &Config, sink: &mut ViolationSink<'_>);
 }
