@@ -19,6 +19,7 @@
 #![deny(missing_docs)]
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 
+use std::collections::BTreeSet;
 use std::fmt::Write as _;
 
 use plumb_core::{RuleMetadata, Severity, Violation};
@@ -40,27 +41,61 @@ const PLUMB_VERSION: &str = env!("CARGO_PKG_VERSION");
 /// No ANSI escapes — coloring is a CLI concern, not a library concern.
 #[must_use]
 pub fn pretty(violations: &[Violation]) -> String {
-    if violations.is_empty() {
-        return String::from("No violations.\n");
-    }
+    let sorted = pretty_sorted(violations);
+    let run_id = match run_id_for_sorted(&sorted) {
+        Ok(run_id) => run_id,
+        // `Violation` is JSON-serializable by construction, so this
+        // branch should be unreachable in practice. Keep the pretty
+        // formatter infallible and deterministic anyway.
+        Err(_) => String::from("sha256:unavailable"),
+    };
+
     let mut out = String::new();
-    for v in violations {
-        let _ = writeln!(
-            out,
-            "{level:>7} {rule}\n         at {selector} [{viewport}]\n         {msg}",
-            level = v.severity.label(),
-            rule = v.rule_id,
-            selector = v.selector,
-            viewport = v.viewport.as_str(),
-            msg = v.message,
-        );
-        if let Some(fix) = &v.fix {
-            let _ = writeln!(out, "         fix: {}", fix.description);
+
+    if sorted.is_empty() {
+        out.push_str("No violations.\n");
+    } else {
+        let mut current_viewport: Option<&str> = None;
+        let mut current_rule: Option<&str> = None;
+        let mut current_selector: Option<&str> = None;
+
+        for violation in &sorted {
+            let viewport = violation.viewport.as_str();
+            if current_viewport != Some(viewport) {
+                if current_viewport.is_some() {
+                    out.push('\n');
+                }
+                let _ = writeln!(out, "{viewport}");
+                current_viewport = Some(viewport);
+                current_rule = None;
+                current_selector = None;
+            }
+
+            if current_rule != Some(violation.rule_id.as_str()) {
+                let _ = writeln!(out, "  {}", violation.rule_id);
+                current_rule = Some(violation.rule_id.as_str());
+                current_selector = None;
+            }
+
+            if current_selector != Some(violation.selector.as_str()) {
+                let _ = writeln!(out, "    {}", violation.selector);
+                current_selector = Some(violation.selector.as_str());
+            }
+
+            let _ = writeln!(
+                out,
+                "      {}: {}",
+                violation.severity.label(),
+                violation.message
+            );
+            if let Some(fix) = &violation.fix {
+                let _ = writeln!(out, "      fix: {}", fix.description);
+            }
+            let _ = writeln!(out, "      docs: {}", violation.doc_url);
         }
-        let _ = writeln!(out, "         docs: {}\n", v.doc_url);
     }
-    out.push_str(&summary_line(violations));
-    out.push('\n');
+
+    append_pretty_stats(&mut out, violations, &run_id);
     out
 }
 
@@ -107,11 +142,10 @@ pub fn pretty(violations: &[Violation]) -> String {
 /// happens when a `Violation::metadata` contains a non-JSON-representable
 /// value.
 pub fn json(violations: &[Violation]) -> Result<String, serde_json::Error> {
-    let mut sorted: Vec<&Violation> = violations.iter().collect();
-    sorted.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
+    let sorted = canonical_sorted(violations);
 
-    let canonical = serde_json::to_vec(&sorted)?;
-    let run_id = format!("sha256:{}", hex_digest(&canonical));
+    let run_id = run_id_for_sorted(&sorted)?;
+    let stats = stats_json(&sorted, &run_id);
 
     // Build the envelope with alphabetically ordered keys so the
     // output is stable regardless of `serde_json`'s `preserve_order`
@@ -122,7 +156,8 @@ pub fn json(violations: &[Violation]) -> Result<String, serde_json::Error> {
         Value::String(PLUMB_VERSION.to_owned()),
     );
     envelope.insert("run_id".to_owned(), Value::String(run_id));
-    envelope.insert("summary".to_owned(), counts(violations));
+    envelope.insert("stats".to_owned(), stats.clone());
+    envelope.insert("summary".to_owned(), stats["counts"].clone());
     envelope.insert("violations".to_owned(), serde_json::to_value(&sorted)?);
     serde_json::to_string_pretty(&Value::Object(envelope))
 }
@@ -320,13 +355,51 @@ pub fn mcp_compact(violations: &[Violation]) -> (String, Value) {
 
     let structured = json!({
         "violations": violations,
-        "counts": counts(violations),
+        "counts": counts_json(violations),
     });
 
     (text, structured)
 }
 
-fn counts(violations: &[Violation]) -> Value {
+#[derive(Clone, Copy)]
+struct SeverityCounts {
+    error: usize,
+    info: usize,
+    warning: usize,
+    total: usize,
+}
+
+fn canonical_sorted(violations: &[Violation]) -> Vec<&Violation> {
+    let mut sorted: Vec<&Violation> = violations.iter().collect();
+    sorted.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
+    sorted
+}
+
+fn pretty_sorted(violations: &[Violation]) -> Vec<&Violation> {
+    let mut sorted: Vec<&Violation> = violations.iter().collect();
+    sorted.sort_by(|a, b| {
+        (
+            a.viewport.as_str(),
+            a.rule_id.as_str(),
+            a.selector.as_str(),
+            a.dom_order,
+        )
+            .cmp(&(
+                b.viewport.as_str(),
+                b.rule_id.as_str(),
+                b.selector.as_str(),
+                b.dom_order,
+            ))
+    });
+    sorted
+}
+
+fn run_id_for_sorted(sorted: &[&Violation]) -> Result<String, serde_json::Error> {
+    let canonical = serde_json::to_vec(sorted)?;
+    Ok(format!("sha256:{}", hex_digest(&canonical)))
+}
+
+fn counts(violations: &[Violation]) -> SeverityCounts {
     let (mut err, mut warn, mut info) = (0usize, 0usize, 0usize);
     for v in violations {
         match v.severity {
@@ -335,13 +408,48 @@ fn counts(violations: &[Violation]) -> Value {
             Severity::Info => info += 1,
         }
     }
+    SeverityCounts {
+        error: err,
+        info,
+        warning: warn,
+        total: violations.len(),
+    }
+}
+
+fn counts_json(violations: &[Violation]) -> Value {
+    let counts = counts(violations);
     // Insert in alphabetical order so the output is stable regardless
     // of `serde_json`'s `preserve_order` feature toggle.
     let mut map = serde_json::Map::new();
-    map.insert("error".to_owned(), json!(err));
-    map.insert("info".to_owned(), json!(info));
-    map.insert("total".to_owned(), json!(violations.len()));
-    map.insert("warning".to_owned(), json!(warn));
+    map.insert("error".to_owned(), json!(counts.error));
+    map.insert("info".to_owned(), json!(counts.info));
+    map.insert("total".to_owned(), json!(counts.total));
+    map.insert("warning".to_owned(), json!(counts.warning));
+    Value::Object(map)
+}
+
+fn stats_json(sorted: &[&Violation], run_id: &str) -> Value {
+    let owned: Vec<Violation> = sorted
+        .iter()
+        .map(|violation| (*violation).clone())
+        .collect();
+    let counts = counts_json(&owned);
+    let viewport_count = sorted
+        .iter()
+        .map(|violation| violation.viewport.as_str())
+        .collect::<BTreeSet<_>>()
+        .len();
+    let rule_count = sorted
+        .iter()
+        .map(|violation| violation.rule_id.as_str())
+        .collect::<BTreeSet<_>>()
+        .len();
+
+    let mut map = serde_json::Map::new();
+    map.insert("counts".to_owned(), counts);
+    map.insert("rule_count".to_owned(), json!(rule_count));
+    map.insert("run_id".to_owned(), Value::String(run_id.to_owned()));
+    map.insert("viewport_count".to_owned(), json!(viewport_count));
     Value::Object(map)
 }
 
@@ -349,9 +457,33 @@ fn summary_line(violations: &[Violation]) -> String {
     let c = counts(violations);
     format!(
         "{total} violations ({errors} error, {warnings} warning, {infos} info)",
-        total = c["total"],
-        errors = c["error"],
-        warnings = c["warning"],
-        infos = c["info"],
+        total = c.total,
+        errors = c.error,
+        warnings = c.warning,
+        infos = c.info,
     )
+}
+
+fn append_pretty_stats(out: &mut String, violations: &[Violation], run_id: &str) {
+    let sorted = canonical_sorted(violations);
+    let viewport_count = sorted
+        .iter()
+        .map(|violation| violation.viewport.as_str())
+        .collect::<BTreeSet<_>>()
+        .len();
+    let rule_count = sorted
+        .iter()
+        .map(|violation| violation.rule_id.as_str())
+        .collect::<BTreeSet<_>>()
+        .len();
+
+    if !out.ends_with('\n') {
+        out.push('\n');
+    }
+    out.push('\n');
+    out.push_str("stats\n");
+    let _ = writeln!(out, "  run_id: {run_id}");
+    let _ = writeln!(out, "  {}", summary_line(violations));
+    let _ = writeln!(out, "  viewport_count: {viewport_count}");
+    let _ = writeln!(out, "  rule_count: {rule_count}");
 }

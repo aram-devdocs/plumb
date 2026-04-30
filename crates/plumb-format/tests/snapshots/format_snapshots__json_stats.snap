@@ -1,0 +1,72 @@
+---
+source: crates/plumb-format/tests/format_snapshots.rs
+assertion_line: 88
+expression: out
+---
+{
+  "plumb_version": "0.0.1",
+  "run_id": "sha256:f47589f64fe0e1ced94e916195257a272a6e8509a8ed2831c060a7398d2f86e6",
+  "stats": {
+    "counts": {
+      "error": 1,
+      "info": 1,
+      "total": 4,
+      "warning": 2
+    },
+    "rule_count": 2,
+    "run_id": "sha256:f47589f64fe0e1ced94e916195257a272a6e8509a8ed2831c060a7398d2f86e6",
+    "viewport_count": 2
+  },
+  "summary": {
+    "error": 1,
+    "info": 1,
+    "total": 4,
+    "warning": 2
+  },
+  "violations": [
+    {
+      "rule_id": "a11y/touch-target",
+      "severity": "error",
+      "message": "CTA touch target is smaller than the minimum size.",
+      "selector": "button.cta",
+      "viewport": "desktop",
+      "rect": null,
+      "dom_order": 3,
+      "fix": null,
+      "doc_url": "https://plumb.aramhammoudeh.com/rules/a11y-touch-target"
+    },
+    {
+      "rule_id": "spacing/grid-conformance",
+      "severity": "warning",
+      "message": "Nav container gap is off-grid.",
+      "selector": "nav.primary",
+      "viewport": "desktop",
+      "rect": null,
+      "dom_order": 1,
+      "fix": null,
+      "doc_url": "https://plumb.aramhammoudeh.com/rules/spacing-grid-conformance"
+    },
+    {
+      "rule_id": "spacing/grid-conformance",
+      "severity": "info",
+      "message": "Nav spacing is close to the grid but still non-canonical.",
+      "selector": "nav.primary > a",
+      "viewport": "desktop",
+      "rect": null,
+      "dom_order": 2,
+      "fix": null,
+      "doc_url": "https://plumb.aramhammoudeh.com/rules/spacing-grid-conformance"
+    },
+    {
+      "rule_id": "spacing/grid-conformance",
+      "severity": "warning",
+      "message": "Hero spacing drifts off the spacing grid.",
+      "selector": "main > section.hero",
+      "viewport": "mobile",
+      "rect": null,
+      "dom_order": 8,
+      "fix": null,
+      "doc_url": "https://plumb.aramhammoudeh.com/rules/spacing-grid-conformance"
+    }
+  ]
+}

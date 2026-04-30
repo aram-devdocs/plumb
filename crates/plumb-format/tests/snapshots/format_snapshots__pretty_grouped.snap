@@ -1,0 +1,29 @@
+---
+source: crates/plumb-format/tests/format_snapshots.rs
+assertion_line: 76
+expression: pretty(&grouped_fixture())
+---
+desktop
+  a11y/touch-target
+    button.cta
+      error: CTA touch target is smaller than the minimum size.
+      docs: https://plumb.aramhammoudeh.com/rules/a11y-touch-target
+  spacing/grid-conformance
+    nav.primary
+      warning: Nav container gap is off-grid.
+      docs: https://plumb.aramhammoudeh.com/rules/spacing-grid-conformance
+    nav.primary > a
+      info: Nav spacing is close to the grid but still non-canonical.
+      docs: https://plumb.aramhammoudeh.com/rules/spacing-grid-conformance
+
+mobile
+  spacing/grid-conformance
+    main > section.hero
+      warning: Hero spacing drifts off the spacing grid.
+      docs: https://plumb.aramhammoudeh.com/rules/spacing-grid-conformance
+
+stats
+  run_id: sha256:f47589f64fe0e1ced94e916195257a272a6e8509a8ed2831c060a7398d2f86e6
+  4 violations (1 error, 2 warning, 1 info)
+  viewport_count: 2
+  rule_count: 2
