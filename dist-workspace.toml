@@ -29,9 +29,18 @@ allow-dirty = ["ci"]
 # Uncomment these only after:
 # 1. the `plumb-dev` GitHub org exists,
 # 2. the `plumb-dev/homebrew-tap` repo exists and is wired for cargo-dist,
-# 3. the release token/permissions for cargo-dist publishing are in place.
-# Issue #51 is intentionally narrowed so this PR does not enable either.
+# 3. the `@plumb` npm scope and the `@plumb/cli` package are owned by the
+#    release account that will publish from this repo,
+# 4. the release token/permissions for cargo-dist publishing are in place,
+# 5. a live publish has verified the public install command shape before docs
+#    claim `npm i -g @plumb/cli` support.
+# Issues #51 and #52 are intentionally prep-only, so this repo must not enable
+# either installer yet.
 # tap = "plumb-dev/homebrew-tap"
+# Keep the value aligned with the intended package name `@plumb/cli`, but do
+# not uncomment this field until the external npm prerequisites above exist.
+# Future activation also needs `npm` added to `installers`; `npm-scope` alone
+# does not produce npm artifacts in cargo-dist 0.28.0.
 # npm-scope = "@plumb"
 
 [dist.github-custom-runners]
