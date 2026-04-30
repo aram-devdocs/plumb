@@ -173,17 +173,34 @@ Use `plumb lint` in a workflow step and check the exit code:
 
 ```yaml
 - name: Lint with Plumb
-  run: plumb lint https://staging.example.com --format sarif --output plumb.sarif
+  run: |
+    plumb lint https://staging.example.com \
+      --format sarif --output plumb.sarif
+    rc=$?
+    if [ "$rc" -eq 2 ]; then
+      echo "::error::Plumb infrastructure failure"
+      exit 1
+    fi
+    # rc 0 = clean, rc 1 = errors, rc 3 = warnings only
+    exit "$rc"
 
 - name: Upload SARIF
+  if: always()
   uses: github/codeql-action/upload-sarif@v3
   with:
     sarif_file: plumb.sarif
 ```
 
+By default this step fails on exit code 1 (errors) and exit code 2
+(infrastructure failure), but passes on exit code 3 (warnings only).
+To also fail on warnings, replace the `exit "$rc"` line with
+`exit $( [ "$rc" -eq 3 ] && echo 1 || echo "$rc" )`.
+
 SARIF output integrates with GitHub Code Scanning, so violations
-appear as annotations on the PR. For other CI systems, use
-`--format json` and parse the output.
+appear as annotations on the PR. The `if: always()` on the upload
+step ensures SARIF results reach Code Scanning even when lint finds
+errors. For other CI systems, use `--format json` and parse the
+output.
 
 See: [GitHub Code Scanning](./ci/github-code-scanning.md),
 [CLI — exit codes](./cli.md).
