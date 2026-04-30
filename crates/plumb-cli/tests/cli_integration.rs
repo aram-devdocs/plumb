@@ -53,6 +53,92 @@ fn lint_fake_url_json_format() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
+fn lint_fake_url_json_output_writes_exact_payload_to_file() -> Result<(), Box<dyn std::error::Error>>
+{
+    let dir = TempDir::new()?;
+    let output_path = dir.path().join("violations.json");
+
+    let expected = Command::cargo_bin("plumb")?
+        .args(["lint", "plumb-fake://hello", "--format", "json"])
+        .output()?;
+    assert_eq!(expected.status.code(), Some(3));
+    assert!(expected.stderr.is_empty());
+
+    Command::cargo_bin("plumb")?
+        .args([
+            "lint",
+            "plumb-fake://hello",
+            "--format",
+            "json",
+            "--output",
+            output_path.to_str().ok_or("non-utf8 output path")?,
+        ])
+        .assert()
+        .code(3)
+        .stdout("")
+        .stderr("");
+
+    let written = fs::read(&output_path)?;
+    assert_eq!(written, expected.stdout);
+    Ok(())
+}
+
+#[test]
+fn lint_fake_url_sarif_output_writes_exact_payload_to_file()
+-> Result<(), Box<dyn std::error::Error>> {
+    let dir = TempDir::new()?;
+    let output_path = dir.path().join("results.sarif");
+
+    let expected = Command::cargo_bin("plumb")?
+        .args(["lint", "plumb-fake://hello", "--format", "sarif"])
+        .output()?;
+    assert_eq!(expected.status.code(), Some(3));
+    assert!(expected.stderr.is_empty());
+
+    Command::cargo_bin("plumb")?
+        .args([
+            "lint",
+            "plumb-fake://hello",
+            "--format",
+            "sarif",
+            "--output",
+            output_path.to_str().ok_or("non-utf8 output path")?,
+        ])
+        .assert()
+        .code(3)
+        .stdout("")
+        .stderr("");
+
+    let written = fs::read(&output_path)?;
+    assert_eq!(written, expected.stdout);
+    Ok(())
+}
+
+#[test]
+fn lint_output_with_missing_parent_exits_infra_error_without_rendering_payload()
+-> Result<(), Box<dyn std::error::Error>> {
+    let dir = TempDir::new()?;
+    let output_path = dir.path().join("missing").join("violations.json");
+
+    Command::cargo_bin("plumb")?
+        .args([
+            "lint",
+            "plumb-fake://hello",
+            "--format",
+            "json",
+            "--output",
+            output_path.to_str().ok_or("non-utf8 output path")?,
+        ])
+        .assert()
+        .code(2)
+        .stdout("")
+        .stderr(contains("write lint output to"))
+        .stderr(contains("\"rule_id\"").not())
+        .stderr(contains("spacing/grid-conformance").not());
+    Ok(())
+}
+
+#[test]
 fn lint_real_url_with_missing_executable_path_reports_chromium_hint()
 -> Result<(), Box<dyn std::error::Error>> {
     Command::cargo_bin("plumb")?

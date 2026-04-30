@@ -10,6 +10,7 @@ From the first release onward, this file is maintained automatically by [`releas
 
 ### Added
 
+- `plumb lint` now accepts `--output <path>` for writing rendered JSON or SARIF output to a file without changing the command's exit code.
 - SARIF output now includes built-in rule metadata, canonical rule `helpUri` links, and Code Scanning-compatible result locations.
 - Pretty and JSON formatter output now include deterministic stats with severity counts, viewport count, rule count, and a content-hashed run id. Pretty output now groups violations by viewport, then rule, then selector.
 - Repository hooks now enforce the talking-stick workflow for agent-driven changes.

@@ -49,6 +49,7 @@ pub async fn run(
     config_path: Option<PathBuf>,
     executable_path: Option<PathBuf>,
     format: OutputFormat,
+    output_path: Option<PathBuf>,
     viewports: Vec<String>,
     selector: Option<String>,
 ) -> Result<ExitCode> {
@@ -98,11 +99,17 @@ pub async fn run(
                 .context("serialize SARIF")?
         }
     };
-    // CLI is the one place writing to stdout is permitted — hence the
-    // crate-level allow(clippy::print_stdout) above.
-    #[allow(clippy::print_stdout)]
-    {
-        print!("{out}");
+
+    if let Some(path) = output_path {
+        std::fs::write(&path, out)
+            .with_context(|| format!("write lint output to {}", path.display()))?;
+    } else {
+        // CLI is the one place writing to stdout is permitted — hence the
+        // crate-level allow(clippy::print_stdout) above.
+        #[allow(clippy::print_stdout)]
+        {
+            print!("{out}");
+        }
     }
 
     Ok(exit_code_for(&violations))

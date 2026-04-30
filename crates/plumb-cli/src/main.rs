@@ -58,6 +58,9 @@ enum Command {
         /// Output format.
         #[arg(long, value_enum, default_value_t = Format::Pretty)]
         format: Format,
+        /// Write the rendered lint output to a file instead of stdout.
+        #[arg(long, value_name = "PATH")]
+        output: Option<PathBuf>,
         /// Restrict the run to the named viewports (repeatable).
         ///
         /// Defaults to every viewport configured in `plumb.toml`, or
@@ -125,6 +128,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 config,
                 executable_path,
                 format,
+                output,
                 viewports,
                 selector,
             } => {
@@ -133,6 +137,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
                     config,
                     executable_path,
                     format.into(),
+                    output,
                     viewports,
                     selector,
                 )

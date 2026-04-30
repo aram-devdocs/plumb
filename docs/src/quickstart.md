@@ -71,7 +71,7 @@ in CI — there is no clock or hash-randomized output to wash through
 For SARIF (GitHub code scanning, JetBrains, etc.):
 
 ```bash
-plumb lint https://example.com --format sarif > plumb.sarif
+plumb lint https://example.com --format sarif --output plumb.sarif
 ```
 
 ## 5. Configure a rule
