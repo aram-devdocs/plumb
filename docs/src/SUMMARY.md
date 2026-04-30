@@ -14,6 +14,11 @@
 - [MCP server](./mcp.md)
 - [Configuration](./configuration.md)
 
+# CI
+
+- [GitHub Code Scanning](./ci/github-code-scanning.md)
+- [reviewdog](./ci/reviewdog.md)
+
 # Rules
 
 - [Overview](./rules/overview.md)
