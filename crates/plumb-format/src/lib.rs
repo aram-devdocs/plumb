@@ -11,7 +11,7 @@
 //!
 //! - [`pretty`] — human-readable TTY output.
 //! - [`json()`] — canonical machine-readable format.
-//! - [`sarif`] — SARIF 2.1.0 for GitHub code-scanning and IDEs.
+//! - [`sarif_with_rules`] — SARIF 2.1.0 for GitHub code-scanning and IDEs.
 //! - [`mcp_compact`] — token-efficient output for the MCP server; returns
 //!   a `(text, structured)` pair matching PRD §14.2.
 
@@ -147,8 +147,7 @@ fn hex_digest(bytes: &[u8]) -> String {
 ///
 /// GitHub Code Scanning's `locationFromSarifResult` rejects any result
 /// whose first location does not carry a `physicalLocation`. Plumb
-/// lints rendered URLs, not source files — and the [`sarif`] entry
-/// point takes no URL parameter — so there is no real source artifact
+/// lints rendered URLs, not source files, so there is no real source artifact
 /// to point at. The formatter emits this deterministic placeholder
 /// instead. Viewport, DOM order, and the original CSS selector live on
 /// the result's `logicalLocations` and location-level `properties`.
@@ -173,9 +172,10 @@ fn sarif_driver_rules_and_index(metadata: &[RuleMetadata]) -> (Vec<Value>, Vec<(
 
     for (i, rule) in sorted.iter().enumerate() {
         index.push((rule.id.clone(), i));
+        let rule_name = rule.id.replace('/', "-");
         descriptors.push(json!({
             "id": rule.id,
-            "name": rule.id,
+            "name": rule_name,
             "shortDescription": { "text": rule.summary },
             "fullDescription": { "text": rule.summary },
             "helpUri": rule.doc_url,
@@ -188,14 +188,18 @@ fn sarif_driver_rules_and_index(metadata: &[RuleMetadata]) -> (Vec<Value>, Vec<(
     (descriptors, index)
 }
 
-/// Render a slice of violations as SARIF 2.1.0.
+/// Render a slice of violations as SARIF 2.1.0 with caller-supplied rule metadata.
 ///
-/// Prefer [`sarif_with_rules`] when the caller has rule metadata; this
-/// compatibility wrapper keeps the formatter pure by deriving a minimal
-/// descriptor set from the provided violations only.
+/// The output includes full rule metadata in `tool.driver.rules` (one
+/// `reportingDescriptor` per rule with `shortDescription`,
+/// `fullDescription`, `helpUri`, and `defaultConfiguration`), and each
+/// result carries a `ruleIndex` pointing back into that array. Callers that
+/// want a complete built-in rule table should pass
+/// `plumb_core::builtin_rule_metadata()`. Keeping the registry lookup at
+/// the caller boundary preserves this crate's formatter contract: output is
+/// a pure function of explicit inputs.
 ///
-/// Each result's first location carries a `physicalLocation` of the
-/// shape:
+/// Each result's first location carries a `physicalLocation` of the shape:
 ///
 /// ```json
 /// "physicalLocation": {
@@ -207,38 +211,12 @@ fn sarif_driver_rules_and_index(metadata: &[RuleMetadata]) -> (Vec<Value>, Vec<(
 /// The artifact URI is the stable synthetic placeholder
 /// `plumb-lint-target`. GitHub Code Scanning's
 /// `locationFromSarifResult` requires every result to have a
-/// `physicalLocation`, but Plumb violations have no source file — they
-/// are tied to a rendered URL, and the formatter signature does not
-/// take that URL. The original selector, viewport, and DOM order
+/// `physicalLocation`, but Plumb violations have no source file — they are
+/// tied to a rendered URL. The original selector, viewport, and DOM order
 /// remain on the location's `logicalLocations` and `properties` blocks.
 ///
-/// Results are sorted defensively by violation sort key, matching the
-/// JSON formatter's behavior.
-///
-/// # Errors
-///
-/// Returns an error if serialization fails.
-pub fn sarif(violations: &[Violation]) -> Result<String, serde_json::Error> {
-    let mut metadata: Vec<RuleMetadata> = violations
-        .iter()
-        .map(|v| RuleMetadata {
-            id: v.rule_id.clone(),
-            summary: v.message.clone(),
-            doc_url: v.doc_url.clone(),
-            default_severity: v.severity,
-        })
-        .collect();
-    metadata.sort_by(|a, b| a.id.cmp(&b.id));
-    metadata.dedup_by(|a, b| a.id == b.id);
-    sarif_with_rules(violations, &metadata)
-}
-
-/// Render a slice of violations as SARIF 2.1.0 with caller-supplied rule metadata.
-///
-/// Callers that want a complete built-in rule table should pass
-/// `plumb_core::builtin_rule_metadata()`. Keeping the registry lookup at
-/// the caller boundary preserves this crate's formatter contract: output is
-/// a pure function of explicit inputs.
+/// Results are sorted defensively by violation sort key, matching the JSON
+/// formatter's behavior.
 ///
 /// # Errors
 ///

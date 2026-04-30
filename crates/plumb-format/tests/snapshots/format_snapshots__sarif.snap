@@ -14,7 +14,7 @@ expression: out
           "rules": [
             {
               "id": "a11y/touch-target",
-              "name": "a11y/touch-target",
+              "name": "a11y-touch-target",
               "shortDescription": {
                 "text": "Flags interactive elements smaller than the configured minimum target size."
               },
@@ -28,7 +28,7 @@ expression: out
             },
             {
               "id": "color/palette-conformance",
-              "name": "color/palette-conformance",
+              "name": "color-palette-conformance",
               "shortDescription": {
                 "text": "Flags computed colors that aren't on `color.tokens` (CIEDE2000)."
               },
@@ -42,7 +42,7 @@ expression: out
             },
             {
               "id": "edge/near-alignment",
-              "name": "edge/near-alignment",
+              "name": "edge-near-alignment",
               "shortDescription": {
                 "text": "Flags element edges that almost-but-not-quite line up with sibling edges."
               },
@@ -56,7 +56,7 @@ expression: out
             },
             {
               "id": "radius/scale-conformance",
-              "name": "radius/scale-conformance",
+              "name": "radius-scale-conformance",
               "shortDescription": {
                 "text": "Flags border-radius values that aren't members of `radius.scale`."
               },
@@ -70,7 +70,7 @@ expression: out
             },
             {
               "id": "sibling/height-consistency",
-              "name": "sibling/height-consistency",
+              "name": "sibling-height-consistency",
               "shortDescription": {
                 "text": "Flags sibling elements in the same visual row whose heights drift from the row's median."
               },
@@ -84,7 +84,7 @@ expression: out
             },
             {
               "id": "spacing/grid-conformance",
-              "name": "spacing/grid-conformance",
+              "name": "spacing-grid-conformance",
               "shortDescription": {
                 "text": "Flags spacing values that aren't multiples of `spacing.base_unit`."
               },
@@ -98,7 +98,7 @@ expression: out
             },
             {
               "id": "spacing/scale-conformance",
-              "name": "spacing/scale-conformance",
+              "name": "spacing-scale-conformance",
               "shortDescription": {
                 "text": "Flags spacing values that aren't members of `spacing.scale`."
               },
@@ -112,7 +112,7 @@ expression: out
             },
             {
               "id": "type/scale-conformance",
-              "name": "type/scale-conformance",
+              "name": "type-scale-conformance",
               "shortDescription": {
                 "text": "Flags `font-size` values that aren't members of `type.scale`."
               },
