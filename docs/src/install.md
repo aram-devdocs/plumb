@@ -174,15 +174,16 @@ while you have network access:
 
 ```bash
 gh attestation download plumb-x86_64-unknown-linux-gnu.tar.xz \
-  --repo aram-devdocs/plumb
+  --repo aram-devdocs/plumb \
+  --output-file bundle.jsonl
 ```
 
-This saves a `.jsonl` bundle locally. You can then verify the artifact
-offline with [`cosign`](https://github.com/sigstore/cosign):
+This saves the attestation bundle as `bundle.jsonl`. You can then verify
+the artifact offline with [`cosign`](https://github.com/sigstore/cosign):
 
 ```bash
 cosign verify-blob \
-  --bundle plumb-x86_64-unknown-linux-gnu.tar.xz.sigstore.jsonl \
+  --bundle bundle.jsonl \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   --certificate-identity-regexp '^https://github\.com/aram-devdocs/plumb/' \
   plumb-x86_64-unknown-linux-gnu.tar.xz
