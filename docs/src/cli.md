@@ -16,6 +16,7 @@ major version falls in Plumb's supported range (see
 | `-c`, `--config <path>` | Config file path. Defaults to `plumb.toml` in CWD. |
 | `--executable-path <path>` | Chrome or Chromium binary to use instead of auto-detection. |
 | `--format <pretty\|json\|sarif>` | Output format. Default: `pretty`. |
+| `--output <path>` | Write rendered output to a file instead of stdout. |
 | `-v`, `--verbose` | Increase log verbosity. `-vv` for trace. |
 
 Exit codes:
