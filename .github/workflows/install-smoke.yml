@@ -180,30 +180,90 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPORT_REPO: ${{ github.repository }}
+      REPORT_TAG: ${{ needs.resolve-tag.outputs.tag }}
+      REPORT_EVENT_NAME: ${{ github.event_name }}
+      REPORT_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
+      - name: Assert report scripts use env indirection
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          import sys
+
+          lines = Path(".github/workflows/install-smoke.yml").read_text().splitlines()
+          direct_expr = re.compile(r"\$\{\{\s*(github\.|needs\.resolve-tag\.)")
+
+          in_report = False
+          current_step = None
+          in_run = False
+          run_indent = None
+          bad_lines = []
+
+          for lineno, line in enumerate(lines, start=1):
+              stripped = line.lstrip()
+              indent = len(line) - len(stripped)
+
+              if indent == 2 and stripped.endswith(":"):
+                  in_report = stripped == "report:"
+                  current_step = None
+                  in_run = False
+                  run_indent = None
+                  continue
+
+              if not in_report:
+                  continue
+
+              if indent == 6 and stripped.startswith("- name:"):
+                  current_step = stripped[len("- name:"):].strip()
+                  in_run = False
+                  run_indent = None
+                  continue
+
+              if indent == 8 and stripped.startswith("run:"):
+                  in_run = True
+                  run_indent = indent
+                  continue
+
+              if in_run:
+                  if stripped and indent <= run_indent:
+                      in_run = False
+                      run_indent = None
+                  elif direct_expr.search(line):
+                      bad_lines.append((lineno, current_step or "<unknown>", line.strip()))
+
+          if bad_lines:
+              for lineno, step_name, content in bad_lines:
+                  print(
+                      f"{lineno}: report step {step_name!r} contains direct workflow interpolation: {content}",
+                      file=sys.stderr,
+                  )
+              sys.exit(1)
+          PY
+
       - name: Ensure install-smoke label exists
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           gh label create install-smoke \
-            --repo "${{ github.repository }}" \
+            --repo "$REPORT_REPO" \
             --description "Auto-created by the install-smoke workflow" \
             --color "D93F0B" 2>/dev/null || true
 
       - name: Create or update tracking issue
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
-          repo="${{ github.repository }}"
-          title="Install smoke test failure (${{ needs.resolve-tag.outputs.tag }})"
-          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          repo="$REPORT_REPO"
+          title="Install smoke test failure ($REPORT_TAG)"
+          run_url="$REPORT_RUN_URL"
 
           body="$(cat <<EOF
           ## Install smoke test failure
 
-          **Tag:** \`${{ needs.resolve-tag.outputs.tag }}\`
+          **Tag:** \`$REPORT_TAG\`
           **Run:** $run_url
-          **Triggered by:** ${{ github.event_name }}
+          **Triggered by:** $REPORT_EVENT_NAME
 
           One or more non-gated install channels failed. Check the workflow
           run linked above for per-job logs.
@@ -220,7 +280,7 @@ jobs:
           if [[ -n "$existing" ]]; then
             echo "Updating existing issue #$existing"
             gh issue comment "$existing" --repo "$repo" \
-              --body "New failure for tag \`${{ needs.resolve-tag.outputs.tag }}\`: $run_url"
+              --body "New failure for tag \`$REPORT_TAG\`: $run_url"
           else
             echo "Creating new tracking issue"
             gh issue create --repo "$repo" \
