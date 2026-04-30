@@ -187,6 +187,9 @@ jobs:
       REPORT_EVENT_NAME: ${{ github.event_name }}
       REPORT_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
       - name: Assert report scripts use env indirection
         shell: bash
         run: |
