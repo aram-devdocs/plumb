@@ -25,12 +25,11 @@ Plumb opens a fresh headless browser session with no stored cookies or
 credentials. Auth-protected pages return a login screen instead of the
 content you want to lint.
 
-**Fix:** Serve the page locally without auth, or use a pre-authenticated
-session by passing `--executable-path` to a browser profile that has
-valid cookies. Plumb does not manage browser profiles or inject
-credentials itself — doing so is out of scope by design.
+**Fix:** Plumb does not expose a browser-profile flag — it always opens
+a fresh session with no stored cookies. Serve the page locally without
+auth, or lint a local build that does not require credentials.
 
-See: [CLI flags](./cli.md).
+See: [CLI reference](./cli.md).
 
 ## 3. Chromium version not supported
 
@@ -168,8 +167,8 @@ Use `plumb lint` in a workflow step and check the exit code:
 |------|---------|
 | 0 | No violations. |
 | 1 | One or more `error`-severity violations. |
-| 3 | Only `warning`-severity violations (no errors). |
 | 2 | CLI or infrastructure failure (bad URL, missing config, etc.). |
+| 3 | Only `warning`-severity violations (no errors). |
 
 ```yaml
 - name: Lint with Plumb
