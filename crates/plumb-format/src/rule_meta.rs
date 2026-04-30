@@ -4,6 +4,10 @@
 //! from [`plumb_core::register_builtin`]. The array is sorted by rule id
 //! for deterministic output.
 
+// Items are `pub(crate)` because this module is private but needs to be
+// visible to `lib.rs`.
+#![allow(clippy::redundant_pub_crate)]
+
 use plumb_core::{Severity, register_builtin};
 use serde_json::{Value, json};
 
