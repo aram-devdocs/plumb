@@ -7,7 +7,7 @@ workflow is:
 2. Upload that file with `github/codeql-action/upload-sarif@v3`.
 3. Fail the job after the upload if Plumb reported violations.
 
-The important detail is step ordering. `plumb lint` returns a nonzero
+The detail that matters is step ordering. `plumb lint` returns a nonzero
 exit code when it finds violations, but you still want the SARIF upload
 step to run so the findings show up in GitHub's Security tab.
 
