@@ -9,9 +9,10 @@ authors.workspace = true
 homepage.workspace = true
 documentation.workspace = true
 repository.workspace = true
-readme.workspace = true
+readme = "README.md"
 keywords.workspace = true
 categories.workspace = true
+exclude = ["AGENTS.md", "CLAUDE.md"]
 
 [dependencies]
 # `test-fake` keeps the canned snapshot path available for

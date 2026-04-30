@@ -9,9 +9,11 @@ authors.workspace = true
 homepage.workspace = true
 documentation.workspace = true
 repository.workspace = true
-readme.workspace = true
+readme = "README.md"
 keywords.workspace = true
 categories.workspace = true
+# Keep agent instructions and symlinks out of the crates.io tarball.
+exclude = ["AGENTS.md", "CLAUDE.md"]
 
 [features]
 # Exposes deterministic test fixtures and an in-memory `canned()` constructor.

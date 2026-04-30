@@ -34,25 +34,37 @@ jobs:
     needs: release-please
     if: ${{ needs.release-please.outputs.release_created == 'true' }}
     runs-on: ubuntu-latest
+    environment: crates-io
     steps:
       - uses: actions/checkout@v6
         with:
           ref: ${{ needs.release-please.outputs.tag_name }}
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: cargo publish (bottom-up)
+      - name: Publish crates (bottom-up dependency order)
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
           set -euo pipefail
-          # Publish in dependency order. `cargo publish --dry-run` first
-          # on each so an upload failure doesn't leave a half-released state.
-          for crate in plumb-core plumb-format plumb-cdp plumb-config plumb-mcp plumb-cli; do
-            echo "▸ publishing $crate"
-            ( cd "crates/$crate" && cargo publish --dry-run )
-          done
-          for crate in plumb-core plumb-format plumb-cdp plumb-config plumb-mcp plumb-cli; do
-            ( cd "crates/$crate" && cargo publish )
-            # Wait for the index to catch up so the next crate's dep resolves.
-            sleep 30
+          # Bottom-up publish order matching the dependency hierarchy:
+          #   core (no internal deps)
+          #   → format (core)
+          #   → cdp (core)
+          #   → config (core)
+          #   → mcp (core, format, cdp, config)
+          #   → cli (all)
+          CRATES=(plumb-core plumb-format plumb-cdp plumb-config plumb-mcp plumb-cli)
+          for crate in "${CRATES[@]}"; do
+            echo "::group::Publishing $crate"
+            echo "▸ dry-run $crate"
+            cargo publish -p "$crate" --dry-run --locked
+            echo "▸ publish $crate"
+            cargo publish -p "$crate" --locked
+            echo "::endgroup::"
+            # Wait for the crates.io index to sync so the next crate's
+            # dependency on this one resolves.
+            if [ "$crate" != "plumb-cli" ]; then
+              echo "⏳ waiting 30s for index sync…"
+              sleep 30
+            fi
           done
