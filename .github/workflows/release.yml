@@ -8,10 +8,14 @@ name: release
 # would generate. It stays in sync with `dist-workspace.toml`. Re-run
 # `cargo dist generate` locally and diff before editing.
 #
-# Homebrew tap publishing is intentionally inactive here. Do not add the
-# `tap` field in `dist-workspace.toml` until the external prerequisites
-# exist: the `plumb-dev` org, the `plumb-dev/homebrew-tap` repo, and the
-# cargo-dist publishing token/permissions.
+# Homebrew tap and npm publishing are intentionally inactive here. Do not add
+# the `tap` or `npm-scope` fields in `dist-workspace.toml` until the external
+# prerequisites exist: the `plumb-dev` org, the `plumb-dev/homebrew-tap` repo,
+# ownership of the `@plumb` npm scope and `@plumb/cli` package, and the
+# cargo-dist publishing token/permissions. npm activation also needs `npm`
+# added to the installer list; `npm-scope` alone does not emit npm artifacts
+# on cargo-dist 0.28.0. This workflow must not claim `npm i -g @plumb/cli`
+# support until a live publish verifies it.
 
 on:
   push:
