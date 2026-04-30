@@ -1,12 +1,6 @@
 # Codex
 
-> **Note:** The config format below follows Codex's published MCP
-> documentation as of April 2026. If Codex updates its config schema,
-> check the [Codex docs](https://platform.openai.com/docs) for the
-> current format.
-
-OpenAI Codex connects to MCP servers through a `.codex/mcp.json` file
-in your project root. See the
+OpenAI Codex manages MCP servers through the `codex mcp` CLI. See the
 [MCP server reference](../mcp.md) for the full tool list and response
 shapes.
 
@@ -15,39 +9,32 @@ shapes.
 Make sure the `plumb` binary is on your `PATH`. If you installed via
 `cargo install plumb-cli`, it should already be available.
 
-## Configure `.codex/mcp.json`
+## Register the server
 
-Create `.codex/mcp.json` in your project root:
+Add Plumb as an MCP server:
 
-```json
-{
-  "mcpServers": {
-    "plumb": {
-      "command": "plumb",
-      "args": ["mcp"]
-    }
-  }
-}
+```sh
+codex mcp add plumb -- plumb mcp
 ```
 
-For a source checkout:
+For a source checkout (useful when hacking on Plumb itself):
 
-```json
-{
-  "mcpServers": {
-    "plumb": {
-      "command": "cargo",
-      "args": ["run", "--quiet", "-p", "plumb-cli", "--", "mcp"]
-    }
-  }
-}
+```sh
+codex mcp add plumb -- cargo run --quiet -p plumb-cli -- mcp
 ```
+
+Confirm the registration:
+
+```sh
+codex mcp list
+```
+
+You should see `plumb` in the output.
 
 ## Verify the connection
 
-After saving the config, start a new Codex session in the project
-directory. Codex should detect the MCP server and make its tools
-available.
+Start a new Codex session in the project directory. Codex picks up the
+registered server and makes its tools available.
 
 Test the transport:
 
@@ -64,18 +51,11 @@ Codex calls `lint_url` and returns the violation summary.
 ## Gotchas
 
 **PATH resolution.** Codex runs commands in a sandboxed environment.
-If `plumb` is not on the default `PATH`, use an absolute path in the
-config:
+If `plumb` is not on the default `PATH`, register the server with an
+absolute path:
 
-```json
-{
-  "mcpServers": {
-    "plumb": {
-      "command": "/home/you/.cargo/bin/plumb",
-      "args": ["mcp"]
-    }
-  }
-}
+```sh
+codex mcp add plumb -- /home/you/.cargo/bin/plumb mcp
 ```
 
 **Network access.** Codex sandboxes may restrict outbound network
