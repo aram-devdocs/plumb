@@ -70,6 +70,6 @@ convention:
 `detail: "compact"` returns the existing token-efficient payload shown
 above. `detail: "full"` keeps the same text block and switches
 `structuredContent` to the canonical JSON envelope from `plumb lint
-<url> --format json`, including `plumb_version`, `run_id`, `summary`,
-and full per-violation fields. Full mode is rejected when the
-serialized structured payload exceeds 50 KB.
+<url> --format json`, including `plumb_version`, `run_id`, `stats`,
+`summary`, and full per-violation fields. Full mode is rejected when
+the serialized structured payload exceeds 50 KB.

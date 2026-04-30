@@ -1,11 +1,17 @@
 ---
 source: crates/plumb-format/tests/format_snapshots.rs
+assertion_line: 71
 expression: pretty(&fixture())
 ---
-warning spacing/grid-conformance
-         at html > body [desktop]
-         `html > body` has off-grid padding-top 13px; expected a multiple of 4px.
-         fix: Snap `padding-top` to the nearest spacing-grid value (12px).
-         docs: https://plumb.aramhammoudeh.com/rules/spacing-grid-conformance
+desktop
+  spacing/grid-conformance
+    html > body
+      warning: `html > body` has off-grid padding-top 13px; expected a multiple of 4px.
+      fix: Snap `padding-top` to the nearest spacing-grid value (12px).
+      docs: https://plumb.aramhammoudeh.com/rules/spacing-grid-conformance
 
-1 violations (0 error, 1 warning, 0 info)
+stats
+  run_id: sha256:53a662be238be796f9a08b74adb05e4020dd3d9f653e9bf91a7fb5b1c7a274c0
+  1 violations (0 error, 1 warning, 0 info)
+  viewport_count: 1
+  rule_count: 1

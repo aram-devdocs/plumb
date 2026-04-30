@@ -1,10 +1,22 @@
 ---
 source: crates/plumb-format/tests/format_snapshots.rs
+assertion_line: 82
 expression: out
 ---
 {
   "plumb_version": "0.0.1",
   "run_id": "sha256:53a662be238be796f9a08b74adb05e4020dd3d9f653e9bf91a7fb5b1c7a274c0",
+  "stats": {
+    "counts": {
+      "error": 0,
+      "info": 0,
+      "total": 1,
+      "warning": 1
+    },
+    "rule_count": 1,
+    "run_id": "sha256:53a662be238be796f9a08b74adb05e4020dd3d9f653e9bf91a7fb5b1c7a274c0",
+    "viewport_count": 1
+  },
   "summary": {
     "error": 0,
     "info": 0,

@@ -5,13 +5,70 @@
 //! suite mirrors the `just determinism-check` recipe at the formatter
 //! level — i.e. before the CLI ever wraps it.
 
-use plumb_core::{Config, PlumbSnapshot, Severity, builtin_rule_metadata, register_builtin, run};
+use indexmap::IndexMap;
+use plumb_core::{
+    Config, PlumbSnapshot, Severity, ViewportKey, Violation, builtin_rule_metadata,
+    register_builtin, run,
+};
 use plumb_format::{json, mcp_compact, pretty, sarif_with_rules};
 
 fn fixture() -> Vec<plumb_core::Violation> {
     let snapshot = PlumbSnapshot::canned();
     let config = Config::default();
     run(&snapshot, &config)
+}
+
+fn grouped_fixture() -> Vec<Violation> {
+    vec![
+        Violation {
+            rule_id: "spacing/grid-conformance".to_owned(),
+            severity: Severity::Warning,
+            message: "Hero spacing drifts off the spacing grid.".to_owned(),
+            selector: "main > section.hero".to_owned(),
+            viewport: ViewportKey::new("mobile"),
+            rect: None,
+            dom_order: 8,
+            fix: None,
+            doc_url: "https://plumb.aramhammoudeh.com/rules/spacing-grid-conformance".to_owned(),
+            metadata: IndexMap::new(),
+        },
+        Violation {
+            rule_id: "a11y/touch-target".to_owned(),
+            severity: Severity::Error,
+            message: "CTA touch target is smaller than the minimum size.".to_owned(),
+            selector: "button.cta".to_owned(),
+            viewport: ViewportKey::new("desktop"),
+            rect: None,
+            dom_order: 3,
+            fix: None,
+            doc_url: "https://plumb.aramhammoudeh.com/rules/a11y-touch-target".to_owned(),
+            metadata: IndexMap::new(),
+        },
+        Violation {
+            rule_id: "spacing/grid-conformance".to_owned(),
+            severity: Severity::Info,
+            message: "Nav spacing is close to the grid but still non-canonical.".to_owned(),
+            selector: "nav.primary > a".to_owned(),
+            viewport: ViewportKey::new("desktop"),
+            rect: None,
+            dom_order: 2,
+            fix: None,
+            doc_url: "https://plumb.aramhammoudeh.com/rules/spacing-grid-conformance".to_owned(),
+            metadata: IndexMap::new(),
+        },
+        Violation {
+            rule_id: "spacing/grid-conformance".to_owned(),
+            severity: Severity::Warning,
+            message: "Nav container gap is off-grid.".to_owned(),
+            selector: "nav.primary".to_owned(),
+            viewport: ViewportKey::new("desktop"),
+            rect: None,
+            dom_order: 1,
+            fix: None,
+            doc_url: "https://plumb.aramhammoudeh.com/rules/spacing-grid-conformance".to_owned(),
+            metadata: IndexMap::new(),
+        },
+    ]
 }
 
 /// Mirror of the SARIF severity mapping owned by the formatter.
@@ -69,11 +126,31 @@ fn json_envelope_has_required_fields() {
         assert!(summary.get(key).is_some(), "summary.{key} must be present");
     }
 
+    let stats = parsed.get("stats").expect("stats present");
+    for key in ["counts", "rule_count", "run_id", "viewport_count"] {
+        assert!(stats.get(key).is_some(), "stats.{key} must be present");
+    }
+
     let violations_value = parsed
         .get("violations")
         .and_then(serde_json::Value::as_array)
         .expect("violations array present");
     assert_eq!(violations_value.len(), violations.len());
+}
+
+#[test]
+fn json_stats_capture_distinct_rule_and_viewport_counts() {
+    let out = json(&grouped_fixture()).expect("json serialize grouped");
+    let parsed: serde_json::Value = serde_json::from_str(&out).expect("parse grouped json");
+    let stats = parsed.get("stats").expect("stats present");
+
+    assert_eq!(stats["counts"]["error"].as_u64(), Some(1));
+    assert_eq!(stats["counts"]["warning"].as_u64(), Some(2));
+    assert_eq!(stats["counts"]["info"].as_u64(), Some(1));
+    assert_eq!(stats["counts"]["total"].as_u64(), Some(4));
+    assert_eq!(stats["viewport_count"].as_u64(), Some(2));
+    assert_eq!(stats["rule_count"].as_u64(), Some(2));
+    assert_eq!(stats["run_id"], parsed["run_id"]);
 }
 
 #[test]
@@ -119,6 +196,33 @@ fn pretty_is_byte_identical_across_runs() {
     let c = pretty(&violations);
     assert_eq!(a, b);
     assert_eq!(b, c);
+}
+
+#[test]
+fn pretty_groups_by_viewport_then_rule_then_selector() {
+    let out = pretty(&grouped_fixture());
+
+    let desktop = out.find("desktop\n").expect("desktop group");
+    let mobile = out.find("mobile\n").expect("mobile group");
+    assert!(desktop < mobile, "desktop viewport group must render first");
+
+    let a11y = out.find("  a11y/touch-target\n").expect("a11y rule group");
+    let spacing = out
+        .find("  spacing/grid-conformance\n")
+        .expect("spacing rule group");
+    assert!(
+        a11y < spacing,
+        "desktop rule groups must be sorted before selector entries"
+    );
+
+    let nav = out.find("    nav.primary\n").expect("nav selector");
+    let nav_link = out
+        .find("    nav.primary > a\n")
+        .expect("nav link selector");
+    assert!(
+        nav < nav_link,
+        "selector groups must be sorted within a rule"
+    );
 }
 
 #[test]

@@ -11,6 +11,7 @@ From the first release onward, this file is maintained automatically by [`releas
 ### Added
 
 - SARIF output now includes built-in rule metadata, canonical rule `helpUri` links, and Code Scanning-compatible result locations.
+- Pretty and JSON formatter output now include deterministic stats with severity counts, viewport count, rule count, and a content-hashed run id. Pretty output now groups violations by viewport, then rule, then selector.
 - Repository hooks now enforce the talking-stick workflow for agent-driven changes.
 - Initial workspace scaffold, tooling, and walking skeleton.
 - PRD-style `[spacing]` and `[type]` config sections with schema validation.
