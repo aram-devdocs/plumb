@@ -26,18 +26,19 @@ if [ "$(uname -s)" != "Linux" ]; then
 fi
 
 # ── Unprivileged user namespaces ─────────────────────────────────────
-USERNS_SYSCTL="kernel.unprivileged_userns_clone"
+USERNS_SYSCTL_KEY="kernel.unprivileged_userns_clone"
+USERNS_SYSCTL_PROCFS="/proc/sys/kernel/unprivileged_userns_clone"
 APPARMOR_USERNS="/proc/sys/kernel/apparmor_restrict_unprivileged_userns"
 
 enable_userns() {
     # Some kernels (Debian/Ubuntu patched) expose the clone sysctl.
-    if [ -f "/proc/sys/kernel/$USERNS_SYSCTL" ]; then
-        current=$(cat "/proc/sys/kernel/$USERNS_SYSCTL")
+    if [ -f "$USERNS_SYSCTL_PROCFS" ]; then
+        current=$(cat "$USERNS_SYSCTL_PROCFS")
         if [ "$current" = "1" ]; then
-            echo "User namespaces already enabled ($USERNS_SYSCTL = 1)."
+            echo "User namespaces already enabled ($USERNS_SYSCTL_KEY = 1)."
         else
-            echo "Enabling $USERNS_SYSCTL ..."
-            sysctl -w "${USERNS_SYSCTL}=1" >/dev/null
+            echo "Enabling $USERNS_SYSCTL_KEY ..."
+            sysctl -w "${USERNS_SYSCTL_KEY}=1" >/dev/null
         fi
     fi
 
@@ -57,10 +58,10 @@ enable_userns
 
 # ── Verify ───────────────────────────────────────────────────────────
 # Best-effort verification: if the clone sysctl exists, confirm it is 1.
-if [ -f "/proc/sys/kernel/$USERNS_SYSCTL" ]; then
-    val=$(cat "/proc/sys/kernel/$USERNS_SYSCTL")
+if [ -f "$USERNS_SYSCTL_PROCFS" ]; then
+    val=$(cat "$USERNS_SYSCTL_PROCFS")
     if [ "$val" != "1" ]; then
-        echo "::error::Failed to enable unprivileged user namespaces ($USERNS_SYSCTL = $val)." >&2
+        echo "::error::Failed to enable unprivileged user namespaces ($USERNS_SYSCTL_KEY = $val)." >&2
         exit 1
     fi
 fi

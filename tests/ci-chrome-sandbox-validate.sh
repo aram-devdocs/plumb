@@ -58,6 +58,25 @@ else
     fail "no idempotency pattern detected"
 fi
 
+echo "3a. Sysctl/procfs path split"
+if grep -q '^USERNS_SYSCTL_KEY="kernel\.unprivileged_userns_clone"$' "$SCRIPT" 2>/dev/null; then
+    pass "sysctl key uses dotted kernel name"
+else
+    fail "sysctl key is missing or does not use kernel.unprivileged_userns_clone"
+fi
+
+if grep -q '^USERNS_SYSCTL_PROCFS="/proc/sys/kernel/unprivileged_userns_clone"$' "$SCRIPT" 2>/dev/null; then
+    pass "procfs path resolves to /proc/sys/kernel/unprivileged_userns_clone"
+else
+    fail "procfs path is missing or incorrect"
+fi
+
+if grep -Eq '/proc/sys/kernel/kernel\.unprivileged_userns_clone|/proc/sys/kernel/\$USERNS_SYSCTL([[:space:]]|$|")' "$SCRIPT" 2>/dev/null; then
+    fail "double-prefixed procfs path construction detected"
+else
+    pass "no double-prefixed procfs path construction"
+fi
+
 # ── 4. Fail-loud ────────────────────────────────────────────────────
 echo "4. Fail-loud"
 if grep -q 'set -euo pipefail' "$SCRIPT" 2>/dev/null; then
@@ -70,6 +89,19 @@ if grep -q 'exit 1' "$SCRIPT" 2>/dev/null; then
     pass "explicit exit 1 on failure"
 else
     fail "no exit 1 found for failure paths"
+fi
+
+if grep -Eq 'if \[ -f "\$USERNS_SYSCTL_PROCFS" \]; then' "$SCRIPT" 2>/dev/null && \
+   grep -Eq 'val=\$\(cat "\$USERNS_SYSCTL_PROCFS"\)' "$SCRIPT" 2>/dev/null; then
+    pass "verification reads the required procfs path explicitly"
+else
+    fail "verification does not read USERNS_SYSCTL_PROCFS explicitly"
+fi
+
+if grep -Eq 'if \[ -f "\$USERNS_SYSCTL" \]; then|if \[ -f "/proc/sys/kernel/\$USERNS_SYSCTL" \]; then' "$SCRIPT" 2>/dev/null; then
+    fail "verification can silently skip by probing the wrong sysctl path"
+else
+    pass "verification does not probe the wrong sysctl path"
 fi
 
 # ── 5. Maintained gate integration ──────────────────────────────────
