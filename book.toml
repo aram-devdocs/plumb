@@ -12,8 +12,7 @@ create-missing = false
 edit-url-template = "https://github.com/aram-devdocs/plumb/edit/main/{path}"
 git-repository-url = "https://github.com/aram-devdocs/plumb"
 site-url = "/"
-# Uncomment once the domain is wired up.
-# cname = "plumb.aramhammoudeh.com"
+cname = "plumb.aramhammoudeh.com"
 
 [output.html.fold]
 enable = true
