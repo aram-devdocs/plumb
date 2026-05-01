@@ -36,6 +36,10 @@
 - [spacing/scale-conformance](./rules/spacing-scale-conformance.md)
 - [type/scale-conformance](./rules/type-scale-conformance.md)
 
+# Performance
+
+- [Benchmarks](./performance.md)
+
 # Contributing
 
 - [Architecture decision records](./adr.md)
