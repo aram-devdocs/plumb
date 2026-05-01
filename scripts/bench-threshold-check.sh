@@ -21,6 +21,16 @@ WARM_RUN_LIMIT_NS=500000000
 
 fail=0
 
+# extract_median <estimates.json> → prints integer nanoseconds
+extract_median() {
+    python3 -c "
+import json, sys
+with open(sys.argv[1]) as f:
+    data = json.load(f)
+print(int(data['median']['point_estimate']))
+" "$1"
+}
+
 check_threshold() {
     local name="$1"
     local limit_ns="$2"
@@ -32,18 +42,8 @@ check_threshold() {
         return
     fi
 
-    # Extract median point_estimate (nanoseconds, floating point).
-    local median_ns
-    median_ns=$(python3 -c "
-import json, sys
-with open(sys.argv[1]) as f:
-    data = json.load(f)
-print(data['median']['point_estimate'])
-" "$estimates_file")
-
-    # Convert to integer for shell comparison.
     local median_int
-    median_int=$(python3 -c "import sys; print(int(float(sys.argv[1])))" "$median_ns")
+    median_int=$(extract_median "$estimates_file")
 
     local limit_ms=$((limit_ns / 1000000))
     local median_ms=$((median_int / 1000000))

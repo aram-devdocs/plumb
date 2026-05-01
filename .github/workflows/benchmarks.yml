@@ -27,13 +27,16 @@ jobs:
         with:
           cache-on-failure: true
 
-      - name: Install Chromium
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y chromium-browser
-          echo "CHROME_PATH=$(which chromium-browser)" >> "$GITHUB_ENV"
+      - name: Install Chrome
+        id: setup-chrome
+        uses: browser-actions/setup-chrome@v2
+        with:
+          chrome-version: stable
+          install-dependencies: true
 
       - name: Run full benchmark suite
+        env:
+          CHROME_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
         run: cargo bench -p plumb-cdp --features e2e-chromium
 
       - name: Check p50 thresholds
