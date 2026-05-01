@@ -464,9 +464,10 @@ fn markdown_anchor_slug(heading: &str) -> String {
 mod tests {
     use super::{
         collect_markdown_anchors, extract_html_sources, extract_markdown_links,
-        markdown_anchor_slug, validate_no_remote_embeds,
+        markdown_anchor_slug, validate_local_markdown_link, validate_no_remote_embeds,
     };
-    use std::path::Path;
+    use std::{fs, path::Path};
+    use tempfile::tempdir;
 
     #[test]
     fn heading_slug_matches_install_anchor_shape() {
@@ -549,5 +550,32 @@ mod tests {
 "#,
         )
         .expect("fenced examples must be ignored");
+    }
+
+    #[test]
+    fn validates_local_markdown_link_when_file_and_anchor_exist() {
+        let dir = tempdir().expect("tempdir");
+        let landing_page = dir.path().join("index.md");
+        let target = dir.path().join("install.md");
+
+        fs::write(&landing_page, "[Install](./install.md#cargo)\n").expect("write landing page");
+        fs::write(&target, "# Install\n## Cargo\n").expect("write target markdown");
+
+        validate_local_markdown_link(&landing_page, "./install.md#cargo")
+            .expect("existing file and anchor must pass");
+    }
+
+    #[test]
+    fn rejects_local_markdown_link_when_anchor_does_not_match() {
+        let dir = tempdir().expect("tempdir");
+        let landing_page = dir.path().join("index.md");
+        let target = dir.path().join("install.md");
+
+        fs::write(&landing_page, "[Install](./install.md#cargo)\n").expect("write landing page");
+        fs::write(&target, "# Install\n## Quick start\n").expect("write target markdown");
+
+        let err = validate_local_markdown_link(&landing_page, "./install.md#cargo")
+            .expect_err("anchor mismatch must fail");
+        assert!(err.to_string().contains("missing anchor `#cargo`"));
     }
 }
