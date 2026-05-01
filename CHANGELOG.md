@@ -30,6 +30,9 @@ From the first release onward, this file is maintained automatically by [`releas
 
 ### Changed
 
+- Docs landing page now frames Plumb around the rendered-UI gap, adds a
+  demo placeholder, and points readers to install, MCP, and CI entry
+  points.
 - Renamed `radius.allowed_px` to `radius.scale` for naming consistency with `spacing.scale` and `type.scale`. The old name is rejected; update any pre-existing `plumb.toml`.
 - `plumb-cdp` accepts a Chromium major-version range
   (`MIN_SUPPORTED_CHROMIUM_MAJOR..=MAX_SUPPORTED_CHROMIUM_MAJOR`,
