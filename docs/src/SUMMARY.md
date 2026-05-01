@@ -2,6 +2,10 @@
 
 [Introduction](./introduction.md)
 
+# Blog
+
+- [Plumb v0.6 is here](./blog/launch-v0.6.md)
+
 # Getting started
 
 - [Install](./install.md)
