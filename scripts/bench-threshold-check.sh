@@ -35,14 +35,14 @@ check_threshold() {
     local median_ns
     median_ns=$(python3 -c "
 import json, sys
-with open('$estimates_file') as f:
+with open(sys.argv[1]) as f:
     data = json.load(f)
 print(data['median']['point_estimate'])
-")
+" "$estimates_file")
 
     # Convert to integer for shell comparison.
     local median_int
-    median_int=$(python3 -c "print(int(float($median_ns)))")
+    median_int=$(python3 -c "import sys; print(int(float(sys.argv[1])))" "$median_ns")
 
     local limit_ms=$((limit_ns / 1000000))
     local median_ms=$((median_int / 1000000))
@@ -59,6 +59,10 @@ echo "=== Benchmark p50 threshold check ==="
 echo "Criterion dir: $CRITERION_DIR"
 echo ""
 
+# per_rule_dom has no threshold: it scales with DOM size and rule count,
+# so a fixed limit would be either too tight for 10k-node runs or too
+# loose for 100-node runs. Use Criterion's statistical change detection
+# for per_rule_dom regressions instead.
 check_threshold "cold_start" "$COLD_START_LIMIT_NS"
 check_threshold "warm_run" "$WARM_RUN_LIMIT_NS"
 
