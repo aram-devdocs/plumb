@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 420" font-family="'SF Mono','Cascadia Code','Consolas','Liberation Mono',monospace" font-size="13">
+  <!-- Window frame -->
+  <rect width="720" height="420" rx="8" fill="#1e1e2e"/>
+  <!-- Title bar -->
+  <rect width="720" height="36" rx="8" fill="#313244"/>
+  <rect y="28" width="720" height="8" fill="#313244"/>
+  <circle cx="20" cy="18" r="6" fill="#f38ba8"/>
+  <circle cx="40" cy="18" r="6" fill="#f9e2af"/>
+  <circle cx="60" cy="18" r="6" fill="#a6e3a1"/>
+  <text x="360" y="22" fill="#cdd6f4" text-anchor="middle" font-size="12">Terminal — plumb lint</text>
+
+  <!-- Prompt line -->
+  <text x="16" y="62" fill="#89b4fa">$</text>
+  <text x="30" y="62" fill="#cdd6f4"> plumb lint https://example.com --format pretty</text>
+
+  <!-- Blank line -->
+
+  <!-- Header -->
+  <text x="16" y="92" fill="#f9e2af" font-weight="bold">Plumb v0.6.0</text>
+  <text x="130" y="92" fill="#6c7086">— linting https://example.com</text>
+
+  <!-- Viewport label -->
+  <text x="16" y="118" fill="#89b4fa">viewport</text>
+  <text x="80" y="118" fill="#6c7086">desktop 1440×900</text>
+
+  <!-- Violation 1 -->
+  <text x="16" y="148" fill="#f38ba8" font-weight="bold">error</text>
+  <text x="60" y="148" fill="#cdd6f4"> spacing/scale-conformance</text>
+  <text x="32" y="166" fill="#6c7086">selector:</text>
+  <text x="100" y="166" fill="#cba6f7">.hero &gt; h1</text>
+  <text x="32" y="184" fill="#6c7086">property:</text>
+  <text x="100" y="184" fill="#cdd6f4">margin-bottom</text>
+  <text x="32" y="202" fill="#6c7086">actual:</text>
+  <text x="100" y="202" fill="#f38ba8">18px</text>
+  <text x="140" y="202" fill="#6c7086">— nearest scale value:</text>
+  <text x="340" y="202" fill="#a6e3a1">16px</text>
+  <text x="376" y="202" fill="#6c7086">(off by 2px)</text>
+
+  <!-- Violation 2 -->
+  <text x="16" y="232" fill="#f9e2af" font-weight="bold">warn</text>
+  <text x="52" y="232" fill="#cdd6f4"> type/scale-conformance</text>
+  <text x="32" y="250" fill="#6c7086">selector:</text>
+  <text x="100" y="250" fill="#cba6f7">.card-body &gt; p</text>
+  <text x="32" y="268" fill="#6c7086">property:</text>
+  <text x="100" y="268" fill="#cdd6f4">font-size</text>
+  <text x="32" y="286" fill="#6c7086">actual:</text>
+  <text x="100" y="286" fill="#f9e2af">15px</text>
+  <text x="140" y="286" fill="#6c7086">— nearest scale value:</text>
+  <text x="340" y="286" fill="#a6e3a1">14px</text>
+  <text x="376" y="286" fill="#6c7086">(off by 1px)</text>
+
+  <!-- Violation 3 -->
+  <text x="16" y="316" fill="#f9e2af" font-weight="bold">warn</text>
+  <text x="52" y="316" fill="#cdd6f4"> a11y/touch-target</text>
+  <text x="32" y="334" fill="#6c7086">selector:</text>
+  <text x="100" y="334" fill="#cba6f7">nav a.icon-link</text>
+  <text x="32" y="352" fill="#6c7086">size:</text>
+  <text x="100" y="352" fill="#f9e2af">36×36px</text>
+  <text x="172" y="352" fill="#6c7086">— minimum:</text>
+  <text x="260" y="352" fill="#a6e3a1">44×44px</text>
+
+  <!-- Summary -->
+  <text x="16" y="388" fill="#cdd6f4">Found</text>
+  <text x="56" y="388" fill="#f38ba8" font-weight="bold">1 error</text>
+  <text x="114" y="388" fill="#cdd6f4">,</text>
+  <text x="122" y="388" fill="#f9e2af" font-weight="bold">2 warnings</text>
+  <text x="212" y="388" fill="#cdd6f4">in 0.8s</text>
+
+  <!-- Cursor blink -->
+  <text x="16" y="410" fill="#89b4fa">$</text>
+  <rect x="30" y="399" width="8" height="14" fill="#cdd6f4" opacity="0.7">
+    <animate attributeName="opacity" values="0.7;0;0.7" dur="1.2s" repeatCount="indefinite"/>
+  </rect>
+</svg>
