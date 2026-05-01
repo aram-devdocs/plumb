@@ -1,0 +1,51 @@
+name: Benchmarks
+
+# Post-merge monitoring only — not a pre-merge PR gate.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: benchmarks-${{ github.sha }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  benchmark:
+    name: Performance benchmarks
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Install Chrome
+        id: setup-chrome
+        uses: browser-actions/setup-chrome@v2
+        with:
+          chrome-version: stable
+          install-dependencies: true
+
+      - name: Run full benchmark suite
+        env:
+          CHROME_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
+        run: cargo bench -p plumb-cdp --features e2e-chromium
+
+      - name: Check p50 thresholds
+        run: bash scripts/bench-threshold-check.sh target/criterion
+
+      - name: Upload Criterion report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: criterion-report
+          path: target/criterion/
+          if-no-files-found: ignore

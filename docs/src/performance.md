@@ -56,5 +56,20 @@ cargo bench -p plumb-cdp -- --baseline before
 
 ## CI
 
-The benchmark harness is not part of the default CI pipeline.
-There is no automated threshold gate; regressions are caught by running benchmarks locally before and after a change.
+A dedicated workflow (`.github/workflows/benchmarks.yml`) runs the full benchmark suite on every push to `main` and on manual dispatch.
+It installs system Chromium, runs `cargo bench -p plumb-cdp --features e2e-chromium`, then checks p50 (median) latency against hard thresholds:
+
+| Benchmark | p50 limit |
+|---|---|
+| `cold_start` | 2 000 ms |
+| `warm_run` | 500 ms |
+
+If either threshold is breached the job fails with an `::error::` annotation.
+Criterion HTML reports are uploaded as a build artifact on every run regardless of pass/fail.
+
+The threshold script lives at `scripts/bench-threshold-check.sh` and can be run locally:
+
+```sh
+cargo bench -p plumb-cdp --features e2e-chromium
+bash scripts/bench-threshold-check.sh
+```
