@@ -1,5 +1,6 @@
 name: Benchmarks
 
+# Post-merge monitoring only — not a pre-merge PR gate.
 on:
   push:
     branches: [main]

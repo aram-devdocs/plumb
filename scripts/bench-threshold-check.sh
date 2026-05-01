@@ -27,7 +27,8 @@ check_threshold() {
     local estimates_file="$CRITERION_DIR/$name/new/estimates.json"
 
     if [ ! -f "$estimates_file" ]; then
-        echo "::warning::$name estimates not found at $estimates_file (skipped)"
+        echo "::error::$name estimates not found at $estimates_file"
+        fail=1
         return
     fi
 
