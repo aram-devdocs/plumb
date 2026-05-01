@@ -1,0 +1,114 @@
+#!/usr/bin/env bash
+# ci-chrome-sandbox-validate.sh — Static validation for the Chrome sandbox
+# prep script and its workflow integration.
+#
+# Checks:
+#   1. Script exists and is executable.
+#   2. Script has a Linux guard (exits on non-Linux).
+#   3. Script is idempotent (checks before writing).
+#   4. Script fails loud (set -euo pipefail + exit 1 on verify failure).
+#   5. Both workflows invoke the script before Chrome steps.
+#   6. No --no-sandbox flag anywhere in the repo's workflow files.
+
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+SCRIPT="$REPO_ROOT/scripts/ci-chrome-sandbox.sh"
+BENCHMARKS="$REPO_ROOT/.github/workflows/benchmarks.yml"
+DOGFOOD="$REPO_ROOT/.github/workflows/dogfood.yml"
+
+fail=0
+
+pass() { echo "  PASS: $1"; }
+fail() { echo "  FAIL: $1" >&2; fail=1; }
+
+echo "=== Chrome sandbox prep validation ==="
+echo ""
+
+# ── 1. Script exists and is executable ───────────────────────────────
+echo "1. Script exists and is executable"
+if [ -f "$SCRIPT" ]; then
+    pass "scripts/ci-chrome-sandbox.sh exists"
+else
+    fail "scripts/ci-chrome-sandbox.sh not found"
+fi
+
+if [ -x "$SCRIPT" ]; then
+    pass "script is executable"
+else
+    fail "script is not executable"
+fi
+
+# ── 2. Linux guard ──────────────────────────────────────────────────
+echo "2. Linux guard"
+if grep -q 'uname -s.*Linux\|uname.*!=.*Linux' "$SCRIPT" 2>/dev/null; then
+    pass "Linux guard present"
+else
+    fail "no Linux guard found"
+fi
+
+# ── 3. Idempotency ─────────────────────────────────────────────────
+echo "3. Idempotency (checks before writing)"
+if grep -q 'already enabled\|already disabled' "$SCRIPT" 2>/dev/null; then
+    pass "idempotent check-before-write pattern found"
+else
+    fail "no idempotency pattern detected"
+fi
+
+# ── 4. Fail-loud ────────────────────────────────────────────────────
+echo "4. Fail-loud"
+if grep -q 'set -euo pipefail' "$SCRIPT" 2>/dev/null; then
+    pass "set -euo pipefail present"
+else
+    fail "set -euo pipefail missing"
+fi
+
+if grep -q 'exit 1' "$SCRIPT" 2>/dev/null; then
+    pass "explicit exit 1 on failure"
+else
+    fail "no exit 1 found for failure paths"
+fi
+
+# ── 5. Workflow integration ─────────────────────────────────────────
+echo "5. Workflow integration"
+
+check_workflow_order() {
+    local wf_file="$1"
+    local wf_name="$2"
+
+    if ! grep -q 'ci-chrome-sandbox.sh' "$wf_file" 2>/dev/null; then
+        fail "$wf_name does not invoke ci-chrome-sandbox.sh"
+        return
+    fi
+    pass "$wf_name invokes ci-chrome-sandbox.sh"
+
+    # Verify sandbox step comes before Chrome install step.
+    local sandbox_line chrome_line
+    sandbox_line=$(grep -n 'ci-chrome-sandbox.sh' "$wf_file" | head -1 | cut -d: -f1)
+    chrome_line=$(grep -n 'setup-chrome' "$wf_file" | head -1 | cut -d: -f1)
+
+    if [ -n "$sandbox_line" ] && [ -n "$chrome_line" ] && [ "$sandbox_line" -lt "$chrome_line" ]; then
+        pass "$wf_name: sandbox prep comes before Chrome install"
+    else
+        fail "$wf_name: sandbox prep must come before Chrome install"
+    fi
+}
+
+check_workflow_order "$BENCHMARKS" "benchmarks.yml"
+check_workflow_order "$DOGFOOD" "dogfood.yml"
+
+# ── 6. No --no-sandbox ─────────────────────────────────────────────
+echo "6. No --no-sandbox"
+if grep -r -- '--no-sandbox' "$REPO_ROOT/.github/workflows/" 2>/dev/null; then
+    fail "--no-sandbox found in workflow files"
+else
+    pass "no --no-sandbox in any workflow"
+fi
+
+echo ""
+if [ "$fail" -ne 0 ]; then
+    echo "FAILED: one or more checks failed."
+    exit 1
+else
+    echo "PASSED: all checks passed."
+fi
