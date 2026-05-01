@@ -1,0 +1,44 @@
+name: Dogfood
+
+on:
+  schedule:
+    - cron: "0 5 * * *" # Daily, 05:00 UTC
+  workflow_dispatch:
+
+concurrency:
+  group: dogfood-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -Dwarnings
+  RUST_BACKTRACE: 1
+
+jobs:
+  lint-plumb-dev:
+    name: plumb lint https://plumb.dev
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install Chrome
+        id: setup-chrome
+        uses: browser-actions/setup-chrome@v2
+        with:
+          chrome-version: stable
+          install-dependencies: true
+
+      - name: Build plumb
+        run: cargo build --release -p plumb-cli
+
+      - name: Lint deployed docs
+        env:
+          CHROME_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
+        run: |
+          target/release/plumb lint https://plumb.dev \
+            --executable-path "$CHROME_PATH"
