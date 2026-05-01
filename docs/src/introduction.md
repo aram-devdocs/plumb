@@ -37,8 +37,8 @@ runs. Determinism is a hard guarantee.
 
 ## Demo
 
-> Demo slot for Issue #63 Slice B: a short rendered-UI walkthrough will
-> land here once the checked-in asset is ready.
+> Demo slot: a short rendered-UI walkthrough will land here once the
+> checked-in asset is ready.
 
 Until then, the live docs are the easiest public target to lint:
 
@@ -65,8 +65,7 @@ Then continue with the docs for your workflow:
 ## Status
 
 Pre-alpha. The current public docs live at
-`https://plumb.aramhammoudeh.com/`. Canonical copy may refer to
-`plumb.dev`, but the root-domain deployment step is still pending.
+`https://plumb.aramhammoudeh.com/`.
 
 ## Next
 
