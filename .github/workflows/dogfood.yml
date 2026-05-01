@@ -5,6 +5,9 @@ on:
     - cron: "0 5 * * *" # Daily, 05:00 UTC
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 concurrency:
   group: dogfood-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
