@@ -10,6 +10,13 @@ ADRs capture the why behind non-obvious choices. The index lives at
 - [`0002-chromium-version-range`](https://github.com/aram-devdocs/plumb/blob/main/docs/adr/0002-chromium-version-range.md)
   — exact-pin replaced by `MIN_SUPPORTED_CHROMIUM_MAJOR..=MAX_SUPPORTED_CHROMIUM_MAJOR`,
   with the contract for moving the upper bound.
+- [`0003-dtcg-over-tailwind-css`](https://github.com/aram-devdocs/plumb/blob/main/docs/adr/0003-dtcg-over-tailwind-css.md)
+  — DTCG is the canonical token interchange format; Tailwind and CSS
+  custom properties remain adapters.
+- [`0004-no-auto-fix-v0`](https://github.com/aram-devdocs/plumb/blob/main/docs/adr/0004-no-auto-fix-v0.md)
+  — V0 reports violations and guidance but does not rewrite source.
+- [`0005-chromium-not-bundled`](https://github.com/aram-devdocs/plumb/blob/main/docs/adr/0005-chromium-not-bundled.md)
+  — Plumb requires a host-installed Chromium instead of shipping one.
 
 ## When to write an ADR
 
