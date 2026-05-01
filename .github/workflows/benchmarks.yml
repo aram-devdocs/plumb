@@ -27,6 +27,9 @@ jobs:
         with:
           cache-on-failure: true
 
+      - name: Prepare Chrome sandbox
+        run: sudo bash scripts/ci-chrome-sandbox.sh
+
       - name: Install Chrome
         id: setup-chrome
         uses: browser-actions/setup-chrome@v2
