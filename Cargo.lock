@@ -3415,6 +3415,7 @@ dependencies = [
  "clap",
  "plumb-config",
  "plumb-core",
+ "tempfile",
 ]
 
 [[package]]
