@@ -279,7 +279,17 @@ fn validate_landing_page() -> Result<()> {
 }
 
 fn validate_no_remote_embeds(path: &Path, src: &str) -> Result<()> {
+    let mut in_code_fence = false;
+
     for (index, raw_line) in src.lines().enumerate() {
+        if raw_line.trim_start().starts_with("```") {
+            in_code_fence = !in_code_fence;
+            continue;
+        }
+        if in_code_fence {
+            continue;
+        }
+
         let line = raw_line.trim();
         let has_embed_tag = ["<img", "<video", "<iframe", "<embed", "<object", "<source"]
             .iter()
@@ -374,8 +384,18 @@ fn extract_markdown_links(src: &str) -> Vec<String> {
 
 fn extract_html_sources(src: &str) -> Vec<String> {
     let mut sources = Vec::new();
+    let mut in_code_fence = false;
 
-    for line in src.lines() {
+    for raw_line in src.lines() {
+        if raw_line.trim_start().starts_with("```") {
+            in_code_fence = !in_code_fence;
+            continue;
+        }
+        if in_code_fence {
+            continue;
+        }
+
+        let line = raw_line;
         let mut rest = line;
         while let Some(start) = rest.find("src=") {
             let after = &rest[start + 4..];
@@ -482,6 +502,19 @@ mod tests {
     }
 
     #[test]
+    fn ignores_html_sources_inside_code_fences() {
+        let src = r#"
+```html
+<img src="ignored.svg" alt="ignored" />
+```
+
+<img src="demo-terminal.svg" alt="demo" />
+"#;
+        let sources = extract_html_sources(src);
+        assert_eq!(sources, vec!["demo-terminal.svg"]);
+    }
+
+    #[test]
     fn collects_heading_anchors_outside_code_fences() {
         let src = r"
 # Install
@@ -503,5 +536,18 @@ mod tests {
         )
         .expect_err("remote embeds must fail");
         assert!(err.to_string().contains("remote embed"));
+    }
+
+    #[test]
+    fn ignores_remote_embeds_inside_code_fences() {
+        validate_no_remote_embeds(
+            Path::new("docs/src/introduction.md"),
+            r#"
+```html
+<img src="https://example.com/demo.svg" alt="example" />
+```
+"#,
+        )
+        .expect("fenced examples must be ignored");
     }
 }
