@@ -1,4 +1,4 @@
-# ADR 0003 — DTCG over direct Tailwind and CSS-only config
+# ADR 0003 — DTCG over CSS framework adapters
 
 **Status:** Accepted
 **Date:** 2026-05-01
@@ -11,12 +11,12 @@ V0 already supports several token sources: DTCG documents, Tailwind
 config, and CSS custom properties. The open question was which source
 should anchor the model and the docs.
 
-Choosing Tailwind as the primary format would tie Plumb's token story
-to one JavaScript toolchain. Choosing CSS custom properties as the
-primary format would keep the input simple, but it would also collapse
-token semantics into string parsing. Raw CSS variables do not carry the
-same structure as token files with explicit type, alias, and grouping
-information.
+Choosing a CSS framework adapter as the primary format would tie
+Plumb's token story to one toolchain and one set of conventions.
+Choosing CSS custom properties as the primary format would keep the
+input simple, but it would also collapse token semantics into string
+parsing. Raw CSS variables do not carry the same structure as token
+files with explicit type, alias, and grouping information.
 
 Plumb's rule engine wants the opposite: one canonical token model that
 can absorb multiple upstream formats without changing rule behavior.
@@ -34,16 +34,17 @@ normalizes that source into the same internal config shape.
 groups, and token kinds directly instead of forcing Plumb to infer them
 from framework conventions.
 
-### 2. Tailwind remains an adapter, not the contract
+### 2. CSS framework adapters remain adapters, not the contract
 
-Tailwind support stays because it removes setup friction for teams that
-already keep spacing, color, and type scales in `tailwind.config.*`.
-That support does not make Tailwind the canonical token surface.
+Framework-specific imports stay because they remove setup friction for
+teams that already keep spacing, color, and type scales in existing
+tooling such as `tailwind.config.*`. That support does not make any one
+framework the canonical token surface.
 
 **Rationale.** Tailwind is common, but it is still one framework with
 its own evaluation model, Node dependency, and theme conventions.
-Plumb should read Tailwind without making every non-Tailwind user carry
-Tailwind's assumptions.
+Plumb should read framework configs without making every non-framework
+user carry those assumptions.
 
 ### 3. CSS custom properties remain a lowest-common-denominator input
 
@@ -58,20 +59,19 @@ widely between codebases.
 
 ### 4. Rules consume the normalized Plumb config, not the original source
 
-No rule should care whether a token came from DTCG, Tailwind, or CSS
-variables. Importers are responsible for producing the same normalized
-config shape before linting starts.
+No rule should care whether a token came from DTCG, a CSS framework
+adapter, or CSS variables. Importers are responsible for producing the
+same normalized config shape before linting starts.
 
-**Rationale.** This keeps rule behavior deterministic and keeps the
-source adapters from leaking framework-specific edge cases into
-`plumb-core`.
+**Rationale.** This keeps rule behavior deterministic and keeps source
+adapters from leaking framework-specific edge cases into `plumb-core`.
 
 ## Consequences
 
 - DTCG becomes the format Plumb can describe in architecture docs
   without also endorsing one framework.
-- Tailwind support stays important for onboarding, but it is documented
-  as a compatibility path rather than the core contract.
+- Framework adapters stay important for onboarding, but they are
+  documented as compatibility paths rather than the core contract.
 - CSS-variable import stays useful for simple sites, though teams with
   richer token systems get better fidelity from DTCG.
 - Future adapters should map into the same config shape. They should

@@ -1,4 +1,4 @@
-# ADR 0005 — Chromium is required, not bundled
+# ADR 0005 — System Chromium over bundled Chromium
 
 **Status:** Accepted
 **Date:** 2026-05-01
@@ -23,7 +23,7 @@ V0.
 
 ## Decisions
 
-### 1. V0 is BYO-Chromium
+### 1. V0 uses system Chromium
 
 Plumb requires the user to install Chrome or Chromium separately. The
 CLI and MCP server detect a local browser or accept an explicit
