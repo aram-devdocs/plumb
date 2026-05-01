@@ -28,6 +28,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: check-agents-md
         run: bash scripts/check-agents-md.sh
+      - name: Validate Chrome sandbox CI wiring
+        run: bash tests/ci-chrome-sandbox-validate.sh
       - name: cargo fmt --check
         run: cargo fmt --all -- --check
       - name: cargo clippy

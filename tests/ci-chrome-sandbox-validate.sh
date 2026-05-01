@@ -7,13 +7,16 @@
 #   2. Script has a Linux guard (exits on non-Linux).
 #   3. Script is idempotent (checks before writing).
 #   4. Script fails loud (set -euo pipefail + exit 1 on verify failure).
-#   5. Both workflows invoke the script before Chrome steps.
-#   6. No --no-sandbox flag anywhere in the repo's workflow files.
+#   5. The validator is wired into maintained local + CI gates.
+#   6. Both Chrome workflows invoke the prep script before Chrome steps.
+#   7. No --no-sandbox flag anywhere in the repo's workflow files.
 
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SCRIPT="$REPO_ROOT/scripts/ci-chrome-sandbox.sh"
+JUSTFILE="$REPO_ROOT/justfile"
+CI_WORKFLOW="$REPO_ROOT/.github/workflows/ci.yml"
 BENCHMARKS="$REPO_ROOT/.github/workflows/benchmarks.yml"
 DOGFOOD="$REPO_ROOT/.github/workflows/dogfood.yml"
 
@@ -69,8 +72,29 @@ else
     fail "no exit 1 found for failure paths"
 fi
 
-# ── 5. Workflow integration ─────────────────────────────────────────
-echo "5. Workflow integration"
+# ── 5. Maintained gate integration ──────────────────────────────────
+echo "5. Maintained gate integration"
+
+if grep -Eq '^ci-chrome-sandbox-validate:' "$JUSTFILE" 2>/dev/null; then
+    pass "justfile defines ci-chrome-sandbox-validate"
+else
+    fail "justfile does not define ci-chrome-sandbox-validate"
+fi
+
+if grep -Eq '^check:.*ci-chrome-sandbox-validate' "$JUSTFILE" 2>/dev/null; then
+    pass "just check depends on ci-chrome-sandbox-validate"
+else
+    fail "just check does not depend on ci-chrome-sandbox-validate"
+fi
+
+if grep -q 'tests/ci-chrome-sandbox-validate.sh' "$CI_WORKFLOW" 2>/dev/null; then
+    pass "ci.yml invokes tests/ci-chrome-sandbox-validate.sh"
+else
+    fail "ci.yml does not invoke tests/ci-chrome-sandbox-validate.sh"
+fi
+
+# ── 6. Workflow integration ─────────────────────────────────────────
+echo "6. Workflow integration"
 
 check_workflow_order() {
     local wf_file="$1"
@@ -97,8 +121,8 @@ check_workflow_order() {
 check_workflow_order "$BENCHMARKS" "benchmarks.yml"
 check_workflow_order "$DOGFOOD" "dogfood.yml"
 
-# ── 6. No --no-sandbox ─────────────────────────────────────────────
-echo "6. No --no-sandbox"
+# ── 7. No --no-sandbox ─────────────────────────────────────────────
+echo "7. No --no-sandbox"
 if grep -r -- '--no-sandbox' "$REPO_ROOT/.github/workflows/" 2>/dev/null; then
     fail "--no-sandbox found in workflow files"
 else
