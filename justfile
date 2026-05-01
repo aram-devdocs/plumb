@@ -122,6 +122,14 @@ determinism-check:
     @diff -q /tmp/plumb-det-2.json /tmp/plumb-det-3.json
     @echo "▸ OK — all three runs produced byte-identical output."
 
+# Run per_rule_dom benchmarks (no Chromium required).
+bench:
+    cargo bench -p plumb-cdp
+
+# Run full benchmark suite including CDP cold-start / warm-run (requires Chromium).
+bench-full:
+    cargo bench -p plumb-cdp --features e2e-chromium
+
 # Size guard: stripped release binary must stay under 25 MiB.
 size-guard:
     cargo build --release -p plumb-cli
