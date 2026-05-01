@@ -1025,6 +1025,20 @@ fn lookup_string(strings: &[String], idx: i64) -> Result<&str, CdpError> {
         .ok_or_else(|| malformed(format!("string index `{idx}` out of range")))
 }
 
+/// Like [`lookup_string`] but treats negative indices as `None` instead of
+/// an error.
+///
+/// Chrome uses `-1` as a sentinel in optional DOMSnapshot string slots
+/// (e.g. attribute values, computed-style values) to signal "no value."
+/// Required slots (node names, attribute names) must still go through
+/// [`lookup_string`] so that a negative index there remains a hard error.
+fn lookup_optional_string(strings: &[String], idx: i64) -> Result<Option<&str>, CdpError> {
+    if idx < 0 {
+        return Ok(None);
+    }
+    lookup_string(strings, idx).map(Some)
+}
+
 fn build_selector(
     dom_order: u64,
     tags: &IndexMap<u64, String>,
@@ -1147,7 +1161,9 @@ impl<'a> NodesView<'a> {
         let mut out = IndexMap::with_capacity(pairs.len() / 2);
         for chunk in pairs.chunks_exact(2) {
             let name = lookup_string(strings, *chunk[0].inner())?.to_string();
-            let value = lookup_string(strings, *chunk[1].inner())?.to_string();
+            let value = lookup_optional_string(strings, *chunk[1].inner())?
+                .unwrap_or("")
+                .to_string();
             out.insert(name, value);
         }
         Ok(out)
@@ -1238,12 +1254,11 @@ impl<'a> LayoutView<'a> {
         let mut out = IndexMap::with_capacity(style_indices.len());
         for (slot, prop) in style_indices.iter().zip(COMPUTED_STYLE_WHITELIST.iter()) {
             let raw = *slot.inner();
-            // CDP uses `-1` to indicate "no value" for this property on
-            // this node — skip rather than insert empty strings.
-            if raw < 0 {
+            let Some(value) = lookup_optional_string(strings, raw)? else {
+                // CDP uses `-1` to indicate "no value" for this property on
+                // this node — skip rather than insert empty strings.
                 continue;
-            }
-            let value = lookup_string(strings, raw)?;
+            };
             if value.is_empty() {
                 continue;
             }
@@ -1404,5 +1419,63 @@ mod tests {
 
         let in_range = "HeadlessChrome/140.0.0.0";
         assert!(super::validate_chromium_product_major(in_range).is_ok());
+    }
+
+    #[test]
+    fn lookup_string_rejects_negative_index() {
+        let strings = vec!["hello".to_string()];
+        let err = super::lookup_string(&strings, -1).unwrap_err();
+        assert!(
+            matches!(err, CdpError::MalformedSnapshot { ref reason } if reason.contains("negative string index")),
+            "expected MalformedSnapshot for negative index, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn lookup_string_rejects_out_of_range() {
+        let strings = vec!["hello".to_string()];
+        let err = super::lookup_string(&strings, 5).unwrap_err();
+        assert!(
+            matches!(err, CdpError::MalformedSnapshot { ref reason } if reason.contains("out of range")),
+            "expected MalformedSnapshot for OOB index, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn lookup_string_resolves_valid_index() {
+        let strings = vec!["hello".to_string(), "world".to_string()];
+        assert_eq!(super::lookup_string(&strings, 0).unwrap(), "hello");
+        assert_eq!(super::lookup_string(&strings, 1).unwrap(), "world");
+    }
+
+    #[test]
+    fn lookup_optional_string_returns_none_for_sentinel() {
+        let strings = vec!["hello".to_string()];
+        assert_eq!(super::lookup_optional_string(&strings, -1).unwrap(), None);
+        // Other negative values also map to None.
+        assert_eq!(super::lookup_optional_string(&strings, -42).unwrap(), None);
+    }
+
+    #[test]
+    fn lookup_optional_string_resolves_valid_index() {
+        let strings = vec!["hello".to_string(), "world".to_string()];
+        assert_eq!(
+            super::lookup_optional_string(&strings, 0).unwrap(),
+            Some("hello")
+        );
+        assert_eq!(
+            super::lookup_optional_string(&strings, 1).unwrap(),
+            Some("world")
+        );
+    }
+
+    #[test]
+    fn lookup_optional_string_rejects_out_of_range() {
+        let strings = vec!["hello".to_string()];
+        let err = super::lookup_optional_string(&strings, 5).unwrap_err();
+        assert!(
+            matches!(err, CdpError::MalformedSnapshot { ref reason } if reason.contains("out of range")),
+            "expected MalformedSnapshot for OOB index, got {err:?}"
+        );
     }
 }
