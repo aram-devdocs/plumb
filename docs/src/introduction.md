@@ -37,10 +37,15 @@ runs. Determinism is a hard guarantee.
 
 ## Demo
 
-> Demo slot: a short rendered-UI walkthrough will land here once the
-> checked-in asset is ready.
+Run `plumb lint` against any URL. Plumb opens it in a headless browser,
+measures every element against your design-system spec, and reports
+pixel-precise violations:
 
-Until then, the live docs are the easiest public target to lint:
+<p align="center">
+  <img src="demo-terminal.svg" alt="Terminal showing plumb lint output with spacing, type, and touch-target violations" width="720" />
+</p>
+
+Try it yourself — the live docs are a handy public target:
 
 ```bash
 plumb lint https://plumb.aramhammoudeh.com
@@ -48,12 +53,12 @@ plumb lint https://plumb.aramhammoudeh.com
 
 ## Install and try it
 
-Start with the path that matches how you work:
+Pick the channel that fits your workflow:
 
-- [Install script](./install.md#install-script-macos--linux--windows)
-- [`cargo install`](./install.md#cargo)
-- [Homebrew](./install.md#homebrew)
-- [Build from source](./install.md#build-from-source)
+- [Install script (macOS / Linux / Windows)](./install.md#install-script-macos--linux--windows) — one-line curl/irm
+- [`cargo install`](./install.md#cargo) — if you already have a Rust toolchain
+- [Homebrew](./install.md#homebrew) — `brew install plumb-dev/tap/plumb`
+- [Build from source](./install.md#build-from-source) — the only path available today (pre-alpha)
 
 Then continue with the docs for your workflow:
 
