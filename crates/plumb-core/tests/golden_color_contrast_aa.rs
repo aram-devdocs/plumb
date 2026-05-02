@@ -7,6 +7,7 @@
 //! - large 24px text that passes the relaxed 3.0:1 threshold,
 //! - bold 18px text that still counts as normal (below the 14pt-bold cutoff),
 //! - bold 19px text that counts as large,
+//! - bold 18.6px text that still counts as normal under the precise 14pt cutoff,
 //! - text inside a dark section whose nearest ancestor background is not white.
 
 use indexmap::IndexMap;
@@ -66,6 +67,17 @@ fn fixture_snapshot() -> PlumbSnapshot {
                 Some(rect(0, 140, 320, 30)),
                 1,
             ),
+            text_node(
+                9,
+                "html > body > div:nth-child(6)",
+                &[
+                    ("color", "rgb(148, 148, 148)"),
+                    ("font-size", "18.6px"),
+                    ("font-weight", "700"),
+                ],
+                Some(rect(0, 176, 320, 30)),
+                1,
+            ),
             section_node(),
             text_node(
                 8,
@@ -73,6 +85,13 @@ fn fixture_snapshot() -> PlumbSnapshot {
                 &[("color", "rgb(120, 120, 120)"), ("font-size", "16px")],
                 Some(rect(0, 212, 320, 24)),
                 7,
+            ),
+            text_node(
+                10,
+                "html > body > div:nth-child(7)",
+                &[("color", "rgb(110, 110, 110)"), ("font-size", "16px")],
+                Some(rect(0, 248, 320, 24)),
+                1,
             ),
         ],
     }
@@ -111,7 +130,7 @@ fn body_node() -> SnapshotNode {
         computed_styles,
         rect: Some(rect(0, 0, 1280, 800)),
         parent: Some(0),
-        children: vec![2, 3, 4, 5, 6, 7],
+        children: vec![2, 3, 4, 5, 6, 7, 9, 10],
     }
 }
 
@@ -176,4 +195,39 @@ fn color_contrast_aa_run_is_deterministic() -> Result<(), serde_json::Error> {
     assert_eq!(a, b);
     assert_eq!(b, c);
     Ok(())
+}
+
+#[test]
+fn color_contrast_aa_obeys_configured_min_ratio() {
+    let snapshot = fixture_snapshot();
+    assert!(
+        !run(&snapshot, &Config::default())
+            .into_iter()
+            .filter(|violation| violation.rule_id == "color/contrast-aa")
+            .map(|violation| violation.selector)
+            .any(|selector| selector == "html > body > div:nth-child(7)")
+    );
+
+    let mut config = Config::default();
+    config.a11y.min_contrast_ratio = Some(7.0);
+    assert!(
+        run(&snapshot, &config)
+            .into_iter()
+            .filter(|violation| violation.rule_id == "color/contrast-aa")
+            .map(|violation| violation.selector)
+            .any(|selector| selector == "html > body > div:nth-child(7)")
+    );
+}
+
+#[test]
+fn color_contrast_aa_uses_precise_bold_large_text_cutoff() {
+    let snapshot = fixture_snapshot();
+    let selectors: Vec<String> = run(&snapshot, &Config::default())
+        .into_iter()
+        .filter(|violation| violation.rule_id == "color/contrast-aa")
+        .map(|violation| violation.selector)
+        .collect();
+
+    assert!(selectors.contains(&"html > body > div:nth-child(6)".to_owned()));
+    assert!(!selectors.contains(&"html > body > div:nth-child(5)".to_owned()));
 }

@@ -9,7 +9,8 @@
 //!
 //! - normal text: 4.5:1 minimum,
 //! - large text: 3.0:1 minimum,
-//! - "large" means at least 24px regular or 18.5px bold.
+//! - "large" means at least 24px regular or 14pt bold
+//!   (`14.0 * 96.0 / 72.0` CSS px).
 
 use indexmap::IndexMap;
 use palette::{LinSrgb, Srgb};
@@ -35,7 +36,7 @@ const FONT_WEIGHT: &str = "font-weight";
 const NORMAL_TEXT_MIN_RATIO: f64 = 4.5;
 const LARGE_TEXT_MIN_RATIO: f64 = 3.0;
 const LARGE_TEXT_MIN_PX: f64 = 24.0;
-const LARGE_BOLD_TEXT_MIN_PX: f64 = 18.5;
+const LARGE_BOLD_TEXT_MIN_PX: f64 = 14.0 * 96.0 / 72.0;
 const BOLD_WEIGHT_MIN: u16 = 700;
 
 /// Flags text whose computed foreground/background contrast misses the
@@ -59,9 +60,12 @@ impl Rule for ContrastAa {
     fn check(&self, ctx: &SnapshotCtx<'_>, config: &Config, sink: &mut ViolationSink<'_>) {
         let snapshot = ctx.snapshot();
         let parents = parent_index(snapshot);
+        let nodes_by_dom_order = nodes_by_dom_order(snapshot);
 
         for node in ctx.nodes() {
-            if let Some(violation) = violation_for_node(ctx, config, snapshot, &parents, node) {
+            if let Some(violation) =
+                violation_for_node(ctx, config, snapshot, &parents, &nodes_by_dom_order, node)
+            {
                 sink.push(violation);
             }
         }
@@ -73,6 +77,7 @@ fn violation_for_node(
     config: &Config,
     snapshot: &PlumbSnapshot,
     parents: &IndexMap<u64, u64>,
+    nodes_by_dom_order: &IndexMap<u64, &SnapshotNode>,
     node: &SnapshotNode,
 ) -> Option<Violation> {
     let raw_foreground = node.computed_styles.get(FOREGROUND_COLOR)?;
@@ -93,7 +98,7 @@ fn violation_for_node(
         .and_then(|raw| parse_font_weight(raw));
     let is_large = classify_large_text(font_size_px, font_weight);
     let required_ratio = required_ratio(config, is_large);
-    let background = resolve_background(snapshot, parents, node);
+    let background = resolve_background(parents, nodes_by_dom_order, node);
     let effective_foreground = if (foreground.a - 1.0).abs() < f32::EPSILON {
         foreground
     } else {
@@ -153,11 +158,8 @@ fn parse_font_weight(raw: &str) -> Option<u16> {
     if trimmed.eq_ignore_ascii_case("bold") {
         return Some(700);
     }
-    if trimmed.eq_ignore_ascii_case("bolder") {
-        return Some(700);
-    }
-    if trimmed.eq_ignore_ascii_case("lighter") {
-        return Some(300);
+    if trimmed.eq_ignore_ascii_case("bolder") || trimmed.eq_ignore_ascii_case("lighter") {
+        return None;
     }
     trimmed.parse::<u16>().ok()
 }
@@ -186,23 +188,24 @@ fn parent_index(snapshot: &PlumbSnapshot) -> IndexMap<u64, u64> {
         .collect()
 }
 
-fn node_by_dom_order(snapshot: &PlumbSnapshot, dom_order: u64) -> Option<&SnapshotNode> {
+fn nodes_by_dom_order(snapshot: &PlumbSnapshot) -> IndexMap<u64, &SnapshotNode> {
     snapshot
         .nodes
         .iter()
-        .find(|node| node.dom_order == dom_order)
+        .map(|node| (node.dom_order, node))
+        .collect()
 }
 
 fn resolve_background(
-    snapshot: &PlumbSnapshot,
     parents: &IndexMap<u64, u64>,
+    nodes_by_dom_order: &IndexMap<u64, &SnapshotNode>,
     start: &SnapshotNode,
 ) -> CssColor {
     let mut layers = Vec::new();
     let mut current = Some(start.dom_order);
 
     while let Some(dom_order) = current {
-        let Some(node) = node_by_dom_order(snapshot, dom_order) else {
+        let Some(node) = nodes_by_dom_order.get(&dom_order).copied() else {
             break;
         };
         if let Some(background) = node
@@ -348,9 +351,10 @@ mod tests {
         assert!(!classify_large_text(LARGE_TEXT_MIN_PX - 0.1, Some(400)));
         assert!(classify_large_text(LARGE_BOLD_TEXT_MIN_PX, Some(700)));
         assert!(!classify_large_text(
-            LARGE_BOLD_TEXT_MIN_PX - 0.1,
+            LARGE_BOLD_TEXT_MIN_PX - 0.001,
             Some(700)
         ));
+        assert!(!classify_large_text(18.6, Some(700)));
     }
 
     #[test]
@@ -364,6 +368,8 @@ mod tests {
     fn parse_font_weight_handles_keywords_and_numbers() {
         assert_eq!(parse_font_weight("normal"), Some(400));
         assert_eq!(parse_font_weight("bold"), Some(700));
+        assert_eq!(parse_font_weight("bolder"), None);
+        assert_eq!(parse_font_weight("lighter"), None);
         assert_eq!(parse_font_weight("700"), Some(700));
         assert_eq!(parse_font_weight("garbage"), None);
     }

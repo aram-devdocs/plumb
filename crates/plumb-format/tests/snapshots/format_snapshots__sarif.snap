@@ -27,6 +27,20 @@ expression: out
               }
             },
             {
+              "id": "color/contrast-aa",
+              "name": "color-contrast-aa",
+              "shortDescription": {
+                "text": "Flags text whose computed foreground/background contrast misses WCAG 2.1 AA."
+              },
+              "fullDescription": {
+                "text": "Flags text whose computed foreground/background contrast misses WCAG 2.1 AA."
+              },
+              "helpUri": "https://plumb.aramhammoudeh.com/rules/color-contrast-aa",
+              "defaultConfiguration": {
+                "level": "warning"
+              }
+            },
+            {
               "id": "color/palette-conformance",
               "name": "color-palette-conformance",
               "shortDescription": {
@@ -159,7 +173,7 @@ expression: out
           "properties": {
             "docUrl": "https://plumb.aramhammoudeh.com/rules/spacing-grid-conformance"
           },
-          "ruleIndex": 5
+          "ruleIndex": 6
         }
       ]
     }
