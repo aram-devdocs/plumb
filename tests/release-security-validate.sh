@@ -80,19 +80,56 @@ echo "4. Secret leakage prevention"
 # blocks risks leaking secrets in logs.
 for wf in "$RELEASE_WORKFLOW" "$INSTALL_SMOKE"; do
     wf_name="$(basename "$wf")"
-    # This is a conservative check: look for ${{ secrets. in run block
-    # script content. The env: block at the step level is fine because
-    # GitHub masks env values automatically.
-    #
-    # Safe patterns filtered out:
-    #   - Comment lines (# ...)
-    #   - env: key lines
-    #   - VAR_NAME: ${{ secrets.X }} lines (env block entries)
-    secret_in_run=$(grep -n 'secrets\.' "$wf" | grep -v '^\s*#' | grep -v 'env:' | grep -v '[A-Z_]*:\s*\${{' || true)
+    # Context-aware scan: only flag ${{ secrets.* }} inside run: block
+    # bodies.  Unlike the previous grep pipeline, this cannot be fooled
+    # by lines that look like env assignments but actually appear inside
+    # a run: block (e.g. `TOKEN: ${{ secrets.X }} && curl ...`).
+    secret_in_run=$(python3 - "$wf" <<'PY'
+import sys
+
+path = sys.argv[1]
+lines = open(path).readlines()
+in_run = False
+run_indent = 0
+found = []
+expr_open = "$" + "{{"
+
+for i, raw in enumerate(lines, 1):
+    stripped = raw.lstrip()
+    indent = len(raw) - len(raw.lstrip())
+
+    if not stripped or stripped.startswith("#"):
+        continue
+
+    if in_run:
+        if indent <= run_indent:
+            in_run = False
+        else:
+            if expr_open in raw and "secrets." in raw:
+                found.append(f"  line {i}: {stripped.rstrip()}")
+            continue
+
+    # Detect run: block scalar start
+    if stripped.startswith("run:"):
+        rest = stripped[len("run:"):].strip()
+        if rest in ("|", "|-", "|+"):
+            in_run = True
+            run_indent = indent
+            continue
+        # Single-line run: <value>
+        if expr_open in stripped and "secrets." in stripped:
+            found.append(f"  line {i}: {stripped.rstrip()}")
+        continue
+
+for line in found:
+    print(line)
+PY
+)
     if [ -z "$secret_in_run" ]; then
-        pass "$wf_name: no direct secret interpolation in script blocks"
+        pass "$wf_name: no direct secret interpolation in run blocks"
     else
-        fail "$wf_name: possible secret interpolation in script blocks"
+        fail "$wf_name: direct secret interpolation in run blocks:"
+        echo "$secret_in_run" >&2
     fi
 done
 
