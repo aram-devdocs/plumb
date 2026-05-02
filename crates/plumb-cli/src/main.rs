@@ -87,8 +87,15 @@ enum Command {
     },
     /// Emit the JSON Schema for `plumb.toml` on stdout.
     Schema,
-    /// Run the MCP server on stdio.
-    Mcp,
+    /// Run the MCP server on stdio or HTTP.
+    Mcp {
+        /// MCP transport. Defaults to stdio to preserve existing behavior.
+        #[arg(long, value_enum, default_value_t = McpTransport::Stdio)]
+        transport: McpTransport,
+        /// TCP port for the HTTP transport.
+        #[arg(long, default_value_t = 4242)]
+        port: u16,
+    },
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -99,6 +106,14 @@ enum Format {
     Json,
     /// SARIF 2.1.0.
     Sarif,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
+enum McpTransport {
+    /// Serve MCP over stdin/stdout.
+    Stdio,
+    /// Serve MCP over Streamable HTTP.
+    Http,
 }
 
 fn main() -> ExitCode {
@@ -146,7 +161,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
             Command::Init { force } => commands::init::run(force),
             Command::Explain { rule } => commands::explain::run(&rule),
             Command::Schema => commands::schema::run(),
-            Command::Mcp => commands::mcp::run().await,
+            Command::Mcp { transport, port } => commands::mcp::run(transport, port).await,
         }
     })
 }

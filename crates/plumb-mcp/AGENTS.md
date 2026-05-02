@@ -2,16 +2,17 @@
 
 See `/AGENTS.md` for repo-wide rules. This file scopes to `plumb-mcp`.
 ## Purpose
-
-Model Context Protocol server exposed over stdio. Public surface:
-`PlumbServer`, `run_stdio`, `McpError`, `EchoArgs`, `LintUrlArgs`.
+Model Context Protocol server exposed over stdio by default, with optional
+Streamable HTTP transport. Public surface: `PlumbServer`, `run_stdio`,
+`run_http`, `McpError`, `EchoArgs`, `LintUrlArgs`.
 Built on `rmcp 0.2.x` with the `#[tool_router]` + `#[tool]` +
 `#[tool_handler]` macros.
 
 ## Protocol
-
 - Protocol version: `ProtocolVersion::V_2024_11_05`.
-- Transport: stdio (`rmcp::transport::stdio`).
+- Transport:
+  - stdio by default (`rmcp::transport::stdio`)
+  - Streamable HTTP via `run_http`
 - Server info: name `plumb`, version from `CARGO_PKG_VERSION`.
 - Tool response contract (PRD §14.2):
   - `content[0]` — compact human text (one line per finding typical).
@@ -19,16 +20,18 @@ Built on `rmcp 0.2.x` with the `#[tool_router]` + `#[tool]` +
   - `isError: false` on non-error responses.
 
 ## Non-negotiable invariants
-
 - `#![forbid(unsafe_code)]`.
 - Every tool method validates its inputs and returns a typed error on
   malformed args — no `unwrap`/`expect`.
+- `run_http` requires a non-empty bearer token. Missing or invalid
+  `Authorization: Bearer <token>` headers are rejected with HTTP 401
+  before the request reaches the MCP transport.
 - Response payloads are bounded: `structuredContent` caps at ~10 KB
   (aggregate + cap on violations; see PRD §14.2).
 - Deterministic output — no wall-clock, no random ordering, no env
   read inside a tool call.
-- `allow(missing_docs)` is scoped only to the `#[tool_router]` impl
-  block (the macro synthesizes helpers that can't be doc-commented).
+- `allow(missing_docs)` is scoped only to the `#[tool_router]` impl block
+  (the macro synthesizes helpers that can't be doc-commented).
 
 ## Adding a new tool
 
@@ -41,8 +44,8 @@ See `.agents/rules/mcp-tool-patterns.md` for the handoff path. Summary:
 
 ## Depends on
 
-- `plumb-core` (types; `test-fake` feature enabled so `lint_url` can
-  serve the canned snapshot for `plumb-fake://` URLs).
+- `plumb-core` (types; `test-fake` lets `lint_url` serve the canned
+  snapshot for `plumb-fake://` URLs).
 - `plumb-cdp` (drives Chromium for real `http(s)://` URLs in `lint_url`).
 - `plumb-format` (mcp_compact).
 - `rmcp` (server + macros + transport-io + schemars features).
@@ -53,6 +56,5 @@ See `.agents/rules/mcp-tool-patterns.md` for the handoff path. Summary:
 - Streaming the full `PlumbSnapshot` back in a tool response. Snapshots
   are huge and agent-harmful — always aggregate.
 - A tool that mutates shared state. Every call is pure and re-entrant.
-- Embedding rule docs verbatim in `explain_rule`. Read from
-  `docs/src/rules/<slug>.md` so the book and the MCP response stay in
-  sync.
+- Embedding rule docs verbatim in `explain_rule`. Read from `docs/src/rules/<slug>.md`
+  so the book and the MCP response stay in sync.
