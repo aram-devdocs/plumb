@@ -1,0 +1,157 @@
+schema: https://plumb.aramhammoudeh.com/schemas/runbook-spec.json
+name: "V0 release readiness"
+repo: aram-devdocs/plumb
+
+parent:
+  title: "[RUNBOOK] V0 release readiness"
+  labels: ["phase-7", "kind:rfc"]
+  summary: |
+    Define the release-readiness gate that must pass before the first
+    Homebrew/npm distribution moves and before Phase 7 Gate 1 is
+    dispatchable. This runbook covers the website matrix, local
+    deterministic kits, install smoke, release dry-run checks,
+    token/security blockers, attestations, and reviewer sign-off lanes
+    needed to prove Plumb is ready for a first distribution release.
+
+    Parking rule: #65 and Phase 7 Gate 1 (#66–#85) remain parked and
+    not dispatchable until this runbook closes, #51/#52 pass their
+    release-channel wiring gates, and #101 passes as the first
+    distribution release. #193 is already closed and remains a recorded
+    prerequisite.
+
+    This spec is intentionally a shell for later slices. It defines the
+    observable sections and acceptance criteria for the readiness gate,
+    but does not itself implement workflows, fixtures, or release
+    channel wiring.
+  acceptance_criteria:
+    - "Live and local readiness legs are documented with explicit infra-vs-violation classification and per-leg failure reporting."
+    - "Local deterministic kits are defined for static, large-DOM, responsive, typography, color/contrast, token, dynamic, auth, and MCP scenarios."
+    - "Install smoke expectations are defined per release channel and supported OS, including auth/no-secret-leak behavior."
+    - "Release dry-run, token/security blockers, and attestation verification are defined as observable gates before publication."
+    - "Reviewer sign-off lanes are defined so #192, #51/#52, and #101 can be evaluated as one release-readiness boundary."
+    - "#65 and #66–#85 remain parked until this runbook, #51/#52, and #101 all pass."
+  related_prd_sections: ["§10.6", "§14.1", "§14.2", "§14.4", "§15.1", "§15.3", "§15.4", "§15.5", "§16"]
+
+batches:
+  - id: "RRA"
+    description: "Readiness reporting contract"
+    parallel: true
+    issues:
+      - slug: readiness-matrix-classification-reporting
+        title: "test(ci): release-readiness matrix classification and reporting"
+        labels: ["phase-7", "area:ci", "kind:test"]
+        crate: ci
+        effort: S
+        summary: |
+          Define the observable reporting contract for each live and
+          local readiness leg so failures classify cleanly as infra,
+          environment, or design-rule violations.
+        acceptance_criteria:
+          - "Every matrix leg emits a pass/fail result plus infra-vs-violation classification."
+          - "Failure reports identify the URL or local kit, viewport, channel, and blocking class."
+          - "The contract stays documentation/spec only until later slices implement it."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner"]
+
+  - id: "RRB"
+    description: "Readiness surfaces and blockers"
+    parallel: true
+    depends_on_batch: "RRA"
+    issues:
+      - slug: readiness-local-kits-shell
+        title: "test(docs): define local deterministic release-readiness kits"
+        labels: ["phase-7", "area:docs", "kind:test"]
+        crate: docs
+        effort: S
+        summary: |
+          Define the checked-in local kits that the readiness gate will
+          cover, including reuse of existing fixtures where that keeps
+          the matrix deterministic.
+        acceptance_criteria:
+          - "The local-kit set covers static, large-DOM, responsive, typography, color/contrast, token, dynamic, auth, and MCP cases."
+          - "Each kit names the observable behavior it proves and whether it is live-only, local-only, or both."
+          - "This slice defines the contract only; fixture implementation lands later."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner"]
+      - slug: readiness-install-smoke-shell
+        title: "test(ci): define install-smoke release gate"
+        labels: ["phase-7", "area:ci", "kind:test"]
+        crate: ci
+        effort: S
+        summary: |
+          Define the install-smoke gate for cargo, Homebrew, npm, and
+          curl channels across supported operating systems.
+        acceptance_criteria:
+          - "The contract names the required channels and operating systems."
+          - "Acceptance includes auth/no-secret-leak behavior where install smoke touches protected paths or tokens."
+          - "This slice does not add the workflow; it defines the observable gate."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner", "06-security-auditor"]
+      - slug: readiness-token-security-blockers
+        title: "chore(release): define token and secret blockers for release readiness"
+        labels: ["phase-7", "area:release", "kind:chore"]
+        crate: release
+        effort: S
+        summary: |
+          Define the publish-permission, token, and secret-handling
+          blockers that must clear before #51 and #52 can move.
+        acceptance_criteria:
+          - "Homebrew tap publish permissions are called out as a readiness gate."
+          - "`NPM_TOKEN` and any release secret handling requirements are documented as explicit blockers."
+          - "No workflow or secret wiring lands in this slice; the issue defines the blocker list and evidence required."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner", "06-security-auditor"]
+      - slug: readiness-attestations-gate
+        title: "test(release): define attestation verification gate"
+        labels: ["phase-7", "area:release", "kind:test"]
+        crate: release
+        effort: S
+        summary: |
+          Define the attestation evidence required for a release
+          candidate, including how artifact provenance is checked before
+          the first distribution release is accepted.
+        acceptance_criteria:
+          - "The gate names which release artifacts require attestations."
+          - "Verification expectations are observable and can fail independently from distribution publish success."
+          - "This slice does not implement attestation plumbing; it defines the gate."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner", "06-security-auditor"]
+
+  - id: "RRC"
+    description: "Release-candidate closure lanes"
+    parallel: true
+    depends_on_batch: "RRB"
+    issues:
+      - slug: readiness-release-dry-run-shell
+        title: "test(release): define release dry-run readiness gate"
+        labels: ["phase-7", "area:release", "kind:test"]
+        crate: release
+        effort: S
+        summary: |
+          Define the release dry-run or smoke expectations that must
+          hold before publication, without publishing real artifacts in
+          this planning slice.
+        acceptance_criteria:
+          - "The dry-run gate names the expected artifacts and failure surfaces."
+          - "The gate distinguishes dry-run success from real first-release success in #101."
+          - "This slice stays at the spec level and does not wire the workflow."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner", "06-security-auditor"]
+      - slug: readiness-reviewer-signoff-lanes
+        title: "chore(release): define release-readiness reviewer sign-off lanes"
+        labels: ["phase-7", "area:release", "kind:chore"]
+        crate: release
+        effort: XS
+        summary: |
+          Define the reviewer sign-off lanes that close the readiness
+          gate after matrix, install, security, attestation, and first
+          release evidence is present.
+        acceptance_criteria:
+          - "Required sign-off lanes are named for readiness, release-channel wiring, and first-release evidence."
+          - "The closure rule states that #65 and #66–#85 remain parked until sign-off completes across #192, #51/#52, and #101."
+          - "This slice defines the review contract only."
+        reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner", "06-security-auditor"]
+
+phase_gate:
+  criterion: |
+    All readiness batches closed with observable reporting in place AND
+    local kits, install smoke, release dry-run, token/security blocker,
+    attestation, and reviewer sign-off evidence captured AND #51/#52
+    release-channel wiring gates pass AND #101 passes as the first
+    distribution release. Until then, #65 and Phase 7 Gate 1 (#66–#85)
+    remain parked and not dispatchable.
+  unblocks: "issue-51, issue-52, issue-65 gate-1 dispatch, issue-101 completion"
