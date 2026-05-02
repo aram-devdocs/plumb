@@ -19,7 +19,7 @@
 #   --local-only   Skip live legs (useful in CI without network access
 #                  or when Chrome is unavailable for HTTPS targets).
 
-set -uo pipefail
+set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 MANIFEST="$REPO_ROOT/tests/fixtures/release-readiness/manifest.json"

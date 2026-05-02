@@ -146,7 +146,7 @@
       "files": [
         "tests/fixtures/release-readiness/malformed-edge.html"
       ],
-      "purpose": "Contains edge-case DOM patterns (deep nesting, empty styles, zero-dimension boxes, duplicate IDs, unclosed tags, missing lang) that rules must handle without crashing.",
+      "purpose": "Contains edge-case DOM patterns (deep nesting, empty containers, zero-dimension boxes, adjacent empty siblings, whitespace-only text nodes, inline style conflicts) that rules must handle without crashing.",
       "cli_examples": [
         "plumb lint file://{repo_root}/tests/fixtures/release-readiness/malformed-edge.html --format json"
       ],
