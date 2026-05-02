@@ -34,20 +34,17 @@
       const localState = document.getElementById("local-state");
       const sessionState = document.getElementById("session-state");
 
-      const cookieSeen = document.cookie.includes("plumb_readiness=1");
       document.cookie = "plumb_readiness=1; SameSite=Lax";
-      cookieState.dataset.state = cookieSeen ? "cookie-present" : "cookie-fresh";
-      cookieState.textContent = cookieSeen ? "cookie-present" : "cookie-fresh";
+      cookieState.dataset.state = "cookie-seeded";
+      cookieState.textContent = "cookie-seeded";
 
-      const localSeen = window.localStorage.getItem("plumb-readiness-local");
       window.localStorage.setItem("plumb-readiness-local", "1");
-      localState.dataset.state = localSeen === null ? "local-fresh" : "local-present";
-      localState.textContent = localSeen === null ? "local-fresh" : "local-present";
+      localState.dataset.state = "local-seeded";
+      localState.textContent = "local-seeded";
 
-      const sessionSeen = window.sessionStorage.getItem("plumb-readiness-session");
       window.sessionStorage.setItem("plumb-readiness-session", "1");
-      sessionState.dataset.state = sessionSeen === null ? "session-fresh" : "session-present";
-      sessionState.textContent = sessionSeen === null ? "session-fresh" : "session-present";
+      sessionState.dataset.state = "session-seeded";
+      sessionState.textContent = "session-seeded";
     </script>
   </body>
 </html>

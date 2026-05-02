@@ -94,7 +94,7 @@
       "files": [
         "tests/fixtures/release-readiness/dynamic-wait.html"
       ],
-      "purpose": "Uses one deterministic delayed DOM mutation so wait-based capture paths can be exercised without wall-clock content drift.",
+      "purpose": "Uses one deterministic delayed DOM mutation so wait-based capture paths can be exercised without wall-clock content drift. Capture the post-mutation DOM with wait-ms >= 50 or an equivalent wait-for selector such as .ready-card.",
       "cli_examples": [
         "plumb lint file://{repo_root}/tests/fixtures/release-readiness/dynamic-wait.html --format json"
       ],
@@ -107,7 +107,7 @@
       "files": [
         "tests/fixtures/release-readiness/auth-storage.html"
       ],
-      "purpose": "Exposes deterministic cookie, localStorage, and sessionStorage markers for future auth and storage-state gates.",
+      "purpose": "Seeds deterministic cookie, localStorage, and sessionStorage markers for future auth and storage-state gates.",
       "cli_examples": [
         "plumb lint file://{repo_root}/tests/fixtures/release-readiness/auth-storage.html --format json"
       ],

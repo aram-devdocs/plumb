@@ -86,6 +86,7 @@ const DISALLOWED_KIT_PATTERNS: &[&str] = &[
     "performance.now",
     "new Date(",
     "crypto.randomUUID",
+    "setTimeout(",
     "fetch(",
     "XMLHttpRequest",
     "WebSocket",
@@ -354,7 +355,7 @@ fn validate_release_readiness_manifest_header(
 ) -> Result<()> {
     if manifest.version != 1 {
         anyhow::bail!(
-            "{} must stay at version 1 for this slice.",
+            "{} must stay at version 1 until this validator is updated for a new manifest schema.",
             manifest_path.display()
         );
     }
@@ -399,8 +400,20 @@ fn validate_release_readiness_kit(kit: &ReleaseReadinessKit, workspace_root: &Pa
             kit.name
         );
     }
+    validate_release_readiness_kit_contract(kit)?;
     validate_release_readiness_examples(kit)?;
     validate_release_readiness_kit_files(kit, workspace_root)
+}
+
+fn validate_release_readiness_kit_contract(kit: &ReleaseReadinessKit) -> Result<()> {
+    if kit.name == "dynamic-wait"
+        && (!kit.purpose.contains("wait-ms >= 50") || !kit.purpose.contains(".ready-card"))
+    {
+        anyhow::bail!(
+            "kit `dynamic-wait` must document the `wait-ms >= 50` / `.ready-card` capture contract."
+        );
+    }
+    Ok(())
 }
 
 fn validate_release_readiness_examples(kit: &ReleaseReadinessKit) -> Result<()> {
@@ -451,6 +464,9 @@ fn validate_release_readiness_file(path: &Path) -> Result<()> {
     let src = std::fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
 
     for pattern in DISALLOWED_KIT_PATTERNS {
+        if *pattern == "setTimeout(" && is_dynamic_wait_fixture(path) {
+            continue;
+        }
         if src.contains(pattern) {
             anyhow::bail!(
                 "{} contains disallowed offline/determinism pattern `{pattern}`.",
@@ -476,8 +492,32 @@ fn validate_release_readiness_file(path: &Path) -> Result<()> {
     {
         validate_release_readiness_mcp_inputs(&src, path)?;
     }
+    if is_dynamic_wait_fixture(path) {
+        validate_dynamic_wait_fixture(&src, path)?;
+    }
     if path.extension().is_some_and(|ext| ext == "html") && !src.contains("<!DOCTYPE html>") {
         anyhow::bail!("{} must remain an HTML5 fixture.", path.display());
+    }
+    Ok(())
+}
+
+fn is_dynamic_wait_fixture(path: &Path) -> bool {
+    path.file_name()
+        .is_some_and(|name| name == "dynamic-wait.html")
+}
+
+fn validate_dynamic_wait_fixture(src: &str, path: &Path) -> Result<()> {
+    if !src.contains("setTimeout(") || !src.contains("}, 50);") {
+        anyhow::bail!(
+            "{} must keep exactly one explicit 50 ms delayed mutation for wait-gate coverage.",
+            path.display()
+        );
+    }
+    if !src.contains(".ready-card") && !src.contains("ready-card") {
+        anyhow::bail!(
+            "{} must keep a stable ready marker such as `.ready-card` for wait-for style capture.",
+            path.display()
+        );
     }
     Ok(())
 }
@@ -746,10 +786,10 @@ fn markdown_anchor_slug(heading: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        RELEASE_READINESS_MANIFEST_PATH, ReleaseReadinessManifest, collect_markdown_anchors,
-        extract_html_sources, extract_markdown_links, markdown_anchor_slug,
-        validate_local_markdown_link, validate_no_remote_embeds, validate_release_readiness_file,
-        workspace_root,
+        RELEASE_READINESS_MANIFEST_PATH, ReleaseReadinessKit, ReleaseReadinessManifest,
+        collect_markdown_anchors, extract_html_sources, extract_markdown_links,
+        markdown_anchor_slug, validate_local_markdown_link, validate_no_remote_embeds,
+        validate_release_readiness_file, validate_release_readiness_kit_contract, workspace_root,
     };
     use std::{fs, path::Path};
     use tempfile::tempdir;
@@ -872,6 +912,13 @@ mod tests {
             serde_json::from_str(&src).expect("manifest should parse");
         assert_eq!(manifest.version, 1);
         assert!(!manifest.kits.is_empty(), "kits should not be empty");
+        let dynamic_wait = manifest
+            .kits
+            .iter()
+            .find(|kit| kit.name == "dynamic-wait")
+            .expect("dynamic-wait kit present");
+        assert!(dynamic_wait.purpose.contains("wait-ms >= 50"));
+        assert!(dynamic_wait.purpose.contains(".ready-card"));
     }
 
     #[test]
@@ -898,5 +945,33 @@ mod tests {
         .expect("write fixture");
         let err = validate_release_readiness_file(&path).expect_err("remote URL must fail");
         assert!(err.to_string().contains("https://"));
+    }
+
+    #[test]
+    fn release_readiness_dynamic_wait_contract_requires_wait_note() {
+        let kit = ReleaseReadinessKit {
+            name: "dynamic-wait".to_owned(),
+            files: vec!["tests/fixtures/release-readiness/dynamic-wait.html".to_owned()],
+            purpose: "deterministic delayed DOM mutation".to_owned(),
+            cli_examples: vec!["plumb lint file://fixture --format json".to_owned()],
+            mcp_examples: vec!["lint_url {\"url\":\"file://fixture\"}".to_owned()],
+        };
+        let err = validate_release_readiness_kit_contract(&kit)
+            .expect_err("dynamic-wait note must be required");
+        assert!(err.to_string().contains("wait-ms >= 50"));
+    }
+
+    #[test]
+    fn release_readiness_file_rejects_timeout_outside_dynamic_wait_fixture() {
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("timeout.html");
+        fs::write(
+            &path,
+            "<!DOCTYPE html><script>setTimeout(() => { document.body.dataset.state = \"ready\"; }, 50);</script>",
+        )
+        .expect("write fixture");
+        let err = validate_release_readiness_file(&path)
+            .expect_err("setTimeout should be rejected outside dynamic-wait");
+        assert!(err.to_string().contains("setTimeout("));
     }
 }

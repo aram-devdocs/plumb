@@ -9,6 +9,9 @@ gate.
   scripts, or APIs.
 - Every kit is deterministic. The files avoid wall-clock reads,
   randomness, and environment-sensitive content.
+- `dynamic-wait` is deterministic only when capture waits for the
+  delayed mutation: use `wait-ms >= 50` or an equivalent wait-for
+  selector such as `.ready-card`.
 - Every kit is reusable from both release-readiness surfaces:
   `plumb lint file://...` on the CLI and `lint_url` over MCP.
 - The manifest at `tests/fixtures/release-readiness/manifest.json` is the
@@ -27,9 +30,10 @@ gate.
 - `shadow-z-opacity-padding` — overlapping layers and spacing/token-like
   surfaces without network dependencies.
 - `dynamic-wait` — deterministic delayed DOM mutation for `wait-for` and
-  `wait-ms` style gates.
-- `auth-storage` — local cookie, sessionStorage, and localStorage state
-  hooks for future driver auth/storage checks.
+  `wait-ms` style gates. Capture the post-mutation DOM with `wait-ms >= 50`
+  or an equivalent wait-for selector such as `.ready-card`.
+- `auth-storage` — deterministic cookie, sessionStorage, and
+  localStorage seeding hooks for future driver auth/storage checks.
 - `mcp-inputs` — checked-in MCP request examples that target the local
   kits without live URLs.
 
