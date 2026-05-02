@@ -18,8 +18,8 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
-  lint-plumb-dev:
-    name: plumb lint https://plumb.dev
+  lint-canonical-docs:
+    name: plumb lint https://plumb.aramhammoudeh.com/
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -46,5 +46,5 @@ jobs:
         env:
           CHROME_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
         run: |
-          target/release/plumb lint https://plumb.dev \
+          target/release/plumb lint https://plumb.aramhammoudeh.com/ \
             --executable-path "$CHROME_PATH"
