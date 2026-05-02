@@ -14,36 +14,6 @@ failures=0
 pass() { echo "  PASS: $1"; }
 fail() { echo "  FAIL: $1" >&2; failures=1; }
 
-channel_gate_status() {
-    python3 - "$WORKFLOW" "$1" <<'PY'
-import sys
-
-path = sys.argv[1]
-channel = sys.argv[2]
-current = None
-states = []
-
-with open(path, encoding="utf-8") as handle:
-    for raw in handle:
-        stripped = raw.strip()
-        if stripped.startswith("- channel:"):
-            current = stripped.split(":", 1)[1].strip()
-            continue
-        if current == channel and stripped.startswith("gated:"):
-            states.append(stripped.split(":", 1)[1].strip())
-            current = None
-
-if not states:
-    print("missing")
-elif all(state == "true" for state in states):
-    print("true")
-elif all(state == "false" for state in states):
-    print("false")
-else:
-    print("mixed")
-PY
-}
-
 echo "=== Install-smoke gate validation ==="
 echo ""
 
@@ -94,32 +64,32 @@ else
 fi
 
 # Brew and npm must be gated (external prerequisites not yet available).
-brew_gated="$(channel_gate_status brew)"
-npm_gated="$(channel_gate_status npm)"
+brew_gated=$(grep -A5 'channel: brew' "$WORKFLOW" | grep -c 'gated: true' || true)
+npm_gated=$(grep -A5 'channel: npm' "$WORKFLOW" | grep -c 'gated: true' || true)
 
-if [ "$brew_gated" = "true" ]; then
+if [ "$brew_gated" -gt 0 ]; then
     pass "brew channel is gated"
 else
     fail "brew channel is not gated — external prerequisites not yet available"
 fi
 
-if [ "$npm_gated" = "true" ]; then
+if [ "$npm_gated" -gt 0 ]; then
     pass "npm channel is gated"
 else
     fail "npm channel is not gated — external prerequisites not yet available"
 fi
 
 # Cargo and curl must NOT be gated.
-cargo_gated="$(channel_gate_status cargo)"
-curl_gated="$(channel_gate_status curl)"
+cargo_gated=$(grep -A5 'channel: cargo' "$WORKFLOW" | grep -c 'gated: true' || true)
+curl_gated=$(grep -A5 'channel: curl' "$WORKFLOW" | grep -c 'gated: true' || true)
 
-if [ "$cargo_gated" = "false" ]; then
+if [ "$cargo_gated" -eq 0 ]; then
     pass "cargo channel is not gated"
 else
     fail "cargo channel should not be gated"
 fi
 
-if [ "$curl_gated" = "false" ]; then
+if [ "$curl_gated" -eq 0 ]; then
     pass "curl channel is not gated"
 else
     fail "curl channel should not be gated"
@@ -166,13 +136,17 @@ else
     fail "curl windows channel does not verify the fetched installer before execution"
 fi
 
-if [ "$brew_gated" = "true" ] && grep -Fq "if: \"!matrix.gated && matrix.channel == 'brew'\"" "$WORKFLOW"; then
+if [ "$brew_gated" -gt 0 ] \
+    && grep -Fq "if: \"!matrix.gated && matrix.channel == 'brew'\"" "$WORKFLOW" \
+    && grep -Fq 'brew install plumb-dev/tap/plumb' "$WORKFLOW"; then
     pass "brew channel stays gated until a publish path exists"
 else
     fail "brew channel gating/install contract is incorrect"
 fi
 
-if [ "$npm_gated" = "true" ] && grep -Fq "if: \"!matrix.gated && matrix.channel == 'npm'\"" "$WORKFLOW"; then
+if [ "$npm_gated" -gt 0 ] \
+    && grep -Fq "if: \"!matrix.gated && matrix.channel == 'npm'\"" "$WORKFLOW" \
+    && grep -Fq 'npm install -g @plumb/cli' "$WORKFLOW"; then
     pass "npm channel stays gated until a publish path exists"
 else
     fail "npm channel gating/install contract is incorrect"

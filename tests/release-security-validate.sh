@@ -18,6 +18,46 @@ failures=0
 pass() { echo "  PASS: $1"; }
 fail() { echo "  FAIL: $1" >&2; failures=1; }
 
+scan_run_block_secrets() {
+    python3 - "$1" <<'PY'
+import sys
+
+path = sys.argv[1]
+lines = open(path, encoding="utf-8").readlines()
+in_run = False
+run_indent = 0
+found = []
+expr_open = "$" + "{{"
+
+for i, raw in enumerate(lines, 1):
+    stripped = raw.lstrip()
+    indent = len(raw) - len(raw.lstrip())
+
+    if not stripped or stripped.startswith("#"):
+        continue
+
+    if in_run:
+        if indent <= run_indent:
+            in_run = False
+        else:
+            if expr_open in raw and "secrets." in raw:
+                found.append(f"  line {i}: {stripped.rstrip()}")
+            continue
+
+    if stripped.startswith("run:"):
+        rest = stripped[len("run:"):].strip()
+        if rest in ("|", "|-", "|+"):
+            in_run = True
+            run_indent = indent
+            continue
+        if expr_open in stripped and "secrets." in stripped:
+            found.append(f"  line {i}: {stripped.rstrip()}")
+
+for line in found:
+    print(line)
+PY
+}
+
 echo "=== Release security gate validation ==="
 echo ""
 
@@ -78,53 +118,44 @@ echo "4. Secret leakage prevention"
 # in run blocks. The safe pattern is: env: { TOKEN: ${{ secrets.X }} }
 # then reference $TOKEN in the script. Direct ${{ secrets.* }} in run
 # blocks risks leaking secrets in logs.
+legacy_env_key_pattern='[A-Z_]'
+legacy_env_key_pattern+='*:\s*\${{'
+if grep -Fq "$legacy_env_key_pattern" "$0"; then
+    fail "validator still contains the legacy loose env-key filter"
+else
+    pass "validator no longer relies on the legacy loose env-key filter"
+fi
+
+# Regression guard: uppercase env keys in env: blocks are allowed, but
+# the same text inside a run: block must be flagged. This documents the
+# anchored env-key behavior Claude requested while using a stricter
+# context-aware scanner.
+scanner_fixture="$(mktemp)"
+cat >"$scanner_fixture" <<'EOF'
+steps:
+  - name: safe env block
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    run: |
+      echo "safe"
+  - name: unsafe run block
+    run: |
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} && curl -fsSL https://example.test/install.sh | sh
+EOF
+fixture_hits="$(scan_run_block_secrets "$scanner_fixture")"
+rm -f "$scanner_fixture"
+if printf '%s\n' "$fixture_hits" | grep -Fq 'GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} && curl'; then
+    pass "scanner ignores env-key entries and flags direct run-block interpolation"
+else
+    fail "scanner regression: expected run-block interpolation to be flagged while env-key entries stay allowed"
+fi
+
 for wf in "$RELEASE_WORKFLOW" "$INSTALL_SMOKE"; do
     wf_name="$(basename "$wf")"
-    # Context-aware scan: only flag ${{ secrets.* }} inside run: block
-    # bodies.  Unlike the previous grep pipeline, this cannot be fooled
-    # by lines that look like env assignments but actually appear inside
-    # a run: block (e.g. `TOKEN: ${{ secrets.X }} && curl ...`).
-    secret_in_run=$(python3 - "$wf" <<'PY'
-import sys
-
-path = sys.argv[1]
-lines = open(path).readlines()
-in_run = False
-run_indent = 0
-found = []
-expr_open = "$" + "{{"
-
-for i, raw in enumerate(lines, 1):
-    stripped = raw.lstrip()
-    indent = len(raw) - len(raw.lstrip())
-
-    if not stripped or stripped.startswith("#"):
-        continue
-
-    if in_run:
-        if indent <= run_indent:
-            in_run = False
-        else:
-            if expr_open in raw and "secrets." in raw:
-                found.append(f"  line {i}: {stripped.rstrip()}")
-            continue
-
-    # Detect run: block scalar start
-    if stripped.startswith("run:"):
-        rest = stripped[len("run:"):].strip()
-        if rest in ("|", "|-", "|+"):
-            in_run = True
-            run_indent = indent
-            continue
-        # Single-line run: <value>
-        if expr_open in stripped and "secrets." in stripped:
-            found.append(f"  line {i}: {stripped.rstrip()}")
-        continue
-
-for line in found:
-    print(line)
-PY
-)
+    # Only flag ${{ secrets.* }} inside run: block bodies. Unlike the
+    # previous loose env-key grep, this cannot be fooled by lines that
+    # look like env assignments but actually appear inside scripts.
+    secret_in_run="$(scan_run_block_secrets "$wf")"
     if [ -z "$secret_in_run" ]; then
         pass "$wf_name: no direct secret interpolation in run blocks"
     else
