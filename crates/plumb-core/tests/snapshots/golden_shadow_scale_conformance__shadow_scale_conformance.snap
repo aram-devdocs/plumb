@@ -1,0 +1,29 @@
+---
+source: crates/plumb-core/tests/golden_shadow_scale_conformance.rs
+expression: json
+---
+[
+  {
+    "rule_id": "shadow/scale-conformance",
+    "severity": "warning",
+    "message": "`html > body > div:nth-child(2)` has off-scale box-shadow `0px 8px 24px rgba(0, 0, 0, 0.3)`; expected a value from shadow.scale.",
+    "selector": "html > body > div:nth-child(2)",
+    "viewport": "desktop",
+    "rect": {
+      "x": 0,
+      "y": 24,
+      "width": 200,
+      "height": 24
+    },
+    "dom_order": 3,
+    "fix": {
+      "kind": {
+        "kind": "description",
+        "text": "The box-shadow value `0px 8px 24px rgba(0, 0, 0, 0.3)` is not in the allowed shadow scale."
+      },
+      "description": "Replace `box-shadow` with one of the allowed shadow tokens.",
+      "confidence": "medium"
+    },
+    "doc_url": "https://plumb.aramhammoudeh.com/rules/shadow-scale-conformance"
+  }
+]

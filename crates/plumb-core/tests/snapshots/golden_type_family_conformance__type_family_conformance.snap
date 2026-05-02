@@ -1,0 +1,36 @@
+---
+source: crates/plumb-core/tests/golden_type_family_conformance.rs
+expression: json
+---
+[
+  {
+    "rule_id": "type/family-conformance",
+    "severity": "warning",
+    "message": "`html > body > div:nth-child(2)` uses font-family `\"Comic Sans MS\", cursive` which is not in type.families.",
+    "selector": "html > body > div:nth-child(2)",
+    "viewport": "desktop",
+    "rect": {
+      "x": 0,
+      "y": 24,
+      "width": 200,
+      "height": 24
+    },
+    "dom_order": 3,
+    "fix": {
+      "kind": {
+        "kind": "description",
+        "text": "Use one of the allowed font families: Inter, sans-serif."
+      },
+      "description": "Replace `font-family` with one of the allowed families (Inter, sans-serif).",
+      "confidence": "medium"
+    },
+    "doc_url": "https://plumb.aramhammoudeh.com/rules/type-family-conformance",
+    "metadata": {
+      "font_family": "\"Comic Sans MS\", cursive",
+      "allowed_families": [
+        "Inter",
+        "sans-serif"
+      ]
+    }
+  }
+]

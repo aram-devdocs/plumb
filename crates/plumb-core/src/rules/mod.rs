@@ -11,10 +11,13 @@
 pub mod a11y;
 pub mod color;
 pub mod edge;
+pub mod opacity;
 pub mod radius;
+pub mod shadow;
 pub mod sibling;
 pub mod spacing;
 pub mod type_;
+pub mod z;
 
 mod util;
 
@@ -87,11 +90,17 @@ pub fn register_builtin() -> Vec<Box<dyn Rule>> {
         Box::new(color::contrast_aa::ContrastAa),
         Box::new(color::palette_conformance::PaletteConformance),
         Box::new(edge::near_alignment::NearAlignment),
+        Box::new(opacity::scale_conformance::ScaleConformance),
         Box::new(radius::scale_conformance::ScaleConformance),
+        Box::new(shadow::scale_conformance::ScaleConformance),
         Box::new(sibling::height_consistency::HeightConsistency),
+        Box::new(sibling::padding_consistency::PaddingConsistency),
         Box::new(spacing::grid_conformance::GridConformance),
         Box::new(spacing::scale_conformance::ScaleConformance),
+        Box::new(type_::family_conformance::FamilyConformance),
         Box::new(type_::scale_conformance::ScaleConformance),
+        Box::new(type_::weight_conformance::WeightConformance),
+        Box::new(z::scale_conformance::ScaleConformance),
     ]
 }
 

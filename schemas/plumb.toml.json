@@ -55,6 +55,36 @@
         "tolerance_px": 3
       }
     },
+    "shadow": {
+      "description": "Box-shadow spec.",
+      "$ref": "#/$defs/ShadowSpec",
+      "default": {
+        "scale": []
+      }
+    },
+    "z_index": {
+      "description": "Z-index spec.",
+      "$ref": "#/$defs/ZIndexSpec",
+      "default": {
+        "scale": []
+      }
+    },
+    "opacity": {
+      "description": "Opacity spec.",
+      "$ref": "#/$defs/OpacitySpec",
+      "default": {
+        "scale": []
+      }
+    },
+    "rhythm": {
+      "description": "Vertical rhythm spec.",
+      "$ref": "#/$defs/RhythmSpec",
+      "default": {
+        "base_line_px": 0,
+        "tolerance_px": 2,
+        "cap_height_fallback_px": 0
+      }
+    },
     "a11y": {
       "description": "Accessibility spec.",
       "$ref": "#/$defs/A11ySpec",
@@ -254,6 +284,81 @@
           "format": "uint32",
           "minimum": 0,
           "default": 3
+        }
+      },
+      "additionalProperties": false
+    },
+    "ShadowSpec": {
+      "description": "Box-shadow spec.",
+      "type": "object",
+      "properties": {
+        "scale": {
+          "description": "Allowed box-shadow values. Each entry is a complete shadow\nexpression as returned by `getComputedStyle`.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        }
+      },
+      "additionalProperties": false
+    },
+    "ZIndexSpec": {
+      "description": "Z-index spec.",
+      "type": "object",
+      "properties": {
+        "scale": {
+          "description": "Allowed z-index values.",
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "default": []
+        }
+      },
+      "additionalProperties": false
+    },
+    "OpacitySpec": {
+      "description": "Opacity spec.",
+      "type": "object",
+      "properties": {
+        "scale": {
+          "description": "Allowed opacity values in the range `[0.0, 1.0]`.",
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "float"
+          },
+          "default": []
+        }
+      },
+      "additionalProperties": false
+    },
+    "RhythmSpec": {
+      "description": "Vertical-rhythm spec (schema/defaults only -- rule lands in #73).",
+      "type": "object",
+      "properties": {
+        "base_line_px": {
+          "description": "Base line-height in pixels.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "default": 0
+        },
+        "tolerance_px": {
+          "description": "Tolerance in pixels for rhythm checks.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "default": 2
+        },
+        "cap_height_fallback_px": {
+          "description": "Cap-height fallback in pixels when font metrics are unavailable.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "default": 0
         }
       },
       "additionalProperties": false
