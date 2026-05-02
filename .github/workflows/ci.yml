@@ -34,6 +34,8 @@ jobs:
         run: bash tests/ci-canonical-docs-url-validate.sh
       - name: Validate release-readiness local kits wiring
         run: bash tests/release-readiness-local-kits-validate.sh
+      - name: Validate release-readiness matrix wiring
+        run: bash tests/release-readiness-matrix-validate.sh
       - name: cargo fmt --check
         run: cargo fmt --all -- --check
       - name: cargo clippy

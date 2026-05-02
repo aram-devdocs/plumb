@@ -1,0 +1,65 @@
+name: Release-readiness matrix
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: readiness-matrix-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -Dwarnings
+  RUST_BACKTRACE: 1
+
+jobs:
+  # Local-only matrix: exercises all local/file:// legs with Chrome.
+  # Live legs are excluded because they depend on network availability
+  # and deployed site uptime — the dogfood workflow covers the
+  # canonical docs URL daily.
+  matrix-local:
+    name: Readiness matrix (local legs)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Prepare Chrome sandbox
+        run: sudo bash scripts/ci-chrome-sandbox.sh
+
+      - name: Install Chrome
+        id: setup-chrome
+        uses: browser-actions/setup-chrome@v2
+        with:
+          chrome-version: stable
+          install-dependencies: true
+
+      - name: Build plumb
+        run: cargo build --release -p plumb-cli
+
+      - name: Run readiness matrix (local-only)
+        env:
+          CHROME_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
+          PLUMB_BIN: "target/release/plumb"
+          REPORT_DIR: "${{ runner.temp }}/plumb-readiness-matrix"
+        run: |
+          bash tests/release-readiness-matrix.sh --local-only
+
+      - name: Upload matrix reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: readiness-matrix-reports
+          path: ${{ runner.temp }}/plumb-readiness-matrix/
+          if-no-files-found: ignore
