@@ -10,6 +10,7 @@ MATRIX_WORKFLOW="$REPO_ROOT/.github/workflows/release-readiness-matrix.yml"
 JUSTFILE="$REPO_ROOT/justfile"
 CI_WORKFLOW="$REPO_ROOT/.github/workflows/ci.yml"
 MANIFEST="$REPO_ROOT/tests/fixtures/release-readiness/manifest.json"
+RUNBOOK="$REPO_ROOT/docs/runbooks/v0-release-readiness-spec.yaml"
 
 failures=0
 
@@ -194,6 +195,34 @@ if grep -Fq 'malformed-edge' "$MATRIX_SCRIPT"; then
     pass "matrix has malformed-edge leg"
 else
     fail "matrix missing malformed-edge leg"
+fi
+
+# ── 10. Release-readiness contract wiring ──────────────────────────
+
+echo "10. Release-readiness contract"
+if [ -f "$RUNBOOK" ]; then
+    pass "v0 release-readiness runbook exists"
+else
+    fail "v0 release-readiness runbook missing"
+fi
+
+if grep -Fq 'Cargo and curl are defined as the current non-manual validation channels' "$RUNBOOK"; then
+    pass "runbook records cargo/curl as current non-manual validation channels"
+else
+    fail "runbook does not record cargo/curl as current non-manual validation channels"
+fi
+
+if grep -Fq 'Homebrew (#51) and npm (#52) remain explicit prep-only/gated channels' "$RUNBOOK"; then
+    pass "runbook records #51/#52 as prep-only/gated channels"
+else
+    fail "runbook does not record #51/#52 as prep-only/gated channels"
+fi
+
+if grep -Fq 'before #101 can be accepted as' "$RUNBOOK" \
+    && grep -Fq 'the first distribution release.' "$RUNBOOK"; then
+    pass "runbook uses current #101 readiness wording"
+else
+    fail "runbook does not use the current #101 readiness wording"
 fi
 
 echo ""

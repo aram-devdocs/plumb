@@ -4,8 +4,10 @@ name: Install smoke test
 # across platforms. Runs weekly and on every release tag.
 #
 # Matrix: {cargo, brew, npm, curl} x {ubuntu, macos, windows}.
-# Brew and npm channels are gated — they skip until the external
-# prerequisites (plumb-dev org, homebrew-tap repo, npm scope) exist.
+# Cargo and curl are the current non-manual validation paths in this
+# repo state. Brew and npm stay gated/prep-only — they skip until the
+# external prerequisites (plumb-dev org, homebrew-tap repo, npm scope,
+# publish identity, and secrets/permissions) exist.
 # See dist-workspace.toml and docs/src/ci/release-prep.md for details.
 #
 # Non-gated failures open or update a single tracking issue so the team
