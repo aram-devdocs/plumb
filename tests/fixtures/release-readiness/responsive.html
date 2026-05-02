@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>plumb readiness responsive fixture</title>
+    <style>
+      :root {
+        color-scheme: light;
+      }
+      body {
+        margin: 0;
+        font: 16px/1.5 Georgia, "Times New Roman", serif;
+        background: #f4efe6;
+        color: #1f1b16;
+      }
+      main {
+        padding: 16px;
+      }
+      .layout {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 12px;
+      }
+      .hero,
+      .details,
+      .rail {
+        padding: 16px;
+        border: 1px solid #ab9c89;
+        background: #fffaf2;
+      }
+      .rail {
+        display: none;
+      }
+      @media (min-width: 900px) {
+        .layout {
+          grid-template-columns: 2fr 1fr;
+          gap: 24px;
+        }
+        .hero {
+          grid-column: 1;
+        }
+        .details {
+          grid-column: 1;
+        }
+        .rail {
+          display: block;
+          grid-column: 2;
+          grid-row: 1 / span 2;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="layout">
+        <section class="hero">
+          <h1>Responsive hero</h1>
+          <p>Stacks on narrow viewports and splits into content plus rail on wide viewports.</p>
+        </section>
+        <section class="details">
+          <h2>Stable content lane</h2>
+          <p>Spacing and text stay fixed while grid structure changes at 900px.</p>
+        </section>
+        <aside class="rail">
+          <h2>Desktop rail</h2>
+          <p>Appears only above the desktop breakpoint.</p>
+        </aside>
+      </div>
+    </main>
+  </body>
+</html>

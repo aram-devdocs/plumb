@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>plumb readiness contrast fixture</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 24px;
+        background: #f3efe8;
+        font: 16px/1.5 Georgia, "Times New Roman", serif;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 16px;
+      }
+      article {
+        padding: 16px;
+        border: 1px solid #c6b49f;
+      }
+      .strong {
+        background: #171410;
+        color: #faf7f1;
+      }
+      .muted {
+        background: #ebe7df;
+        color: #c8c3bb;
+      }
+      .accent {
+        background: #123a54;
+        color: #f4fbff;
+      }
+      .weak-accent {
+        background: #d9e5ee;
+        color: #9eb0be;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="grid">
+      <article class="strong">
+        <h1>High contrast</h1>
+        <p>Dark surface with bright text.</p>
+      </article>
+      <article class="muted">
+        <h1>Weak contrast</h1>
+        <p>Light surface with low-contrast text.</p>
+      </article>
+      <article class="accent">
+        <h1>Strong accent contrast</h1>
+        <p>Accessible accent panel.</p>
+      </article>
+      <article class="weak-accent">
+        <h1>Weak accent contrast</h1>
+        <p>Near-tone text on a near-tone background.</p>
+      </article>
+    </main>
+  </body>
+</html>

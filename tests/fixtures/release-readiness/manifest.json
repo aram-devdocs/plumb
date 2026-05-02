@@ -1,0 +1,132 @@
+{
+  "version": 1,
+  "location": "tests/fixtures/release-readiness",
+  "offline_only": true,
+  "deterministic": true,
+  "shared_gate_targets": ["cli", "mcp"],
+  "kits": [
+    {
+      "name": "minimal",
+      "files": [
+        "tests/fixtures/release-readiness/minimal.html"
+      ],
+      "purpose": "Baseline offline page for the smallest deterministic local lint target.",
+      "cli_examples": [
+        "plumb lint file://{repo_root}/tests/fixtures/release-readiness/minimal.html --format json"
+      ],
+      "mcp_examples": [
+        "lint_url {\"url\":\"file://{repo_root}/tests/fixtures/release-readiness/minimal.html\",\"detail\":\"compact\"}"
+      ]
+    },
+    {
+      "name": "large-dom",
+      "files": [
+        "crates/plumb-cdp/benches/fixtures/fixed-dom-100-nodes.html",
+        "crates/plumb-cdp/benches/fixtures/fixed-dom-1k-nodes.html",
+        "crates/plumb-cdp/benches/fixtures/fixed-dom-10k-nodes.html"
+      ],
+      "purpose": "Reuses the checked-in large DOM benchmark fixtures so readiness gates cover heavier local pages without duplicating inputs.",
+      "cli_examples": [
+        "plumb lint file://{repo_root}/crates/plumb-cdp/benches/fixtures/fixed-dom-100-nodes.html --format json",
+        "plumb lint file://{repo_root}/crates/plumb-cdp/benches/fixtures/fixed-dom-1k-nodes.html --format json",
+        "plumb lint file://{repo_root}/crates/plumb-cdp/benches/fixtures/fixed-dom-10k-nodes.html --format json"
+      ],
+      "mcp_examples": [
+        "lint_url {\"url\":\"file://{repo_root}/crates/plumb-cdp/benches/fixtures/fixed-dom-100-nodes.html\",\"detail\":\"compact\"}",
+        "lint_url {\"url\":\"file://{repo_root}/crates/plumb-cdp/benches/fixtures/fixed-dom-1k-nodes.html\",\"detail\":\"compact\"}",
+        "lint_url {\"url\":\"file://{repo_root}/crates/plumb-cdp/benches/fixtures/fixed-dom-10k-nodes.html\",\"detail\":\"compact\"}"
+      ]
+    },
+    {
+      "name": "responsive",
+      "files": [
+        "tests/fixtures/release-readiness/responsive.html"
+      ],
+      "purpose": "Exercises stable layout differences across viewport widths without changing network or runtime inputs.",
+      "cli_examples": [
+        "plumb lint file://{repo_root}/tests/fixtures/release-readiness/responsive.html --format json"
+      ],
+      "mcp_examples": [
+        "lint_url {\"url\":\"file://{repo_root}/tests/fixtures/release-readiness/responsive.html\",\"detail\":\"compact\"}"
+      ]
+    },
+    {
+      "name": "typography",
+      "files": [
+        "tests/fixtures/release-readiness/typography.html"
+      ],
+      "purpose": "Covers local font-family stacks, font-size steps, weights, and text rhythm with no remote font loading.",
+      "cli_examples": [
+        "plumb lint file://{repo_root}/tests/fixtures/release-readiness/typography.html --format json"
+      ],
+      "mcp_examples": [
+        "lint_url {\"url\":\"file://{repo_root}/tests/fixtures/release-readiness/typography.html\",\"detail\":\"compact\"}"
+      ]
+    },
+    {
+      "name": "contrast",
+      "files": [
+        "tests/fixtures/release-readiness/contrast.html"
+      ],
+      "purpose": "Provides stable foreground/background contrast pairs with known strong and weak readability outcomes.",
+      "cli_examples": [
+        "plumb lint file://{repo_root}/tests/fixtures/release-readiness/contrast.html --format json"
+      ],
+      "mcp_examples": [
+        "lint_url {\"url\":\"file://{repo_root}/tests/fixtures/release-readiness/contrast.html\",\"detail\":\"compact\"}"
+      ]
+    },
+    {
+      "name": "shadow-z-opacity-padding",
+      "files": [
+        "tests/fixtures/release-readiness/shadow-z-opacity-padding.html"
+      ],
+      "purpose": "Collects overlapping layers, opacity differences, shadows, and spacing surfaces into one offline fixture.",
+      "cli_examples": [
+        "plumb lint file://{repo_root}/tests/fixtures/release-readiness/shadow-z-opacity-padding.html --format json"
+      ],
+      "mcp_examples": [
+        "lint_url {\"url\":\"file://{repo_root}/tests/fixtures/release-readiness/shadow-z-opacity-padding.html\",\"detail\":\"compact\"}"
+      ]
+    },
+    {
+      "name": "dynamic-wait",
+      "files": [
+        "tests/fixtures/release-readiness/dynamic-wait.html"
+      ],
+      "purpose": "Uses one deterministic delayed DOM mutation so wait-based capture paths can be exercised without wall-clock content drift. Capture the post-mutation DOM with wait-ms >= 50 or an equivalent wait-for selector such as .ready-card.",
+      "cli_examples": [
+        "plumb lint file://{repo_root}/tests/fixtures/release-readiness/dynamic-wait.html --format json"
+      ],
+      "mcp_examples": [
+        "lint_url {\"url\":\"file://{repo_root}/tests/fixtures/release-readiness/dynamic-wait.html\",\"detail\":\"compact\"}"
+      ]
+    },
+    {
+      "name": "auth-storage",
+      "files": [
+        "tests/fixtures/release-readiness/auth-storage.html"
+      ],
+      "purpose": "Seeds deterministic cookie, localStorage, and sessionStorage markers for future auth and storage-state gates.",
+      "cli_examples": [
+        "plumb lint file://{repo_root}/tests/fixtures/release-readiness/auth-storage.html --format json"
+      ],
+      "mcp_examples": [
+        "lint_url {\"url\":\"file://{repo_root}/tests/fixtures/release-readiness/auth-storage.html\",\"detail\":\"compact\"}"
+      ]
+    },
+    {
+      "name": "mcp-inputs",
+      "files": [
+        "tests/fixtures/release-readiness/mcp-inputs.json"
+      ],
+      "purpose": "Checked-in MCP request inputs that stay offline and point only at local fixture URLs or local working directories.",
+      "cli_examples": [
+        "cat tests/fixtures/release-readiness/mcp-inputs.json"
+      ],
+      "mcp_examples": [
+        "Use the JSON entries in tests/fixtures/release-readiness/mcp-inputs.json as request bodies for lint_url, get_config, and echo."
+      ]
+    }
+  ]
+}

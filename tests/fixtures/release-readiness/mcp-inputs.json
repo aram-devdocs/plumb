@@ -1,0 +1,43 @@
+{
+  "purpose": "Offline MCP request inputs for release-readiness local kits.",
+  "requests": [
+    {
+      "tool": "echo",
+      "args": {
+        "message": "release-readiness-local-kits"
+      },
+      "notes": "Transport smoke check with fixed text."
+    },
+    {
+      "tool": "get_config",
+      "args": {
+        "working_dir": "{repo_root}"
+      },
+      "notes": "Local-only config resolution against the repo root."
+    },
+    {
+      "tool": "lint_url",
+      "args": {
+        "url": "file://{repo_root}/tests/fixtures/release-readiness/minimal.html",
+        "detail": "compact"
+      },
+      "notes": "Smallest local file URL path."
+    },
+    {
+      "tool": "lint_url",
+      "args": {
+        "url": "file://{repo_root}/tests/fixtures/release-readiness/responsive.html",
+        "detail": "full"
+      },
+      "notes": "Viewport-sensitive local file URL path."
+    },
+    {
+      "tool": "lint_url",
+      "args": {
+        "url": "file://{repo_root}/tests/fixtures/release-readiness/auth-storage.html",
+        "detail": "compact"
+      },
+      "notes": "Local stateful fixture path for auth/storage smoke coverage."
+    }
+  ]
+}

@@ -25,7 +25,7 @@ parent:
     channel wiring.
   acceptance_criteria:
     - "Live and local readiness legs are documented with explicit infra-vs-violation classification and per-leg failure reporting."
-    - "Local deterministic kits are defined for static, large-DOM, responsive, typography, color/contrast, token, dynamic, auth, and MCP scenarios."
+    - "Local deterministic kits are checked in under `tests/fixtures/release-readiness/`, with the manifest at `tests/fixtures/release-readiness/manifest.json`, and cover static, large-DOM, responsive, typography, color/contrast, shadow/z/opacity/padding, dynamic/wait, auth/storage, and MCP scenarios."
     - "Install smoke expectations are defined per release channel and supported OS, including auth/no-secret-leak behavior."
     - "Release dry-run, token/security blockers, and attestation verification are defined as observable gates before publication."
     - "Reviewer sign-off lanes are defined so #192, #51/#52, and #101 can be evaluated as one release-readiness boundary."
@@ -65,11 +65,12 @@ batches:
         summary: |
           Define the checked-in local kits that the readiness gate will
           cover, including reuse of existing fixtures where that keeps
-          the matrix deterministic.
+          the matrix deterministic. The source-of-truth manifest lives
+          at `tests/fixtures/release-readiness/manifest.json`.
         acceptance_criteria:
-          - "The local-kit set covers static, large-DOM, responsive, typography, color/contrast, token, dynamic, auth, and MCP cases."
+          - "The local-kit set covers static, large-DOM, responsive, typography, color/contrast, shadow/z/opacity/padding, dynamic/wait, auth/storage, and MCP cases."
           - "Each kit names the observable behavior it proves and whether it is live-only, local-only, or both."
-          - "This slice defines the contract only; fixture implementation lands later."
+          - "Checked-in fixture files and reuse metadata live in the repository, and large-DOM coverage may reuse existing deterministic local fixtures."
         reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner"]
       - slug: readiness-install-smoke-shell
         title: "test(ci): define install-smoke release gate"

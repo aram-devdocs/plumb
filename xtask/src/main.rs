@@ -17,6 +17,7 @@ use std::process::{Command, ExitCode};
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
+use serde::Deserialize;
 
 #[derive(Debug, Parser)]
 #[command(name = "xtask", about = "Plumb developer task runner.")]
@@ -47,6 +48,8 @@ enum Cmd {
     },
     /// Validate the docs landing page demo asset and CTA targets.
     ValidateLandingPage,
+    /// Validate the checked-in offline release-readiness local kits.
+    ValidateReleaseReadinessKits,
     /// Pre-release sanity suite: schema up-to-date, rules-index in sync,
     /// every runbook spec valid.
     PreRelease,
@@ -62,6 +65,56 @@ const REQUIRED_INSTALL_CTA_LINKS: &[&str] = &[
     "./install.md#homebrew",
     "./install.md#build-from-source",
 ];
+const RELEASE_READINESS_README_PATH: &str = "tests/fixtures/release-readiness/README.md";
+const RELEASE_READINESS_MANIFEST_PATH: &str = "tests/fixtures/release-readiness/manifest.json";
+const REQUIRED_RELEASE_READINESS_KITS: &[&str] = &[
+    "minimal",
+    "large-dom",
+    "responsive",
+    "typography",
+    "contrast",
+    "shadow-z-opacity-padding",
+    "dynamic-wait",
+    "auth-storage",
+    "mcp-inputs",
+];
+const DISALLOWED_KIT_PATTERNS: &[&str] = &[
+    "http://",
+    "https://",
+    "Date.now",
+    "Math.random",
+    "performance.now",
+    "new Date(",
+    "crypto.randomUUID",
+    "setTimeout(",
+    "fetch(",
+    "XMLHttpRequest",
+    "WebSocket",
+    "EventSource",
+    "navigator.serviceWorker",
+    "SharedWorker",
+    "importScripts(",
+];
+const REQUIRED_MCP_TOOLS: &[&str] = &["echo", "get_config", "lint_url"];
+
+#[derive(Debug, Deserialize)]
+struct ReleaseReadinessManifest {
+    version: u64,
+    location: String,
+    offline_only: bool,
+    deterministic: bool,
+    shared_gate_targets: Vec<String>,
+    kits: Vec<ReleaseReadinessKit>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ReleaseReadinessKit {
+    name: String,
+    files: Vec<String>,
+    purpose: String,
+    cli_examples: Vec<String>,
+    mcp_examples: Vec<String>,
+}
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
@@ -80,6 +133,7 @@ fn run(cli: Cli) -> Result<()> {
         Cmd::SyncRulesIndex => sync_rules_index(),
         Cmd::ValidateRunbooks { dir } => validate_runbooks(&dir),
         Cmd::ValidateLandingPage => validate_landing_page(),
+        Cmd::ValidateReleaseReadinessKits => validate_release_readiness_kits(),
         Cmd::PreRelease => pre_release(),
     }
 }
@@ -220,7 +274,276 @@ fn pre_release() -> Result<()> {
     // 4. Runbook specs valid (skips cleanly if docs/runbooks/ doesn't exist yet).
     validate_runbooks(Path::new("docs/runbooks"))?;
 
+    // 5. Local release-readiness kits valid.
+    validate_release_readiness_kits()?;
+
     let _ = writeln!(std::io::stdout(), "▸ OK — pre-release gates green.");
+    Ok(())
+}
+
+fn validate_release_readiness_kits() -> Result<()> {
+    let workspace_root = workspace_root();
+    let readme_path = workspace_root.join(RELEASE_READINESS_README_PATH);
+    let manifest_path = workspace_root.join(RELEASE_READINESS_MANIFEST_PATH);
+
+    validate_release_readiness_readme(&readme_path)?;
+    let manifest = load_release_readiness_manifest(&manifest_path)?;
+    validate_release_readiness_manifest_header(
+        &manifest,
+        &manifest_path,
+        &workspace_root,
+        &readme_path,
+    )?;
+
+    let mut names: Vec<&str> = manifest.kits.iter().map(|kit| kit.name.as_str()).collect();
+    names.sort_unstable();
+    let mut expected = REQUIRED_RELEASE_READINESS_KITS.to_vec();
+    expected.sort_unstable();
+    if names != expected {
+        anyhow::bail!(
+            "{} must define exactly the required kit set: {:?}; found {:?}.",
+            manifest_path.display(),
+            expected,
+            names
+        );
+    }
+
+    for kit in &manifest.kits {
+        validate_release_readiness_kit(kit, &workspace_root)?;
+    }
+
+    let _ = writeln!(
+        std::io::stdout(),
+        "▸ release-readiness local kits valid: {} kits, offline-only and reusable by CLI/MCP.",
+        manifest.kits.len()
+    );
+    Ok(())
+}
+
+fn validate_release_readiness_readme(readme_path: &Path) -> Result<()> {
+    let readme = std::fs::read_to_string(readme_path)
+        .with_context(|| format!("read {}", readme_path.display()))?;
+    for phrase in [
+        "offline-only",
+        "deterministic",
+        "CLI",
+        "MCP",
+        "manifest.json",
+    ] {
+        if !readme.contains(phrase) {
+            anyhow::bail!(
+                "{} must mention `{phrase}` so the kit contract stays documented.",
+                readme_path.display()
+            );
+        }
+    }
+    Ok(())
+}
+
+fn load_release_readiness_manifest(manifest_path: &Path) -> Result<ReleaseReadinessManifest> {
+    let manifest_src = std::fs::read_to_string(manifest_path)
+        .with_context(|| format!("read {}", manifest_path.display()))?;
+    serde_json::from_str(&manifest_src)
+        .with_context(|| format!("parse {}", manifest_path.display()))
+}
+
+fn validate_release_readiness_manifest_header(
+    manifest: &ReleaseReadinessManifest,
+    manifest_path: &Path,
+    workspace_root: &Path,
+    readme_path: &Path,
+) -> Result<()> {
+    if manifest.version != 1 {
+        anyhow::bail!(
+            "{} must stay at version 1 until this validator is updated for a new manifest schema.",
+            manifest_path.display()
+        );
+    }
+    if manifest.location != "tests/fixtures/release-readiness" {
+        anyhow::bail!(
+            "{} has unexpected location `{}`.",
+            manifest_path.display(),
+            manifest.location
+        );
+    }
+    if !manifest.offline_only || !manifest.deterministic {
+        anyhow::bail!(
+            "{} must declare offline_only=true and deterministic=true.",
+            manifest_path.display()
+        );
+    }
+    if manifest.shared_gate_targets != ["cli", "mcp"] {
+        anyhow::bail!(
+            "{} must declare shared_gate_targets exactly as [\"cli\", \"mcp\"].",
+            manifest_path.display()
+        );
+    }
+    if workspace_root.join(&manifest.location) != readme_path.parent().unwrap_or(workspace_root) {
+        anyhow::bail!(
+            "{} must point at the checked-in local-kit directory only.",
+            manifest_path.display()
+        );
+    }
+    Ok(())
+}
+
+fn validate_release_readiness_kit(kit: &ReleaseReadinessKit, workspace_root: &Path) -> Result<()> {
+    if kit.files.is_empty() {
+        anyhow::bail!("kit `{}` must list at least one checked-in file.", kit.name);
+    }
+    if kit.purpose.trim().is_empty() {
+        anyhow::bail!("kit `{}` must include a non-empty purpose.", kit.name);
+    }
+    if kit.cli_examples.is_empty() || kit.mcp_examples.is_empty() {
+        anyhow::bail!(
+            "kit `{}` must include both CLI and MCP reuse metadata.",
+            kit.name
+        );
+    }
+    validate_release_readiness_kit_contract(kit)?;
+    validate_release_readiness_examples(kit)?;
+    validate_release_readiness_kit_files(kit, workspace_root)
+}
+
+fn validate_release_readiness_kit_contract(kit: &ReleaseReadinessKit) -> Result<()> {
+    if kit.name == "dynamic-wait"
+        && (!kit.purpose.contains("wait-ms >= 50") || !kit.purpose.contains(".ready-card"))
+    {
+        anyhow::bail!(
+            "kit `dynamic-wait` must document the `wait-ms >= 50` / `.ready-card` capture contract."
+        );
+    }
+    Ok(())
+}
+
+fn validate_release_readiness_examples(kit: &ReleaseReadinessKit) -> Result<()> {
+    for example in &kit.cli_examples {
+        if !example.contains("file://") && !example.contains("cat ") {
+            anyhow::bail!(
+                "kit `{}` has a CLI example that does not stay local/offline: `{example}`.",
+                kit.name
+            );
+        }
+    }
+    for example in &kit.mcp_examples {
+        if !example.contains("lint_url")
+            && !example.contains("get_config")
+            && !example.contains("echo")
+        {
+            anyhow::bail!(
+                "kit `{}` has an MCP example that does not reference a current MCP surface: `{example}`.",
+                kit.name
+            );
+        }
+    }
+    Ok(())
+}
+
+fn validate_release_readiness_kit_files(
+    kit: &ReleaseReadinessKit,
+    workspace_root: &Path,
+) -> Result<()> {
+    for file in &kit.files {
+        let path = workspace_root.join(file);
+        if !path.exists() {
+            anyhow::bail!("kit `{}` references missing file `{file}`.", kit.name);
+        }
+        validate_release_readiness_file(&path)?;
+    }
+    Ok(())
+}
+
+fn workspace_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .to_path_buf()
+}
+
+fn validate_release_readiness_file(path: &Path) -> Result<()> {
+    let src = std::fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
+
+    for pattern in DISALLOWED_KIT_PATTERNS {
+        if *pattern == "setTimeout(" && is_dynamic_wait_fixture(path) {
+            continue;
+        }
+        if src.contains(pattern) {
+            anyhow::bail!(
+                "{} contains disallowed offline/determinism pattern `{pattern}`.",
+                path.display()
+            );
+        }
+    }
+    if src.contains("<link ") {
+        anyhow::bail!(
+            "{} contains a <link> tag; use inline checked-in styling only.",
+            path.display()
+        );
+    }
+    if src.contains("<img ") || src.contains("<iframe ") || src.contains("<object ") {
+        anyhow::bail!(
+            "{} contains an externalizable embed tag; keep the kits self-contained text/CSS/DOM fixtures.",
+            path.display()
+        );
+    }
+    if path
+        .file_name()
+        .is_some_and(|name| name == "mcp-inputs.json")
+    {
+        validate_release_readiness_mcp_inputs(&src, path)?;
+    }
+    if is_dynamic_wait_fixture(path) {
+        validate_dynamic_wait_fixture(&src, path)?;
+    }
+    if path.extension().is_some_and(|ext| ext == "html") && !src.contains("<!DOCTYPE html>") {
+        anyhow::bail!("{} must remain an HTML5 fixture.", path.display());
+    }
+    Ok(())
+}
+
+fn is_dynamic_wait_fixture(path: &Path) -> bool {
+    path.file_name()
+        .is_some_and(|name| name == "dynamic-wait.html")
+}
+
+fn validate_dynamic_wait_fixture(src: &str, path: &Path) -> Result<()> {
+    if !src.contains("setTimeout(") || !src.contains("}, 50);") {
+        anyhow::bail!(
+            "{} must keep exactly one explicit 50 ms delayed mutation for wait-gate coverage.",
+            path.display()
+        );
+    }
+    if !src.contains(".ready-card") && !src.contains("ready-card") {
+        anyhow::bail!(
+            "{} must keep a stable ready marker such as `.ready-card` for wait-for style capture.",
+            path.display()
+        );
+    }
+    Ok(())
+}
+
+fn validate_release_readiness_mcp_inputs(src: &str, path: &Path) -> Result<()> {
+    let value: serde_json::Value =
+        serde_json::from_str(src).with_context(|| format!("parse {}", path.display()))?;
+    let requests = value
+        .get("requests")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| anyhow::anyhow!("{} must contain a `requests` array.", path.display()))?;
+
+    for tool in REQUIRED_MCP_TOOLS {
+        if !requests.iter().any(|entry| {
+            entry
+                .get("tool")
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|name| name == *tool)
+        }) {
+            anyhow::bail!(
+                "{} must include a `{tool}` request so the MCP reuse contract stays covered.",
+                path.display()
+            );
+        }
+    }
+
     Ok(())
 }
 
@@ -463,8 +786,10 @@ fn markdown_anchor_slug(heading: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
+        RELEASE_READINESS_MANIFEST_PATH, ReleaseReadinessKit, ReleaseReadinessManifest,
         collect_markdown_anchors, extract_html_sources, extract_markdown_links,
         markdown_anchor_slug, validate_local_markdown_link, validate_no_remote_embeds,
+        validate_release_readiness_file, validate_release_readiness_kit_contract, workspace_root,
     };
     use std::{fs, path::Path};
     use tempfile::tempdir;
@@ -577,5 +902,76 @@ mod tests {
         let err = validate_local_markdown_link(&landing_page, "./install.md#cargo")
             .expect_err("anchor mismatch must fail");
         assert!(err.to_string().contains("missing anchor `#cargo`"));
+    }
+
+    #[test]
+    fn release_readiness_manifest_parses() {
+        let path = workspace_root().join(RELEASE_READINESS_MANIFEST_PATH);
+        let src = fs::read_to_string(path).expect("read manifest");
+        let manifest: ReleaseReadinessManifest =
+            serde_json::from_str(&src).expect("manifest should parse");
+        assert_eq!(manifest.version, 1);
+        assert!(!manifest.kits.is_empty(), "kits should not be empty");
+        let dynamic_wait = manifest
+            .kits
+            .iter()
+            .find(|kit| kit.name == "dynamic-wait")
+            .expect("dynamic-wait kit present");
+        assert!(dynamic_wait.purpose.contains("wait-ms >= 50"));
+        assert!(dynamic_wait.purpose.contains(".ready-card"));
+    }
+
+    #[test]
+    fn release_readiness_mcp_inputs_must_cover_required_tools() {
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("mcp-inputs.json");
+        fs::write(
+            &path,
+            r#"{"requests":[{"tool":"echo"},{"tool":"get_config"}]}"#,
+        )
+        .expect("write mcp inputs");
+        let err = validate_release_readiness_file(&path).expect_err("missing lint_url must fail");
+        assert!(err.to_string().contains("lint_url"));
+    }
+
+    #[test]
+    fn release_readiness_file_rejects_remote_url() {
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("remote.html");
+        fs::write(
+            &path,
+            "<!DOCTYPE html><img src=\"https://example.com/x.png\" alt=\"x\" />",
+        )
+        .expect("write fixture");
+        let err = validate_release_readiness_file(&path).expect_err("remote URL must fail");
+        assert!(err.to_string().contains("https://"));
+    }
+
+    #[test]
+    fn release_readiness_dynamic_wait_contract_requires_wait_note() {
+        let kit = ReleaseReadinessKit {
+            name: "dynamic-wait".to_owned(),
+            files: vec!["tests/fixtures/release-readiness/dynamic-wait.html".to_owned()],
+            purpose: "deterministic delayed DOM mutation".to_owned(),
+            cli_examples: vec!["plumb lint file://fixture --format json".to_owned()],
+            mcp_examples: vec!["lint_url {\"url\":\"file://fixture\"}".to_owned()],
+        };
+        let err = validate_release_readiness_kit_contract(&kit)
+            .expect_err("dynamic-wait note must be required");
+        assert!(err.to_string().contains("wait-ms >= 50"));
+    }
+
+    #[test]
+    fn release_readiness_file_rejects_timeout_outside_dynamic_wait_fixture() {
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("timeout.html");
+        fs::write(
+            &path,
+            "<!DOCTYPE html><script>setTimeout(() => { document.body.dataset.state = \"ready\"; }, 50);</script>",
+        )
+        .expect("write fixture");
+        let err = validate_release_readiness_file(&path)
+            .expect_err("setTimeout should be rejected outside dynamic-wait");
+        assert!(err.to_string().contains("setTimeout("));
     }
 }
