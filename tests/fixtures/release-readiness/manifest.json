@@ -116,6 +116,45 @@
       ]
     },
     {
+      "name": "static-docs",
+      "files": [
+        "tests/fixtures/release-readiness/static-docs.html"
+      ],
+      "purpose": "Simulates a static documentation site with sidebar navigation, code blocks, and prose content to exercise doc-site-specific layout and typography rules.",
+      "cli_examples": [
+        "plumb lint file://{repo_root}/tests/fixtures/release-readiness/static-docs.html --format json"
+      ],
+      "mcp_examples": [
+        "lint_url {\"url\":\"file://{repo_root}/tests/fixtures/release-readiness/static-docs.html\",\"detail\":\"compact\"}"
+      ]
+    },
+    {
+      "name": "app-like",
+      "files": [
+        "tests/fixtures/release-readiness/app-like.html"
+      ],
+      "purpose": "Simulates an application shell with top bar, side rail navigation, card grid, and interactive buttons to exercise app-like layout patterns.",
+      "cli_examples": [
+        "plumb lint file://{repo_root}/tests/fixtures/release-readiness/app-like.html --format json"
+      ],
+      "mcp_examples": [
+        "lint_url {\"url\":\"file://{repo_root}/tests/fixtures/release-readiness/app-like.html\",\"detail\":\"compact\"}"
+      ]
+    },
+    {
+      "name": "malformed-edge",
+      "files": [
+        "tests/fixtures/release-readiness/malformed-edge.html"
+      ],
+      "purpose": "Contains edge-case DOM patterns (deep nesting, empty styles, zero-dimension boxes, duplicate IDs, unclosed tags, missing lang) that rules must handle without crashing.",
+      "cli_examples": [
+        "plumb lint file://{repo_root}/tests/fixtures/release-readiness/malformed-edge.html --format json"
+      ],
+      "mcp_examples": [
+        "lint_url {\"url\":\"file://{repo_root}/tests/fixtures/release-readiness/malformed-edge.html\",\"detail\":\"compact\"}"
+      ]
+    },
+    {
       "name": "mcp-inputs",
       "files": [
         "tests/fixtures/release-readiness/mcp-inputs.json"

@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>plumb readiness malformed-edge fixture</title>
+    <style>
+      body { font: 14px/1.4 sans-serif; color: #333; background: #fff; margin: 8px; }
+      .empty-chain > div > div > div > span { color: red; }
+      .deep-nest { padding: 2px; }
+    </style>
+  </head>
+  <body>
+    <!-- Edge case: deeply nested empty containers -->
+    <div class="empty-chain">
+      <div><div><div><div><div><div><div><div><span></span></div></div></div></div></div></div></div></div>
+    </div>
+
+    <!-- Edge case: element with no content and many attributes -->
+    <div id="attr-heavy" class="a b c d e f" role="presentation" aria-hidden="true"
+         data-x="1" data-y="2" data-z="3" tabindex="-1" title="" style="display:block"></div>
+
+    <!-- Edge case: adjacent empty siblings -->
+    <ul>
+      <li></li>
+      <li></li>
+      <li></li>
+      <li></li>
+    </ul>
+
+    <!-- Edge case: single-character text nodes at various depths -->
+    <p>x</p>
+    <div><div><div><p>y</p></div></div></div>
+
+    <!-- Edge case: table with empty cells -->
+    <table>
+      <thead><tr><th></th><th></th><th></th></tr></thead>
+      <tbody>
+        <tr><td></td><td></td><td></td></tr>
+        <tr><td></td><td>z</td><td></td></tr>
+      </tbody>
+    </table>
+
+    <!-- Edge case: zero-dimension elements -->
+    <div style="width:0;height:0;overflow:hidden">hidden content</div>
+    <div style="width:0;height:0;border:1px solid red"></div>
+
+    <!-- Edge case: inline style conflicts -->
+    <div style="display:none;visibility:visible">conflict</div>
+    <div style="visibility:hidden;display:block">invisible block</div>
+
+    <!-- Edge case: unusual but valid nesting -->
+    <div>
+      <span><strong><em><small><b><i><u>deeply styled text</u></i></b></small></em></strong></span>
+    </div>
+
+    <!-- Edge case: whitespace-only text nodes -->
+    <div>   </div>
+    <p>
+    </p>
+
+    <!-- Edge case: adjacent block elements with no spacing -->
+    <h1 style="margin:0;padding:0">Heading</h1><p style="margin:0;padding:0">Paragraph immediately after heading</p><h2 style="margin:0;padding:0">Subheading</h2><p style="margin:0;padding:0">Another paragraph</p>
+  </body>
+</html>

@@ -63,6 +63,9 @@ kit_files=(
     "tests/fixtures/release-readiness/shadow-z-opacity-padding.html"
     "tests/fixtures/release-readiness/dynamic-wait.html"
     "tests/fixtures/release-readiness/auth-storage.html"
+    "tests/fixtures/release-readiness/static-docs.html"
+    "tests/fixtures/release-readiness/app-like.html"
+    "tests/fixtures/release-readiness/malformed-edge.html"
     "crates/plumb-cdp/benches/fixtures/fixed-dom-100-nodes.html"
     "crates/plumb-cdp/benches/fixtures/fixed-dom-1k-nodes.html"
     "crates/plumb-cdp/benches/fixtures/fixed-dom-10k-nodes.html"
@@ -106,7 +109,7 @@ else
     fail "matrix does not write per-leg output files"
 fi
 
-# ── 6. CI workflow exists ───────────────────────────────────────────
+# ── 6. CI workflow exists and covers live legs ─────────────────────
 
 echo "6. CI workflow"
 if [ -f "$MATRIX_WORKFLOW" ]; then
@@ -119,6 +122,18 @@ if grep -Fq 'release-readiness-matrix.sh' "$MATRIX_WORKFLOW"; then
     pass "workflow invokes release-readiness-matrix.sh"
 else
     fail "workflow does not invoke release-readiness-matrix.sh"
+fi
+
+if grep -Fq -- '--local-only' "$MATRIX_WORKFLOW"; then
+    pass "workflow has local-only leg"
+else
+    fail "workflow does not have local-only leg"
+fi
+
+if grep -Eq 'matrix-live|live legs' "$MATRIX_WORKFLOW"; then
+    pass "workflow has live leg job"
+else
+    fail "workflow does not have live leg job"
 fi
 
 # ── 7. Maintained wiring ───────────────────────────────────────────
@@ -140,6 +155,45 @@ if grep -Fq 'tests/release-readiness-matrix-validate.sh' "$CI_WORKFLOW"; then
     pass "ci.yml invokes tests/release-readiness-matrix-validate.sh"
 else
     fail "ci.yml does not invoke tests/release-readiness-matrix-validate.sh"
+fi
+
+# ── 8. Infra failures exit nonzero ──────────────────────────────────
+
+echo "8. Infra-failure exit behavior"
+if grep -Eq 'exit 1' "$MATRIX_SCRIPT"; then
+    pass "matrix script exits nonzero on infra failures"
+else
+    fail "matrix script does not exit nonzero on infra failures"
+fi
+
+# Verify reports are written before the exit (summary.json line < exit 1 line)
+summary_line=$(grep -n 'summary\.json' "$MATRIX_SCRIPT" | head -1 | cut -d: -f1)
+exit_line=$(grep -n 'exit 1' "$MATRIX_SCRIPT" | tail -1 | cut -d: -f1)
+if [ -n "$summary_line" ] && [ -n "$exit_line" ] && [ "$summary_line" -lt "$exit_line" ]; then
+    pass "reports written before infra-failure exit"
+else
+    fail "reports may not be written before infra-failure exit"
+fi
+
+# ── 9. Distinct fixture categories ─────────────────────────────────
+
+echo "9. Distinct fixture categories"
+if grep -Fq 'static-docs' "$MATRIX_SCRIPT"; then
+    pass "matrix has static-docs leg"
+else
+    fail "matrix missing static-docs leg"
+fi
+
+if grep -Fq 'app-like' "$MATRIX_SCRIPT"; then
+    pass "matrix has app-like leg"
+else
+    fail "matrix missing app-like leg"
+fi
+
+if grep -Fq 'malformed-edge' "$MATRIX_SCRIPT"; then
+    pass "matrix has malformed-edge leg"
+else
+    fail "matrix missing malformed-edge leg"
 fi
 
 echo ""

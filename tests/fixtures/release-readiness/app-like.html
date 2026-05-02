@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>plumb readiness app-like fixture</title>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      body {
+        font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+        color: #1f2937;
+        background: #f9fafb;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 24px;
+        background: #1e293b;
+        color: #f1f5f9;
+      }
+      header .logo { font-size: 18px; font-weight: 700; }
+      header .user { font-size: 13px; }
+      .app-shell {
+        display: flex;
+        min-height: calc(100vh - 48px);
+      }
+      aside {
+        width: 200px;
+        background: #fff;
+        border-right: 1px solid #e5e7eb;
+        padding: 16px 0;
+      }
+      aside button {
+        display: block;
+        width: 100%;
+        padding: 8px 16px;
+        border: none;
+        background: transparent;
+        text-align: left;
+        cursor: pointer;
+        font-size: 14px;
+        color: #374151;
+      }
+      aside button:hover { background: #f3f4f6; }
+      aside button.active { background: #eff6ff; color: #1d4ed8; font-weight: 600; }
+      .content {
+        flex: 1;
+        padding: 24px;
+      }
+      .card {
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 20px;
+        margin-bottom: 16px;
+      }
+      .card h2 { font-size: 16px; margin-bottom: 12px; }
+      form .field { margin-bottom: 16px; }
+      label {
+        display: block;
+        font-size: 13px;
+        font-weight: 600;
+        margin-bottom: 4px;
+        color: #374151;
+      }
+      input[type="text"], input[type="email"], select, textarea {
+        width: 100%;
+        padding: 8px 12px;
+        border: 1px solid #d1d5db;
+        border-radius: 6px;
+        font-size: 14px;
+        background: #fff;
+      }
+      textarea { resize: vertical; min-height: 80px; }
+      .btn {
+        display: inline-block;
+        padding: 8px 16px;
+        border: none;
+        border-radius: 6px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .btn-primary { background: #2563eb; color: #fff; }
+      .btn-secondary { background: #e5e7eb; color: #374151; }
+      .btn + .btn { margin-left: 8px; }
+      .status-badge {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 12px;
+        font-size: 12px;
+        font-weight: 600;
+      }
+      .status-active { background: #dcfce7; color: #166534; }
+      .status-pending { background: #fef9c3; color: #854d0e; }
+      .data-table { width: 100%; border-collapse: collapse; }
+      .data-table th, .data-table td {
+        padding: 10px 12px;
+        text-align: left;
+        border-bottom: 1px solid #e5e7eb;
+      }
+      .data-table th { font-size: 12px; text-transform: uppercase; color: #6b7280; }
+      .toast {
+        position: fixed;
+        bottom: 24px;
+        right: 24px;
+        padding: 12px 20px;
+        background: #1e293b;
+        color: #f1f5f9;
+        border-radius: 8px;
+        font-size: 14px;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <span class="logo">AppDashboard</span>
+      <span class="user">user@example.test</span>
+    </header>
+    <div class="app-shell">
+      <aside>
+        <button class="active">Dashboard</button>
+        <button>Settings</button>
+        <button>Users</button>
+        <button>Reports</button>
+      </aside>
+      <div class="content">
+        <div class="card">
+          <h2>Create New Entry</h2>
+          <form>
+            <div class="field">
+              <label for="entry-name">Name</label>
+              <input type="text" id="entry-name" placeholder="Enter name" />
+            </div>
+            <div class="field">
+              <label for="entry-email">Email</label>
+              <input type="email" id="entry-email" placeholder="user@example.test" />
+            </div>
+            <div class="field">
+              <label for="entry-role">Role</label>
+              <select id="entry-role">
+                <option>Viewer</option>
+                <option>Editor</option>
+                <option>Admin</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="entry-notes">Notes</label>
+              <textarea id="entry-notes" placeholder="Optional notes"></textarea>
+            </div>
+            <button type="button" class="btn btn-primary">Save</button>
+            <button type="button" class="btn btn-secondary">Cancel</button>
+          </form>
+        </div>
+        <div class="card">
+          <h2>Recent Entries</h2>
+          <table class="data-table">
+            <thead>
+              <tr><th>Name</th><th>Role</th><th>Status</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Alice</td>
+                <td>Admin</td>
+                <td><span class="status-badge status-active">Active</span></td>
+              </tr>
+              <tr>
+                <td>Bob</td>
+                <td>Editor</td>
+                <td><span class="status-badge status-pending">Pending</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div class="toast">Entry saved successfully.</div>
+  </body>
+</html>

@@ -147,6 +147,18 @@ run_leg "local-dynamic-wait" \
 run_leg "local-auth-storage" \
     "file://${REPO_ROOT}/tests/fixtures/release-readiness/auth-storage.html" "local"
 
+# Static docs kit
+run_leg "local-static-docs" \
+    "file://${REPO_ROOT}/tests/fixtures/release-readiness/static-docs.html" "local"
+
+# App-like kit
+run_leg "local-app-like" \
+    "file://${REPO_ROOT}/tests/fixtures/release-readiness/app-like.html" "local"
+
+# Malformed / edge-case DOM kit
+run_leg "local-malformed-edge" \
+    "file://${REPO_ROOT}/tests/fixtures/release-readiness/malformed-edge.html" "local"
+
 # Large-DOM kits (reuse benchmark fixtures)
 run_leg "local-large-dom-100" \
     "file://${REPO_ROOT}/crates/plumb-cdp/benches/fixtures/fixed-dom-100-nodes.html" "local"
@@ -186,14 +198,15 @@ echo "Per-leg reports written to: $REPORT_DIR/"
 echo ""
 
 # ── exit classification ─────────────────────────────────────────────
-# The matrix itself always exits 0 — it is a reporting tool, not a gate.
-# CI jobs that want to gate on infra failures should parse summary.json.
-# This keeps the matrix usable during the period before all legs have a
-# working CDP driver (file:// URLs require Chrome).
+# The matrix exits nonzero when any leg has an infra failure.
+# Violation-only results (exit 1/3) are expected and do not fail the job.
+# Per-leg reports are always written before this exit so artifacts are
+# available even on failure.
 
 if [ "$infra" -gt 0 ]; then
-    echo "NOTE: $infra leg(s) had infra failures. Review per-leg stderr"
+    echo "FAIL: $infra leg(s) had infra failures. Review per-leg stderr"
     echo "      in $REPORT_DIR/ for root-cause details."
+    exit 1
 fi
 
 echo "Matrix complete."
