@@ -25,8 +25,8 @@ WCAG 2.1 AA uses two floors:
 - large text: `3.0:1`
 
 Plumb classifies a node as large text when its computed `font-size` is
-at least `24px`, or at least `18.5px` with computed `font-weight >= 700`.
-That matches WCAG's 18pt regular / 14pt bold thresholds in CSS pixels.
+at least `24px`, or at least `18.667px` with computed `font-weight >= 700`.
+That matches WCAG's `18pt` regular / `14pt` bold thresholds in CSS pixels.
 
 The rule MUST skip a node when:
 
