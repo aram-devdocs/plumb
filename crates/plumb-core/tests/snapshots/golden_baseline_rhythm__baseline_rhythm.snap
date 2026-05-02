@@ -1,0 +1,35 @@
+---
+source: crates/plumb-core/tests/golden_baseline_rhythm.rs
+assertion_line: 165
+expression: json
+---
+[
+  {
+    "rule_id": "baseline/rhythm",
+    "severity": "warning",
+    "message": "`html > body > p:nth-child(2)` baseline at 20.2px is 3.8px off the 24px rhythm grid.",
+    "selector": "html > body > p:nth-child(2)",
+    "viewport": "desktop",
+    "rect": {
+      "x": 0,
+      "y": 5,
+      "width": 600,
+      "height": 24
+    },
+    "dom_order": 3,
+    "fix": {
+      "kind": {
+        "kind": "description",
+        "text": "Adjust line-height or margin-top so the baseline aligns to the nearest 24px grid line (24px)."
+      },
+      "description": "Shift baseline from 20.2px to 24px to restore vertical rhythm.",
+      "confidence": "low"
+    },
+    "doc_url": "https://plumb.aramhammoudeh.com/rules/baseline-rhythm",
+    "metadata": {
+      "baseline_y": 20.2,
+      "nearest_grid_y": 24.0,
+      "distance_px": 3.8000000000000007
+    }
+  }
+]

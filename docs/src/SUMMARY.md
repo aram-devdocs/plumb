@@ -32,6 +32,7 @@
 
 - [Overview](./rules/overview.md)
 - [a11y/touch-target](./rules/a11y-touch-target.md)
+- [baseline/rhythm](./rules/baseline-rhythm.md)
 - [color/contrast-aa](./rules/color-contrast-aa.md)
 - [color/palette-conformance](./rules/color-palette-conformance.md)
 - [edge/near-alignment](./rules/edge-near-alignment.md)
