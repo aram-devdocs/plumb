@@ -134,16 +134,23 @@ jobs:
         shell: bash
         env:
           INSTALLER_URL: "https://github.com/${{ github.repository }}/releases/download/${{ needs.resolve-tag.outputs.tag }}/plumb-installer.sh"
+          REPO: ${{ github.repository }}
         run: |
-          curl -LsSf "$INSTALLER_URL" | sh
+          curl -LsSf -o plumb-installer.sh "$INSTALLER_URL"
+          gh attestation verify plumb-installer.sh --repo "$REPO"
+          sh plumb-installer.sh
 
       - name: Install via curl (windows)
         if: "!matrix.gated && matrix.channel == 'curl' && runner.os == 'Windows'"
         shell: pwsh
         env:
           INSTALLER_URL: "https://github.com/${{ github.repository }}/releases/download/${{ needs.resolve-tag.outputs.tag }}/plumb-installer.ps1"
+          REPO: ${{ github.repository }}
         run: |
-          irm "$env:INSTALLER_URL" | iex
+          $installer = Join-Path $PWD "plumb-installer.ps1"
+          Invoke-WebRequest -Uri "$env:INSTALLER_URL" -OutFile $installer
+          gh attestation verify $installer --repo "$env:REPO"
+          & $installer
 
       # ── brew ──────────────────────────────────────────────────
       - name: Install via brew

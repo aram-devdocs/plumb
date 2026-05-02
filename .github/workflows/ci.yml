@@ -36,6 +36,10 @@ jobs:
         run: bash tests/release-readiness-local-kits-validate.sh
       - name: Validate release-readiness matrix wiring
         run: bash tests/release-readiness-matrix-validate.sh
+      - name: Validate install-smoke gate contract
+        run: bash tests/install-smoke-validate.sh
+      - name: Validate release security contract
+        run: bash tests/release-security-validate.sh
       - name: cargo fmt --check
         run: cargo fmt --all -- --check
       - name: cargo clippy
