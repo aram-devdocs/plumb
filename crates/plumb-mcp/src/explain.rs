@@ -46,12 +46,24 @@ pub(crate) const RULE_DOCS: &[RuleDoc] = &[
         markdown: include_str!("../../../docs/src/rules/edge-near-alignment.md"),
     },
     RuleDoc {
+        rule_id: "opacity/scale-conformance",
+        markdown: include_str!("../../../docs/src/rules/opacity-scale-conformance.md"),
+    },
+    RuleDoc {
         rule_id: "radius/scale-conformance",
         markdown: include_str!("../../../docs/src/rules/radius-scale-conformance.md"),
     },
     RuleDoc {
+        rule_id: "shadow/scale-conformance",
+        markdown: include_str!("../../../docs/src/rules/shadow-scale-conformance.md"),
+    },
+    RuleDoc {
         rule_id: "sibling/height-consistency",
         markdown: include_str!("../../../docs/src/rules/sibling-height-consistency.md"),
+    },
+    RuleDoc {
+        rule_id: "sibling/padding-consistency",
+        markdown: include_str!("../../../docs/src/rules/sibling-padding-consistency.md"),
     },
     RuleDoc {
         rule_id: "spacing/grid-conformance",
@@ -62,8 +74,20 @@ pub(crate) const RULE_DOCS: &[RuleDoc] = &[
         markdown: include_str!("../../../docs/src/rules/spacing-scale-conformance.md"),
     },
     RuleDoc {
+        rule_id: "type/family-conformance",
+        markdown: include_str!("../../../docs/src/rules/type-family-conformance.md"),
+    },
+    RuleDoc {
         rule_id: "type/scale-conformance",
         markdown: include_str!("../../../docs/src/rules/type-scale-conformance.md"),
+    },
+    RuleDoc {
+        rule_id: "type/weight-conformance",
+        markdown: include_str!("../../../docs/src/rules/type-weight-conformance.md"),
+    },
+    RuleDoc {
+        rule_id: "z/scale-conformance",
+        markdown: include_str!("../../../docs/src/rules/z-scale-conformance.md"),
     },
 ];
 

@@ -1,5 +1,6 @@
 ---
 source: crates/plumb-format/tests/format_snapshots.rs
+assertion_line: 94
 expression: out
 ---
 {
@@ -69,6 +70,20 @@ expression: out
               }
             },
             {
+              "id": "opacity/scale-conformance",
+              "name": "opacity-scale-conformance",
+              "shortDescription": {
+                "text": "Flags `opacity` values that aren't in `opacity.scale`."
+              },
+              "fullDescription": {
+                "text": "Flags `opacity` values that aren't in `opacity.scale`."
+              },
+              "helpUri": "https://plumb.aramhammoudeh.com/rules/opacity-scale-conformance",
+              "defaultConfiguration": {
+                "level": "warning"
+              }
+            },
+            {
               "id": "radius/scale-conformance",
               "name": "radius-scale-conformance",
               "shortDescription": {
@@ -83,6 +98,20 @@ expression: out
               }
             },
             {
+              "id": "shadow/scale-conformance",
+              "name": "shadow-scale-conformance",
+              "shortDescription": {
+                "text": "Flags `box-shadow` values that aren't in `shadow.scale`."
+              },
+              "fullDescription": {
+                "text": "Flags `box-shadow` values that aren't in `shadow.scale`."
+              },
+              "helpUri": "https://plumb.aramhammoudeh.com/rules/shadow-scale-conformance",
+              "defaultConfiguration": {
+                "level": "warning"
+              }
+            },
+            {
               "id": "sibling/height-consistency",
               "name": "sibling-height-consistency",
               "shortDescription": {
@@ -92,6 +121,20 @@ expression: out
                 "text": "Flags sibling elements in the same visual row whose heights drift from the row's median."
               },
               "helpUri": "https://plumb.aramhammoudeh.com/rules/sibling-height-consistency",
+              "defaultConfiguration": {
+                "level": "note"
+              }
+            },
+            {
+              "id": "sibling/padding-consistency",
+              "name": "sibling-padding-consistency",
+              "shortDescription": {
+                "text": "Flags sibling elements with inconsistent padding."
+              },
+              "fullDescription": {
+                "text": "Flags sibling elements with inconsistent padding."
+              },
+              "helpUri": "https://plumb.aramhammoudeh.com/rules/sibling-padding-consistency",
               "defaultConfiguration": {
                 "level": "note"
               }
@@ -125,6 +168,20 @@ expression: out
               }
             },
             {
+              "id": "type/family-conformance",
+              "name": "type-family-conformance",
+              "shortDescription": {
+                "text": "Flags elements whose `font-family` is not in `type.families`."
+              },
+              "fullDescription": {
+                "text": "Flags elements whose `font-family` is not in `type.families`."
+              },
+              "helpUri": "https://plumb.aramhammoudeh.com/rules/type-family-conformance",
+              "defaultConfiguration": {
+                "level": "warning"
+              }
+            },
+            {
               "id": "type/scale-conformance",
               "name": "type-scale-conformance",
               "shortDescription": {
@@ -134,6 +191,34 @@ expression: out
                 "text": "Flags `font-size` values that aren't members of `type.scale`."
               },
               "helpUri": "https://plumb.aramhammoudeh.com/rules/type-scale-conformance",
+              "defaultConfiguration": {
+                "level": "warning"
+              }
+            },
+            {
+              "id": "type/weight-conformance",
+              "name": "type-weight-conformance",
+              "shortDescription": {
+                "text": "Flags elements whose `font-weight` is not in `type.weights`."
+              },
+              "fullDescription": {
+                "text": "Flags elements whose `font-weight` is not in `type.weights`."
+              },
+              "helpUri": "https://plumb.aramhammoudeh.com/rules/type-weight-conformance",
+              "defaultConfiguration": {
+                "level": "warning"
+              }
+            },
+            {
+              "id": "z/scale-conformance",
+              "name": "z-scale-conformance",
+              "shortDescription": {
+                "text": "Flags `z-index` values that aren't in `z_index.scale`."
+              },
+              "fullDescription": {
+                "text": "Flags `z-index` values that aren't in `z_index.scale`."
+              },
+              "helpUri": "https://plumb.aramhammoudeh.com/rules/z-scale-conformance",
               "defaultConfiguration": {
                 "level": "warning"
               }
@@ -173,7 +258,7 @@ expression: out
           "properties": {
             "docUrl": "https://plumb.aramhammoudeh.com/rules/spacing-grid-conformance"
           },
-          "ruleIndex": 6
+          "ruleIndex": 9
         }
       ]
     }
