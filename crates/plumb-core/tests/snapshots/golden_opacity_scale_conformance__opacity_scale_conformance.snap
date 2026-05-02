@@ -1,0 +1,35 @@
+---
+source: crates/plumb-core/tests/golden_opacity_scale_conformance.rs
+expression: json
+---
+[
+  {
+    "rule_id": "opacity/scale-conformance",
+    "severity": "warning",
+    "message": "`html > body > div:nth-child(2)` has off-scale opacity 0.35; expected a value from opacity.scale.",
+    "selector": "html > body > div:nth-child(2)",
+    "viewport": "desktop",
+    "rect": {
+      "x": 0,
+      "y": 24,
+      "width": 200,
+      "height": 24
+    },
+    "dom_order": 3,
+    "fix": {
+      "kind": {
+        "kind": "css_property_replace",
+        "property": "opacity",
+        "from": "0.35",
+        "to": "0.25"
+      },
+      "description": "Snap `opacity` to the nearest scale value (0.25).",
+      "confidence": "medium"
+    },
+    "doc_url": "https://plumb.aramhammoudeh.com/rules/opacity-scale-conformance",
+    "metadata": {
+      "opacity": 0.35,
+      "nearest": 0.25
+    }
+  }
+]

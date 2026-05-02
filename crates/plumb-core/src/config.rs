@@ -43,6 +43,22 @@ pub struct Config {
     #[serde(default)]
     pub alignment: AlignmentSpec,
 
+    /// Box-shadow spec.
+    #[serde(default)]
+    pub shadow: ShadowSpec,
+
+    /// Z-index spec.
+    #[serde(default)]
+    pub z_index: ZIndexSpec,
+
+    /// Opacity spec.
+    #[serde(default)]
+    pub opacity: OpacitySpec,
+
+    /// Vertical rhythm spec.
+    #[serde(default)]
+    pub rhythm: RhythmSpec,
+
     /// Accessibility spec.
     #[serde(default)]
     pub a11y: A11ySpec,
@@ -184,6 +200,64 @@ impl Default for AlignmentSpec {
             grid_columns: None,
             gutter_px: None,
             tolerance_px: default_alignment_tolerance_px(),
+        }
+    }
+}
+
+/// Box-shadow spec.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, Default)]
+#[serde(deny_unknown_fields)]
+pub struct ShadowSpec {
+    /// Allowed box-shadow values. Each entry is a complete shadow
+    /// expression as returned by `getComputedStyle`.
+    #[serde(default)]
+    pub scale: Vec<String>,
+}
+
+/// Z-index spec.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, Default)]
+#[serde(deny_unknown_fields)]
+pub struct ZIndexSpec {
+    /// Allowed z-index values.
+    #[serde(default)]
+    pub scale: Vec<i32>,
+}
+
+/// Opacity spec.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, Default)]
+#[serde(deny_unknown_fields)]
+pub struct OpacitySpec {
+    /// Allowed opacity values in the range `[0.0, 1.0]`.
+    #[serde(default)]
+    pub scale: Vec<f32>,
+}
+
+/// Vertical-rhythm spec (schema/defaults only -- rule lands in #73).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[allow(clippy::struct_field_names)]
+pub struct RhythmSpec {
+    /// Base line-height in pixels.
+    #[serde(default)]
+    pub base_line_px: u32,
+    /// Tolerance in pixels for rhythm checks.
+    #[serde(default = "default_rhythm_tolerance_px")]
+    pub tolerance_px: u32,
+    /// Cap-height fallback in pixels when font metrics are unavailable.
+    #[serde(default)]
+    pub cap_height_fallback_px: u32,
+}
+
+fn default_rhythm_tolerance_px() -> u32 {
+    2
+}
+
+impl Default for RhythmSpec {
+    fn default() -> Self {
+        Self {
+            base_line_px: 0,
+            tolerance_px: default_rhythm_tolerance_px(),
+            cap_height_fallback_px: 0,
         }
     }
 }

@@ -1,0 +1,35 @@
+---
+source: crates/plumb-core/tests/golden_z_scale_conformance.rs
+expression: json
+---
+[
+  {
+    "rule_id": "z/scale-conformance",
+    "severity": "warning",
+    "message": "`html > body > div:nth-child(2)` has off-scale z-index 15; expected a value from z_index.scale.",
+    "selector": "html > body > div:nth-child(2)",
+    "viewport": "desktop",
+    "rect": {
+      "x": 0,
+      "y": 24,
+      "width": 200,
+      "height": 24
+    },
+    "dom_order": 3,
+    "fix": {
+      "kind": {
+        "kind": "css_property_replace",
+        "property": "z-index",
+        "from": "15",
+        "to": "10"
+      },
+      "description": "Snap `z-index` to the nearest scale value (10).",
+      "confidence": "medium"
+    },
+    "doc_url": "https://plumb.aramhammoudeh.com/rules/z-scale-conformance",
+    "metadata": {
+      "z_index": 15,
+      "nearest": 10
+    }
+  }
+]

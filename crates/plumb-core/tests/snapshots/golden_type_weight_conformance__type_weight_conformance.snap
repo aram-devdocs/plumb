@@ -1,0 +1,35 @@
+---
+source: crates/plumb-core/tests/golden_type_weight_conformance.rs
+expression: json
+---
+[
+  {
+    "rule_id": "type/weight-conformance",
+    "severity": "warning",
+    "message": "`html > body > div:nth-child(2)` has off-scale font-weight 450; expected a value from type.weights.",
+    "selector": "html > body > div:nth-child(2)",
+    "viewport": "desktop",
+    "rect": {
+      "x": 0,
+      "y": 24,
+      "width": 200,
+      "height": 24
+    },
+    "dom_order": 3,
+    "fix": {
+      "kind": {
+        "kind": "css_property_replace",
+        "property": "font-weight",
+        "from": "450",
+        "to": "400"
+      },
+      "description": "Snap `font-weight` to the nearest type-scale weight (400).",
+      "confidence": "medium"
+    },
+    "doc_url": "https://plumb.aramhammoudeh.com/rules/type-weight-conformance",
+    "metadata": {
+      "font_weight": 450,
+      "nearest": 400
+    }
+  }
+]

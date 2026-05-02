@@ -1,0 +1,35 @@
+---
+source: crates/plumb-core/tests/golden_sibling_padding_consistency.rs
+expression: json
+---
+[
+  {
+    "rule_id": "sibling/padding-consistency",
+    "severity": "info",
+    "message": "`html > body > div.cards > div:nth-child(3)` has padding-top 28px; sibling median is 16px (12px drift).",
+    "selector": "html > body > div.cards > div:nth-child(3)",
+    "viewport": "desktop",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "width": 200,
+      "height": 100
+    },
+    "dom_order": 5,
+    "fix": {
+      "kind": {
+        "kind": "description",
+        "text": "Match sibling padding-top (16px) to keep padding consistent. Drift: 12px."
+      },
+      "description": "Bring `html > body > div.cards > div:nth-child(3)` padding-top in line with its siblings (16px).",
+      "confidence": "low"
+    },
+    "doc_url": "https://plumb.aramhammoudeh.com/rules/sibling-padding-consistency",
+    "metadata": {
+      "property": "padding-top",
+      "rendered_padding_px": 28.0,
+      "sibling_median_px": 16.0,
+      "deviation_px": 12
+    }
+  }
+]
