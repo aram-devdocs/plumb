@@ -94,6 +94,7 @@ fn fixture_snapshot() -> PlumbSnapshot {
                 1,
             ),
         ],
+        text_boxes: Vec::new(),
     }
 }
 

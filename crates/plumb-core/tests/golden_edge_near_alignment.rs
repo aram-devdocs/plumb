@@ -36,6 +36,7 @@ fn fixture_snapshot() -> PlumbSnapshot {
         viewport_width: 1280,
         viewport_height: 800,
         nodes: vec![root_html(), body_node(), card_a, card_b, card_c],
+        text_boxes: Vec::new(),
     }
 }
 

@@ -50,6 +50,7 @@ fn fixture_snapshot() -> PlumbSnapshot {
         viewport_width: 1280,
         viewport_height: 800,
         nodes: vec![root_html(), body_node(), in_scale, off_scale_a, off_scale_b],
+        text_boxes: Vec::new(),
     }
 }
 

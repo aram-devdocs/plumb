@@ -48,7 +48,7 @@
 
 use indexmap::IndexMap;
 use plumb_core::report::Rect;
-use plumb_core::snapshot::SnapshotNode;
+use plumb_core::snapshot::{SnapshotNode, TextBox};
 use plumb_core::{PlumbSnapshot, ViewportKey};
 use std::io;
 use std::path::{Path, PathBuf};
@@ -863,12 +863,15 @@ fn flatten_snapshot(
     finalize_nodes(&mut nodes, &tags, &parents);
     nodes.sort_by_key(|n| n.dom_order);
 
+    let text_boxes = extract_text_boxes(document, &layout_view, &node_to_dom_order);
+
     Ok(PlumbSnapshot {
         url: target.url.clone(),
         viewport: target.viewport.clone(),
         viewport_width: target.width,
         viewport_height: target.height,
         nodes,
+        text_boxes,
     })
 }
 
@@ -1014,6 +1017,72 @@ fn finalize_nodes(
         }
         node.selector = build_selector(node.dom_order, tags, parents);
     }
+}
+
+/// Extract text boxes from `document.text_boxes`, mapping layout indices
+/// back to `dom_order` via the layout view and node-to-dom-order map.
+///
+/// Gracefully skips entries whose layout index is out of range or
+/// points to a non-element node. Returns sorted by `(dom_order, start)`.
+fn extract_text_boxes(
+    document: &DocumentSnapshot,
+    layout_view: &LayoutView<'_>,
+    node_to_dom_order: &[Option<u64>],
+) -> Vec<TextBox> {
+    let tb = &document.text_boxes;
+    let count = tb.layout_index.len();
+
+    // Parallel arrays must agree on length; if not, return empty rather
+    // than panic — the snapshot is still usable without text boxes.
+    if tb.bounds.len() != count || tb.start.len() != count || tb.length.len() != count {
+        return Vec::new();
+    }
+
+    let mut result: Vec<TextBox> = Vec::with_capacity(count);
+    for i in 0..count {
+        let layout_idx = tb.layout_index[i];
+        let Ok(layout_idx_usize) = usize::try_from(layout_idx) else {
+            continue;
+        };
+        if layout_idx_usize >= layout_view.len() {
+            continue;
+        }
+        // layout_view.node_index maps layout slot → CDP node index.
+        let Ok(cdp_node_idx) = layout_view.node_index(layout_idx_usize) else {
+            continue;
+        };
+        let Ok(cdp_node_idx_usize) = usize::try_from(cdp_node_idx) else {
+            continue;
+        };
+        if cdp_node_idx_usize >= node_to_dom_order.len() {
+            continue;
+        }
+        let Some(dom_order) = node_to_dom_order[cdp_node_idx_usize] else {
+            continue;
+        };
+
+        let bounds_inner = tb.bounds[i].inner();
+        if bounds_inner.len() != 4 {
+            continue;
+        }
+        let bounds = rect_from_bounds(bounds_inner);
+
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let start = tb.start[i].max(0) as u32;
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let length = tb.length[i].max(0) as u32;
+
+        result.push(TextBox {
+            dom_order,
+            bounds,
+            start,
+            length,
+        });
+    }
+
+    // Sort by (dom_order, start) for determinism.
+    result.sort_by_key(|tb| (tb.dom_order, tb.start));
+    result
 }
 
 fn lookup_string(strings: &[String], idx: i64) -> Result<&str, CdpError> {

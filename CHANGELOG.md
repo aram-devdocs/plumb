@@ -10,6 +10,7 @@ From the first release onward, this file is maintained automatically by [`releas
 
 ### Added
 
+- Rule `baseline/rhythm`: flags text elements whose typographic baselines miss the configured vertical-rhythm grid.
 - Per-crate README files and package metadata for crates.io publishing.
 - `release-please.yml` crates-io publish job now uses bottom-up interleaved dry-run + publish, `--locked`, GitHub environment protection, and `::group::` log folding.
 

@@ -88,6 +88,7 @@ fn fixture_snapshot() -> PlumbSnapshot {
             off_palette,
             translucent,
         ],
+        text_boxes: Vec::new(),
     }
 }
 

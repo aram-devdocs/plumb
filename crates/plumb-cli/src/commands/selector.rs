@@ -155,6 +155,7 @@ fn rewrite(snapshot: PlumbSnapshot, kept: &BTreeSet<u64>) -> PlumbSnapshot {
         viewport_width,
         viewport_height,
         nodes,
+        text_boxes,
     } = snapshot;
 
     let new_nodes: Vec<SnapshotNode> = nodes
@@ -171,12 +172,19 @@ fn rewrite(snapshot: PlumbSnapshot, kept: &BTreeSet<u64>) -> PlumbSnapshot {
         })
         .collect();
 
+    // Keep only text boxes whose owning node was retained.
+    let new_text_boxes = text_boxes
+        .into_iter()
+        .filter(|tb| kept.contains(&tb.dom_order))
+        .collect();
+
     PlumbSnapshot {
         url,
         viewport,
         viewport_width,
         viewport_height,
         nodes: new_nodes,
+        text_boxes: new_text_boxes,
     }
 }
 
@@ -303,6 +311,7 @@ mod tests {
                 node(6, "p", Some(5), vec![]),
                 node(7, "footer", Some(2), vec![]),
             ],
+            text_boxes: Vec::new(),
         }
     }
 

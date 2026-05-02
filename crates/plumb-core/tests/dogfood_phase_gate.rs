@@ -213,6 +213,7 @@ fn dogfood_snapshot() -> PlumbSnapshot {
         viewport_width: 1280,
         viewport_height: 800,
         nodes,
+        text_boxes: Vec::new(),
     }
 }
 

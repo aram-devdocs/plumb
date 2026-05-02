@@ -9,6 +9,7 @@
 //! 4. Document it at `docs/src/rules/<rule-id>.md`.
 
 pub mod a11y;
+pub mod baseline;
 pub mod color;
 pub mod edge;
 pub mod opacity;
@@ -87,6 +88,7 @@ pub trait Rule: Send + Sync {
 pub fn register_builtin() -> Vec<Box<dyn Rule>> {
     vec![
         Box::new(a11y::touch_target::TouchTarget),
+        Box::new(baseline::rhythm::Rhythm),
         Box::new(color::contrast_aa::ContrastAa),
         Box::new(color::palette_conformance::PaletteConformance),
         Box::new(edge::near_alignment::NearAlignment),
