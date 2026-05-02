@@ -9,7 +9,7 @@ use indexmap::IndexMap;
 use plumb_core::config::RhythmSpec;
 use plumb_core::report::Rect;
 use plumb_core::snapshot::SnapshotNode;
-use plumb_core::{Config, PlumbSnapshot, ViewportKey, run};
+use plumb_core::{Config, PlumbSnapshot, TextBox, ViewportKey, run};
 
 fn fixture_snapshot() -> PlumbSnapshot {
     // Node on-grid: font-size 16px, line-height 24px, rect.y = 0.
@@ -80,6 +80,7 @@ fn fixture_snapshot() -> PlumbSnapshot {
         viewport_width: 1280,
         viewport_height: 800,
         nodes: vec![root_html(), body_node(), on_grid, off_grid, non_text],
+        text_boxes: Vec::new(),
     }
 }
 
@@ -251,6 +252,7 @@ fn baseline_rhythm_falls_back_on_line_height_normal() {
         viewport_width: 1280,
         viewport_height: 800,
         nodes: vec![root_html(), body_node(), node_no_lh],
+        text_boxes: Vec::new(),
     };
     let config = Config {
         rhythm: RhythmSpec {
@@ -273,5 +275,163 @@ fn baseline_rhythm_falls_back_on_line_height_normal() {
         violations[0].message.contains("12.8px"),
         "baseline should use 1.2× fallback: {}",
         violations[0].message,
+    );
+}
+
+#[test]
+fn baseline_rhythm_multiline_text_boxes() {
+    // One <p> with two text box lines at different Y positions.
+    // font_size=16, line_height=24, half_leading=4, cap_height=11.2.
+    //
+    // Line 1: text_box y=9 → baseline_y = 9+4+11.2 = 24.2 → nearest 24 → dist 0.2 < 2 (on-grid).
+    // Line 2: text_box y=38 → baseline_y = 38+4+11.2 = 53.2 → nearest 48 → dist 5.2 > 2 (off-grid!).
+    let node = text_node(
+        2,
+        "html > body > p:nth-child(1)",
+        "p",
+        &[("font-size", "16px"), ("line-height", "24px")],
+        Some(Rect {
+            x: 0,
+            y: 9,
+            width: 600,
+            height: 60,
+        }),
+    );
+    let snapshot = PlumbSnapshot {
+        url: "plumb-fake://baseline-rhythm-multiline".into(),
+        viewport: ViewportKey::new("desktop"),
+        viewport_width: 1280,
+        viewport_height: 800,
+        nodes: vec![root_html(), body_node(), node],
+        text_boxes: vec![
+            TextBox {
+                dom_order: 2,
+                bounds: Rect {
+                    x: 0,
+                    y: 9,
+                    width: 500,
+                    height: 24,
+                },
+                start: 0,
+                length: 40,
+            },
+            TextBox {
+                dom_order: 2,
+                bounds: Rect {
+                    x: 0,
+                    y: 38,
+                    width: 500,
+                    height: 24,
+                },
+                start: 40,
+                length: 35,
+            },
+        ],
+    };
+    let config = fixture_config();
+    let violations: Vec<plumb_core::Violation> = run(&snapshot, &config)
+        .into_iter()
+        .filter(|v| v.rule_id == "baseline/rhythm")
+        .collect();
+    // Only line 2 is off-grid; line 1 is within tolerance.
+    assert_eq!(
+        violations.len(),
+        1,
+        "multi-line: only the off-grid line should produce a violation",
+    );
+    assert!(
+        violations[0].message.contains("53.2px"),
+        "violation should reference the second line's baseline: {}",
+        violations[0].message,
+    );
+}
+
+#[test]
+fn baseline_rhythm_multifont_text_boxes() {
+    // Two <p> nodes with different font sizes, each with a text box.
+    // Config: base_line_px=24, tolerance_px=2.
+    //
+    // Node A: font_size=16, line_height=24, text_box y=9.
+    //   half_leading=(24-16)/2=4, cap_height=16*0.7=11.2
+    //   baseline_y = 9+4+11.2 = 24.2 → nearest 24 → dist 0.2 < 2 (on-grid).
+    //
+    // Node B: font_size=20, line_height=28, text_box y=50.
+    //   half_leading=(28-20)/2=4, cap_height=20*0.7=14
+    //   baseline_y = 50+4+14 = 68.0 → nearest 72 → dist 4.0 > 2 (off-grid!).
+    let node_a = text_node(
+        2,
+        "html > body > p:nth-child(1)",
+        "p",
+        &[("font-size", "16px"), ("line-height", "24px")],
+        Some(Rect {
+            x: 0,
+            y: 9,
+            width: 600,
+            height: 24,
+        }),
+    );
+    let node_b = text_node(
+        3,
+        "html > body > h2:nth-child(2)",
+        "h2",
+        &[("font-size", "20px"), ("line-height", "28px")],
+        Some(Rect {
+            x: 0,
+            y: 50,
+            width: 600,
+            height: 28,
+        }),
+    );
+    let snapshot = PlumbSnapshot {
+        url: "plumb-fake://baseline-rhythm-multifont".into(),
+        viewport: ViewportKey::new("desktop"),
+        viewport_width: 1280,
+        viewport_height: 800,
+        nodes: vec![root_html(), body_node(), node_a, node_b],
+        text_boxes: vec![
+            TextBox {
+                dom_order: 2,
+                bounds: Rect {
+                    x: 0,
+                    y: 9,
+                    width: 500,
+                    height: 24,
+                },
+                start: 0,
+                length: 30,
+            },
+            TextBox {
+                dom_order: 3,
+                bounds: Rect {
+                    x: 0,
+                    y: 50,
+                    width: 500,
+                    height: 28,
+                },
+                start: 0,
+                length: 20,
+            },
+        ],
+    };
+    let config = fixture_config();
+    let violations: Vec<plumb_core::Violation> = run(&snapshot, &config)
+        .into_iter()
+        .filter(|v| v.rule_id == "baseline/rhythm")
+        .collect();
+    // Only node B (h2, 20px font) should be off-grid.
+    assert_eq!(
+        violations.len(),
+        1,
+        "multi-font: only the off-grid node should produce a violation",
+    );
+    assert!(
+        violations[0].message.contains("68.0px"),
+        "violation should reference the h2 baseline: {}",
+        violations[0].message,
+    );
+    assert!(
+        violations[0].selector.contains("h2"),
+        "violation should be on the h2 node: {}",
+        violations[0].selector,
     );
 }

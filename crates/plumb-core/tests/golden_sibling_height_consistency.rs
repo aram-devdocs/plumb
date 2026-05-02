@@ -104,6 +104,7 @@ fn fixture_snapshot() -> PlumbSnapshot {
             stack_btn_b,
             stack_btn_c,
         ],
+        text_boxes: Vec::new(),
     }
 }
 

@@ -35,4 +35,4 @@ pub use report::{
     Confidence, Fix, FixKind, Rect, RunId, Severity, ViewportKey, Violation, ViolationSink,
 };
 pub use rules::{Rule, RuleMetadata, builtin_rule_metadata, register_builtin};
-pub use snapshot::{PlumbSnapshot, SnapshotCtx};
+pub use snapshot::{PlumbSnapshot, SnapshotCtx, TextBox};

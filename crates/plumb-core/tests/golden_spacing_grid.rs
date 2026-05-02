@@ -97,6 +97,7 @@ fn fixture_snapshot() -> PlumbSnapshot {
             off_grid_a,
             off_grid_b,
         ],
+        text_boxes: Vec::new(),
     }
 }
 

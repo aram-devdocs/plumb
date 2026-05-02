@@ -9,6 +9,23 @@ use serde::{Deserialize, Serialize};
 
 use crate::report::{Rect, ViewportKey};
 
+/// A single post-layout text box within a node.
+///
+/// CDP returns one text box per rendered line fragment. Multi-line text
+/// generates multiple boxes for the same `dom_order`. The bounds are
+/// absolute viewport coordinates for that line fragment.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TextBox {
+    /// `dom_order` of the owning element node.
+    pub dom_order: u64,
+    /// Absolute bounding rect of this text fragment.
+    pub bounds: Rect,
+    /// Starting character index (UTF-16 code units).
+    pub start: u32,
+    /// Character count (UTF-16 code units).
+    pub length: u32,
+}
+
 /// A single DOM node as the engine sees it.
 ///
 /// This is intentionally a narrow view: just enough to identify the element
@@ -48,6 +65,8 @@ pub struct PlumbSnapshot {
     pub viewport_height: u32,
     /// All nodes, ordered by `dom_order`.
     pub nodes: Vec<SnapshotNode>,
+    /// Post-layout text boxes, sorted by `(dom_order, start)` for determinism.
+    pub text_boxes: Vec<TextBox>,
 }
 
 impl PlumbSnapshot {
@@ -83,6 +102,7 @@ impl PlumbSnapshot {
             viewport: ViewportKey::new("desktop"),
             viewport_width: 1280,
             viewport_height: 800,
+            text_boxes: Vec::new(),
             nodes: vec![
                 SnapshotNode {
                     dom_order: 0,
@@ -139,6 +159,8 @@ pub struct SnapshotCtx<'a> {
     snapshot: &'a PlumbSnapshot,
     viewports: Vec<ViewportKey>,
     rects_by_dom_order: IndexMap<u64, Rect>,
+    /// Maps `dom_order` → `(start_index, count)` into `snapshot.text_boxes`.
+    text_box_ranges: IndexMap<u64, (usize, usize)>,
 }
 
 impl<'a> SnapshotCtx<'a> {
@@ -160,6 +182,7 @@ impl<'a> SnapshotCtx<'a> {
             snapshot,
             viewports: viewports.into_iter().collect(),
             rects_by_dom_order: rect_index(snapshot),
+            text_box_ranges: text_box_index(snapshot),
         }
     }
 
@@ -181,6 +204,17 @@ impl<'a> SnapshotCtx<'a> {
         self.rects_by_dom_order.get(&dom_order).copied()
     }
 
+    /// Return text boxes for a node by document-order index.
+    ///
+    /// Returns an empty slice when no text boxes exist for `dom_order`.
+    #[must_use]
+    pub fn text_boxes_for(&self, dom_order: u64) -> &[TextBox] {
+        match self.text_box_ranges.get(&dom_order) {
+            Some(&(start, count)) => &self.snapshot.text_boxes[start..start + count],
+            None => &[],
+        }
+    }
+
     /// Iterate nodes in document order.
     pub fn nodes(&self) -> impl Iterator<Item = &SnapshotNode> {
         self.snapshot.nodes.iter()
@@ -193,4 +227,22 @@ fn rect_index(snapshot: &PlumbSnapshot) -> IndexMap<u64, Rect> {
         .iter()
         .filter_map(|node| node.rect.map(|rect| (node.dom_order, rect)))
         .collect()
+}
+
+/// Build a `(dom_order → (start_idx, count))` index over text boxes.
+///
+/// Requires `text_boxes` to be sorted by `(dom_order, start)`.
+fn text_box_index(snapshot: &PlumbSnapshot) -> IndexMap<u64, (usize, usize)> {
+    let mut index: IndexMap<u64, (usize, usize)> = IndexMap::new();
+    let boxes = &snapshot.text_boxes;
+    let mut i = 0;
+    while i < boxes.len() {
+        let dom_order = boxes[i].dom_order;
+        let start = i;
+        while i < boxes.len() && boxes[i].dom_order == dom_order {
+            i += 1;
+        }
+        index.insert(dom_order, (start, i - start));
+    }
+    index
 }
