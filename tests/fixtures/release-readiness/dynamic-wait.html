@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>plumb readiness dynamic wait fixture</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 24px;
+        background: #f4efe6;
+        color: #1c1814;
+        font: 16px/1.5 Georgia, "Times New Roman", serif;
+      }
+      main {
+        display: grid;
+        gap: 12px;
+      }
+      .status {
+        padding: 12px;
+        border: 1px solid #c9baa7;
+        background: #fffaf2;
+      }
+      .ready-card {
+        padding: 16px;
+        border: 1px solid #9c8e7b;
+        background: #fffdf9;
+      }
+    </style>
+  </head>
+  <body>
+    <main data-state="booting">
+      <section class="status" id="status">booting</section>
+      <section class="status">The delayed mutation always fires once after 50 ms.</section>
+    </main>
+    <script>
+      setTimeout(() => {
+        const main = document.querySelector("main");
+        const status = document.getElementById("status");
+        const card = document.createElement("section");
+        card.className = "ready-card";
+        card.textContent = "ready-card-visible";
+        main.appendChild(card);
+        main.dataset.state = "ready";
+        status.textContent = "ready";
+      }, 50);
+    </script>
+  </body>
+</html>

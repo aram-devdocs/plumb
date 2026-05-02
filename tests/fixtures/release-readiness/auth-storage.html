@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>plumb readiness auth storage fixture</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 24px;
+        background: #f8f3eb;
+        color: #1f1a15;
+        font: 16px/1.5 Georgia, "Times New Roman", serif;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+      }
+      .tile {
+        padding: 16px;
+        border: 1px solid #ccbca8;
+        background: #fffdf9;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="grid">
+      <section class="tile" id="cookie-state" data-state="pending">cookie-pending</section>
+      <section class="tile" id="local-state" data-state="pending">local-pending</section>
+      <section class="tile" id="session-state" data-state="pending">session-pending</section>
+    </main>
+    <script>
+      const cookieState = document.getElementById("cookie-state");
+      const localState = document.getElementById("local-state");
+      const sessionState = document.getElementById("session-state");
+
+      const cookieSeen = document.cookie.includes("plumb_readiness=1");
+      document.cookie = "plumb_readiness=1; SameSite=Lax";
+      cookieState.dataset.state = cookieSeen ? "cookie-present" : "cookie-fresh";
+      cookieState.textContent = cookieSeen ? "cookie-present" : "cookie-fresh";
+
+      const localSeen = window.localStorage.getItem("plumb-readiness-local");
+      window.localStorage.setItem("plumb-readiness-local", "1");
+      localState.dataset.state = localSeen === null ? "local-fresh" : "local-present";
+      localState.textContent = localSeen === null ? "local-fresh" : "local-present";
+
+      const sessionSeen = window.sessionStorage.getItem("plumb-readiness-session");
+      window.sessionStorage.setItem("plumb-readiness-session", "1");
+      sessionState.dataset.state = sessionSeen === null ? "session-fresh" : "session-present";
+      sessionState.textContent = sessionSeen === null ? "session-fresh" : "session-present";
+    </script>
+  </body>
+</html>

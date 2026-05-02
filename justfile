@@ -49,7 +49,7 @@ fmt:
     cargo fmt --all
 
 # All static checks — fmt + clippy with zero tolerance. Matches CI preflight.
-check: check-agents ci-chrome-sandbox-validate ci-canonical-docs-url-validate
+check: check-agents ci-chrome-sandbox-validate ci-canonical-docs-url-validate release-readiness-local-kits-validate
     cargo fmt --all -- --check
     cargo clippy --workspace --all-targets --all-features -- -D warnings
 
@@ -65,6 +65,10 @@ ci-chrome-sandbox-validate:
 # Validate canonical docs URL usage in CI/release acceptance paths.
 ci-canonical-docs-url-validate:
     bash tests/ci-canonical-docs-url-validate.sh
+
+# Validate release-readiness local kit wiring and fixture constraints.
+release-readiness-local-kits-validate:
+    bash tests/release-readiness-local-kits-validate.sh
 
 # Verify the local environment required by the Phase 3 gate.
 phase3-gate-env:

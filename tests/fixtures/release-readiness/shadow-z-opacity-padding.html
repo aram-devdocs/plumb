@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>plumb readiness shadow z opacity padding fixture</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 24px;
+        background: #ede7dd;
+        color: #1f1b16;
+        font: 16px/1.4 Georgia, "Times New Roman", serif;
+      }
+      .stage {
+        position: relative;
+        height: 280px;
+        padding: 24px;
+        background: #fffaf2;
+        border: 1px solid #c9b9a4;
+      }
+      .card {
+        position: absolute;
+        width: 220px;
+        min-height: 120px;
+        padding: 18px;
+        border-radius: 8px;
+        background: #ffffff;
+        box-shadow: 0 12px 28px rgba(31, 27, 22, 0.18);
+      }
+      .card-a {
+        top: 24px;
+        left: 24px;
+        z-index: 1;
+      }
+      .card-b {
+        top: 56px;
+        left: 132px;
+        z-index: 3;
+        opacity: 0.88;
+      }
+      .card-c {
+        top: 124px;
+        left: 268px;
+        z-index: 2;
+        padding: 10px 26px 22px 14px;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="stage">
+      <section class="card card-a">
+        <h1>Layer A</h1>
+        <p>Base layer with even padding.</p>
+      </section>
+      <section class="card card-b">
+        <h1>Layer B</h1>
+        <p>Raised overlap with reduced opacity.</p>
+      </section>
+      <section class="card card-c">
+        <h1>Layer C</h1>
+        <p>Asymmetric padding for spacing checks.</p>
+      </section>
+    </main>
+  </body>
+</html>

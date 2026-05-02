@@ -14,6 +14,7 @@ quoting. Not published. Invoked via the `cargo xtask` alias in
 - `sync-rules-index` — verify every `register_builtin` rule has a matching `docs/src/rules/<slug>.md`.
 - `validate-runbooks` — validate every `docs/runbooks/*.yaml` against `schemas/runbook-spec.json` (delegates to the Python generator's `--validate-only`).
 - `validate-landing-page` — verify the docs landing page uses checked-in demo assets, rejects remote embeds, and keeps install CTA targets valid.
+- `validate-release-readiness-kits` — verify the checked-in offline local-kit manifest, required kit set, reuse metadata, and offline/deterministic content rules.
 - `pre-release` — chains the above checks + schema-currency check.
 
 ## Non-negotiable invariants
