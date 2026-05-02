@@ -3,15 +3,18 @@
 See `/AGENTS.md` for repo-wide rules. This file scopes to `plumb-mcp`.
 ## Purpose
 
-Model Context Protocol server exposed over stdio. Public surface:
-`PlumbServer`, `run_stdio`, `McpError`, `EchoArgs`, `LintUrlArgs`.
+Model Context Protocol server exposed over stdio by default, with an
+optional Streamable HTTP transport. Public surface: `PlumbServer`,
+`run_stdio`, `run_http`, `McpError`, `EchoArgs`, `LintUrlArgs`.
 Built on `rmcp 0.2.x` with the `#[tool_router]` + `#[tool]` +
 `#[tool_handler]` macros.
 
 ## Protocol
 
 - Protocol version: `ProtocolVersion::V_2024_11_05`.
-- Transport: stdio (`rmcp::transport::stdio`).
+- Transport:
+  - stdio by default (`rmcp::transport::stdio`)
+  - Streamable HTTP via `run_http`
 - Server info: name `plumb`, version from `CARGO_PKG_VERSION`.
 - Tool response contract (PRD §14.2):
   - `content[0]` — compact human text (one line per finding typical).
@@ -23,6 +26,9 @@ Built on `rmcp 0.2.x` with the `#[tool_router]` + `#[tool]` +
 - `#![forbid(unsafe_code)]`.
 - Every tool method validates its inputs and returns a typed error on
   malformed args — no `unwrap`/`expect`.
+- `run_http` requires a non-empty bearer token from the caller. Missing
+  or invalid `Authorization: Bearer <token>` headers are rejected with
+  HTTP 401 before the request reaches the MCP transport.
 - Response payloads are bounded: `structuredContent` caps at ~10 KB
   (aggregate + cap on violations; see PRD §14.2).
 - Deterministic output — no wall-clock, no random ordering, no env

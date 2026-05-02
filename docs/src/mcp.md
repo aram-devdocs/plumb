@@ -1,8 +1,9 @@
 # MCP server
 
 `plumb mcp` runs an [MCP](https://modelcontextprotocol.io/) server on
-stdio. AI coding agents (Claude Code, Cursor, Codex, Windsurf) connect
-to it the same way they connect to any other MCP server.
+stdio by default. AI coding agents (Claude Code, Cursor, Codex,
+Windsurf) connect to it the same way they connect to any other MCP
+server.
 
 ## Configuring your agent
 
@@ -31,6 +32,29 @@ For local development against a source checkout:
   }
 }
 ```
+
+## Transports
+
+Stdio remains the default transport. Existing agent configs that invoke
+`plumb mcp` without extra flags do not change.
+
+Plumb also supports Streamable HTTP:
+
+```sh
+plumb mcp --transport http --port 4242
+```
+
+HTTP boot requires `PLUMB_MCP_TOKEN` to be set to a non-empty bearer
+token. If the variable is missing or empty, `plumb mcp --transport
+http` refuses to boot.
+
+Every HTTP request must send `Authorization: Bearer <token>`. Missing or
+invalid tokens return `401 Unauthorized` with
+`WWW-Authenticate: Bearer`.
+
+Keep the token private. Do not log it, paste it into chat, or commit it
+to the repository. The HTTP server binds to `127.0.0.1` and logs the
+bind address, not the token value.
 
 ## Tools
 
