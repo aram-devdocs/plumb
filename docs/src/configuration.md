@@ -126,8 +126,7 @@ delta_e_tolerance = 2.0
 | `tokens` | `{string => hex}` | `{}` | Named palette colors. Slash-delimited names group by prefix in diagnostics. |
 | `delta_e_tolerance` | `f32` | `2.0` | CIEDE2000 ΔE threshold for `color/palette-conformance`. |
 
-Consumed by `color/palette-conformance` (and the contrast rule, which
-reads `[a11y].min_contrast_ratio`).
+Consumed by `color/palette-conformance`.
 
 ## `[radius]`
 
@@ -173,11 +172,11 @@ min_height_px = 24
 
 | Field | Type | Default | Meaning |
 |-------|------|---------|---------|
-| `min_contrast_ratio` | `f32?` | `null` | WCAG contrast ratio target. Set `4.5` for AA body text, `7.0` for AAA. |
+| `min_contrast_ratio` | `f32?` | `null` | Optional stricter global floor for `color/contrast-aa`. The rule still keeps WCAG AA's built-in `4.5:1` normal / `3.0:1` large defaults. |
 | `touch_target.min_width_px` | `u32` | `24` | Minimum touch-target width per WCAG 2.5.8. Raise to `44` for AAA. |
 | `touch_target.min_height_px` | `u32` | `24` | Minimum touch-target height. |
 
-Consumed by `a11y/touch-target` and the contrast rule.
+Consumed by `a11y/touch-target` and `color/contrast-aa`.
 
 ## `[rules."<category>/<id>"]`
 

@@ -34,6 +34,10 @@ pub(crate) const RULE_DOCS: &[RuleDoc] = &[
         markdown: include_str!("../../../docs/src/rules/a11y-touch-target.md"),
     },
     RuleDoc {
+        rule_id: "color/contrast-aa",
+        markdown: include_str!("../../../docs/src/rules/color-contrast-aa.md"),
+    },
+    RuleDoc {
         rule_id: "color/palette-conformance",
         markdown: include_str!("../../../docs/src/rules/color-palette-conformance.md"),
     },

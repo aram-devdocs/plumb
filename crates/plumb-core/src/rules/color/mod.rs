@@ -2,9 +2,12 @@
 //!
 //! Currently:
 //!
+//! - [`contrast_aa`] — enforce WCAG 2.1 AA text contrast from
+//!   existing computed styles.
 //! - [`palette_conformance`] — flag computed colors that aren't on the
 //!   configured palette, measured by CIEDE2000 (ΔE00) in CIE Lab space.
 
+pub mod contrast_aa;
 pub mod palette_conformance;
 
 /// Computed-style properties this category inspects.
