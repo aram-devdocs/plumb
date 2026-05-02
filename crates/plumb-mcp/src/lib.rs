@@ -68,6 +68,7 @@ use rmcp::{
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
+use subtle::ConstantTimeEq;
 use thiserror::Error;
 use tokio::sync::OnceCell;
 
@@ -694,16 +695,15 @@ fn map_config_error(err: &ConfigError) -> ErrorData {
 }
 
 fn secure_token_eq(expected: &[u8], actual: &[u8]) -> bool {
-    let mut diff = expected.len() ^ actual.len();
-    let max_len = expected.len().max(actual.len());
+    expected.ct_eq(actual).into()
+}
 
-    for index in 0..max_len {
-        let expected_byte = expected.get(index).copied().unwrap_or_default();
-        let actual_byte = actual.get(index).copied().unwrap_or_default();
-        diff |= usize::from(expected_byte ^ actual_byte);
-    }
-
-    diff == 0
+fn unauthorized_bearer_response() -> Response {
+    (
+        StatusCode::UNAUTHORIZED,
+        [(header::WWW_AUTHENTICATE, "Bearer")],
+    )
+        .into_response()
 }
 
 async fn authenticate_http_request(
@@ -718,7 +718,7 @@ async fn authenticate_http_request(
         .is_some_and(|value| state.token.matches_authorization_header(value));
 
     if !authorized {
-        return StatusCode::UNAUTHORIZED.into_response();
+        return unauthorized_bearer_response();
     }
 
     next.run(request).await

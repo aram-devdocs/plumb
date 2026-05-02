@@ -28,6 +28,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
+subtle = { workspace = true }
 
 [dev-dependencies]
 plumb-core = { workspace = true, features = ["test-fake"] }

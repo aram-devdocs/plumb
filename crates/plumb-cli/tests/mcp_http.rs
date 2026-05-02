@@ -1,5 +1,6 @@
 //! End-to-end HTTP transport tests for `plumb mcp`.
 
+// This harness uses expect/unwrap/panic in test-only setup paths to keep failures explicit.
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::missing_panics_doc)]
 
 use std::io;
@@ -18,6 +19,8 @@ fn bin() -> std::path::PathBuf {
 }
 
 fn reserve_port() -> io::Result<u16> {
+    // TOCTOU note: this only reduces collisions for the child process; the short
+    // local-only test window keeps the risk acceptable until we wire fd handoff.
     let listener = TcpListener::bind(("127.0.0.1", 0))?;
     let port = listener.local_addr()?.port();
     drop(listener);
@@ -116,6 +119,7 @@ async fn http_transport_rejects_requests_without_bearer_token()
     let response = initialize_request(port, None).await?;
 
     assert_eq!(response.status(), reqwest::StatusCode::UNAUTHORIZED);
+    assert_eq!(response.headers()["www-authenticate"], "Bearer");
     Ok(())
 }
 
@@ -126,6 +130,7 @@ async fn http_transport_rejects_invalid_bearer_token() -> Result<(), Box<dyn std
     let response = initialize_request(port, Some("Bearer wrong-token")).await?;
 
     assert_eq!(response.status(), reqwest::StatusCode::UNAUTHORIZED);
+    assert_eq!(response.headers()["www-authenticate"], "Bearer");
     Ok(())
 }
 
