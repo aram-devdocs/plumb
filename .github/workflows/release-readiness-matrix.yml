@@ -1,0 +1,106 @@
+name: Release-readiness matrix
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: readiness-matrix-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -Dwarnings
+  RUST_BACKTRACE: 1
+
+jobs:
+  # Local-only matrix: exercises all local/file:// legs with Chrome.
+  matrix-local:
+    name: Readiness matrix (local legs)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Prepare Chrome sandbox
+        run: sudo bash scripts/ci-chrome-sandbox.sh
+
+      - name: Install Chrome
+        id: setup-chrome
+        uses: browser-actions/setup-chrome@v2
+        with:
+          chrome-version: stable
+          install-dependencies: true
+
+      - name: Build plumb
+        run: cargo build --release -p plumb-cli
+
+      - name: Run readiness matrix (local-only)
+        env:
+          CHROME_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
+          PLUMB_BIN: "target/release/plumb"
+          REPORT_DIR: "${{ runner.temp }}/plumb-readiness-matrix-local"
+        run: |
+          bash tests/release-readiness-matrix.sh --local-only
+
+      - name: Upload matrix reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: readiness-matrix-local-reports
+          path: ${{ runner.temp }}/plumb-readiness-matrix-local/
+          if-no-files-found: ignore
+
+  # Live matrix: exercises canonical docs and example.com over the network.
+  # Runs on push-to-main and workflow_dispatch only — PRs skip live legs
+  # to avoid flaky failures from network or upstream site outages.
+  matrix-live:
+    name: Readiness matrix (live legs)
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Prepare Chrome sandbox
+        run: sudo bash scripts/ci-chrome-sandbox.sh
+
+      - name: Install Chrome
+        id: setup-chrome
+        uses: browser-actions/setup-chrome@v2
+        with:
+          chrome-version: stable
+          install-dependencies: true
+
+      - name: Build plumb
+        run: cargo build --release -p plumb-cli
+
+      - name: Run readiness matrix (all legs)
+        env:
+          CHROME_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
+          PLUMB_BIN: "target/release/plumb"
+          REPORT_DIR: "${{ runner.temp }}/plumb-readiness-matrix-live"
+        run: |
+          bash tests/release-readiness-matrix.sh
+
+      - name: Upload matrix reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: readiness-matrix-live-reports
+          path: ${{ runner.temp }}/plumb-readiness-matrix-live/
+          if-no-files-found: ignore

@@ -49,7 +49,7 @@ fmt:
     cargo fmt --all
 
 # All static checks — fmt + clippy with zero tolerance. Matches CI preflight.
-check: check-agents ci-chrome-sandbox-validate ci-canonical-docs-url-validate release-readiness-local-kits-validate
+check: check-agents ci-chrome-sandbox-validate ci-canonical-docs-url-validate release-readiness-local-kits-validate release-readiness-matrix-validate
     cargo fmt --all -- --check
     cargo clippy --workspace --all-targets --all-features -- -D warnings
 
@@ -69,6 +69,10 @@ ci-canonical-docs-url-validate:
 # Validate release-readiness local kit wiring and fixture constraints.
 release-readiness-local-kits-validate:
     bash tests/release-readiness-local-kits-validate.sh
+
+# Validate release-readiness matrix workflow wiring and leg coverage.
+release-readiness-matrix-validate:
+    bash tests/release-readiness-matrix-validate.sh
 
 # Verify the local environment required by the Phase 3 gate.
 phase3-gate-env:
