@@ -28,7 +28,7 @@ fn read_http_token() -> Result<String> {
         Ok(token) if token.trim().is_empty() => Err(anyhow!(
             "PLUMB_MCP_TOKEN must be set to a non-empty bearer token when --transport http is used"
         )),
-        Ok(token) => Ok(token),
+        Ok(token) => Ok(token.trim().to_owned()),
         Err(env::VarError::NotPresent) => Err(anyhow!(
             "PLUMB_MCP_TOKEN must be set to a non-empty bearer token when --transport http is used"
         )),

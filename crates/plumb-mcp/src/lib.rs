@@ -767,8 +767,8 @@ pub async fn run_stdio(cwd: PathBuf) -> Result<(), McpError> {
 /// # Errors
 ///
 /// Returns [`McpError::Io`] when the TCP listener or HTTP server fails,
-/// and [`McpError::Service`] when the underlying MCP service cannot be
-/// constructed.
+/// and [`McpError::Service`] when graceful shutdown of the underlying
+/// MCP service fails.
 pub async fn run_http(cwd: PathBuf, addr: SocketAddr, token: String) -> Result<(), McpError> {
     let handler = PlumbServer::new(cwd);
     let service: StreamableHttpService<PlumbServer, LocalSessionManager> =

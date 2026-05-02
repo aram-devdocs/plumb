@@ -144,3 +144,15 @@ async fn http_transport_accepts_valid_bearer_token() -> Result<(), Box<dyn std::
     assert!(response.headers().contains_key("mcp-session-id"));
     Ok(())
 }
+
+#[tokio::test]
+async fn http_transport_trims_bearer_token_from_environment()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_server, port) = spawn_http_server(" secret ").await?;
+
+    let response = initialize_request(port, Some("Bearer secret")).await?;
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    assert!(response.headers().contains_key("mcp-session-id"));
+    Ok(())
+}
