@@ -14,19 +14,34 @@ fn fixture_snapshot() -> PlumbSnapshot {
         2,
         "html > body > div:nth-child(1)",
         &[("box-shadow", "0px 2px 4px rgba(0, 0, 0, 0.1)")],
-        Some(Rect { x: 0, y: 0, width: 200, height: 24 }),
+        Some(Rect {
+            x: 0,
+            y: 0,
+            width: 200,
+            height: 24,
+        }),
     );
     let off_scale = node(
         3,
         "html > body > div:nth-child(2)",
         &[("box-shadow", "0px 8px 24px rgba(0, 0, 0, 0.3)")],
-        Some(Rect { x: 0, y: 24, width: 200, height: 24 }),
+        Some(Rect {
+            x: 0,
+            y: 24,
+            width: 200,
+            height: 24,
+        }),
     );
     let none_shadow = node(
         4,
         "html > body > div:nth-child(3)",
         &[("box-shadow", "none")],
-        Some(Rect { x: 0, y: 48, width: 200, height: 24 }),
+        Some(Rect {
+            x: 0,
+            y: 48,
+            width: 200,
+            height: 24,
+        }),
     );
 
     PlumbSnapshot {
@@ -45,7 +60,12 @@ fn root_html() -> SnapshotNode {
         tag: "html".into(),
         attrs: IndexMap::new(),
         computed_styles: IndexMap::new(),
-        rect: Some(Rect { x: 0, y: 0, width: 1280, height: 800 }),
+        rect: Some(Rect {
+            x: 0,
+            y: 0,
+            width: 1280,
+            height: 800,
+        }),
         parent: None,
         children: vec![1],
     }
@@ -58,7 +78,12 @@ fn body_node() -> SnapshotNode {
         tag: "body".into(),
         attrs: IndexMap::new(),
         computed_styles: IndexMap::new(),
-        rect: Some(Rect { x: 0, y: 0, width: 1280, height: 800 }),
+        rect: Some(Rect {
+            x: 0,
+            y: 0,
+            width: 1280,
+            height: 800,
+        }),
         parent: Some(0),
         children: vec![2, 3, 4],
     }

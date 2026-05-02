@@ -55,10 +55,7 @@ impl Rule for ScaleConformance {
             let nearest = nearest_opacity(value, scale);
 
             let mut metadata: IndexMap<String, serde_json::Value> = IndexMap::new();
-            metadata.insert(
-                "opacity".to_owned(),
-                serde_json::Value::from(value),
-            );
+            metadata.insert("opacity".to_owned(), serde_json::Value::from(value));
             metadata.insert(
                 "nearest".to_owned(),
                 serde_json::Value::from(f64::from(nearest)),

@@ -15,7 +15,12 @@ fn fixture_snapshot() -> PlumbSnapshot {
         tag: "div".into(),
         attrs: IndexMap::from_iter([("class".into(), "cards".into())]),
         computed_styles: IndexMap::new(),
-        rect: Some(Rect { x: 0, y: 0, width: 800, height: 200 }),
+        rect: Some(Rect {
+            x: 0,
+            y: 0,
+            width: 800,
+            height: 200,
+        }),
         parent: Some(1),
         children: vec![3, 4, 5],
     };
@@ -23,20 +28,35 @@ fn fixture_snapshot() -> PlumbSnapshot {
         3,
         2,
         "html > body > div.cards > div:nth-child(1)",
-        &[("padding-top", "16px"), ("padding-right", "16px"), ("padding-bottom", "16px"), ("padding-left", "16px")],
+        &[
+            ("padding-top", "16px"),
+            ("padding-right", "16px"),
+            ("padding-bottom", "16px"),
+            ("padding-left", "16px"),
+        ],
     );
     let child_b = node(
         4,
         2,
         "html > body > div.cards > div:nth-child(2)",
-        &[("padding-top", "16px"), ("padding-right", "16px"), ("padding-bottom", "16px"), ("padding-left", "16px")],
+        &[
+            ("padding-top", "16px"),
+            ("padding-right", "16px"),
+            ("padding-bottom", "16px"),
+            ("padding-left", "16px"),
+        ],
     );
     // Drifts: padding-top 28px vs median 16px = 12px drift
     let child_c = node(
         5,
         2,
         "html > body > div.cards > div:nth-child(3)",
-        &[("padding-top", "28px"), ("padding-right", "16px"), ("padding-bottom", "16px"), ("padding-left", "16px")],
+        &[
+            ("padding-top", "28px"),
+            ("padding-right", "16px"),
+            ("padding-bottom", "16px"),
+            ("padding-left", "16px"),
+        ],
     );
 
     PlumbSnapshot {
@@ -55,7 +75,12 @@ fn root_html() -> SnapshotNode {
         tag: "html".into(),
         attrs: IndexMap::new(),
         computed_styles: IndexMap::new(),
-        rect: Some(Rect { x: 0, y: 0, width: 1280, height: 800 }),
+        rect: Some(Rect {
+            x: 0,
+            y: 0,
+            width: 1280,
+            height: 800,
+        }),
         parent: None,
         children: vec![1],
     }
@@ -68,18 +93,18 @@ fn body_node() -> SnapshotNode {
         tag: "body".into(),
         attrs: IndexMap::new(),
         computed_styles: IndexMap::new(),
-        rect: Some(Rect { x: 0, y: 0, width: 1280, height: 800 }),
+        rect: Some(Rect {
+            x: 0,
+            y: 0,
+            width: 1280,
+            height: 800,
+        }),
         parent: Some(0),
         children: vec![2],
     }
 }
 
-fn node(
-    dom_order: u64,
-    parent: u64,
-    selector: &str,
-    styles: &[(&str, &str)],
-) -> SnapshotNode {
+fn node(dom_order: u64, parent: u64, selector: &str, styles: &[(&str, &str)]) -> SnapshotNode {
     let mut computed_styles = IndexMap::new();
     for (prop, value) in styles {
         computed_styles.insert((*prop).to_owned(), (*value).to_owned());
@@ -90,7 +115,12 @@ fn node(
         tag: "div".into(),
         attrs: IndexMap::new(),
         computed_styles,
-        rect: Some(Rect { x: 0, y: 0, width: 200, height: 100 }),
+        rect: Some(Rect {
+            x: 0,
+            y: 0,
+            width: 200,
+            height: 100,
+        }),
         parent: Some(parent),
         children: Vec::new(),
     }

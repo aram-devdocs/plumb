@@ -60,21 +60,26 @@ impl Rule for FamilyConformance {
                 .collect();
 
             // Check if ANY family in the list matches ANY allowed entry (case-insensitive).
-            let has_match = families.iter().any(|family| {
-                allowed
-                    .iter()
-                    .any(|a| a.eq_ignore_ascii_case(family))
-            });
+            let has_match = families
+                .iter()
+                .any(|family| allowed.iter().any(|a| a.eq_ignore_ascii_case(family)));
 
             if has_match {
                 continue;
             }
 
-            let allowed_json =
-                serde_json::Value::Array(allowed.iter().map(|s| serde_json::Value::String(s.clone())).collect());
+            let allowed_json = serde_json::Value::Array(
+                allowed
+                    .iter()
+                    .map(|s| serde_json::Value::String(s.clone()))
+                    .collect(),
+            );
 
             let mut metadata: IndexMap<String, serde_json::Value> = IndexMap::new();
-            metadata.insert("font_family".to_owned(), serde_json::Value::String(raw.clone()));
+            metadata.insert(
+                "font_family".to_owned(),
+                serde_json::Value::String(raw.clone()),
+            );
             metadata.insert("allowed_families".to_owned(), allowed_json);
 
             sink.push(Violation {

@@ -14,19 +14,34 @@ fn fixture_snapshot() -> PlumbSnapshot {
         2,
         "html > body > div:nth-child(1)",
         &[("font-family", "\"Inter\", sans-serif")],
-        Some(Rect { x: 0, y: 0, width: 200, height: 24 }),
+        Some(Rect {
+            x: 0,
+            y: 0,
+            width: 200,
+            height: 24,
+        }),
     );
     let disallowed = node(
         3,
         "html > body > div:nth-child(2)",
         &[("font-family", "\"Comic Sans MS\", cursive")],
-        Some(Rect { x: 0, y: 24, width: 200, height: 24 }),
+        Some(Rect {
+            x: 0,
+            y: 24,
+            width: 200,
+            height: 24,
+        }),
     );
     let missing = node(
         4,
         "html > body > div:nth-child(3)",
         &[],
-        Some(Rect { x: 0, y: 48, width: 200, height: 24 }),
+        Some(Rect {
+            x: 0,
+            y: 48,
+            width: 200,
+            height: 24,
+        }),
     );
 
     PlumbSnapshot {
@@ -45,7 +60,12 @@ fn root_html() -> SnapshotNode {
         tag: "html".into(),
         attrs: IndexMap::new(),
         computed_styles: IndexMap::new(),
-        rect: Some(Rect { x: 0, y: 0, width: 1280, height: 800 }),
+        rect: Some(Rect {
+            x: 0,
+            y: 0,
+            width: 1280,
+            height: 800,
+        }),
         parent: None,
         children: vec![1],
     }
@@ -58,7 +78,12 @@ fn body_node() -> SnapshotNode {
         tag: "body".into(),
         attrs: IndexMap::new(),
         computed_styles: IndexMap::new(),
-        rect: Some(Rect { x: 0, y: 0, width: 1280, height: 800 }),
+        rect: Some(Rect {
+            x: 0,
+            y: 0,
+            width: 1280,
+            height: 800,
+        }),
         parent: Some(0),
         children: vec![2, 3, 4],
     }

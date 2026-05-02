@@ -93,10 +93,7 @@ impl Rule for PaddingConsistency {
                         "sibling_median_px".to_owned(),
                         serde_json::Value::from(median),
                     );
-                    metadata.insert(
-                        "deviation_px".to_owned(),
-                        serde_json::Value::from(dev_u32),
-                    );
+                    metadata.insert("deviation_px".to_owned(), serde_json::Value::from(dev_u32));
 
                     sink.push(Violation {
                         rule_id: self.id().to_owned(),
