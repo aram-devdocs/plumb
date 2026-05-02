@@ -11,6 +11,8 @@ against each page snapshot. Every rule has:
 
 - [`a11y/touch-target`](./a11y-touch-target.md) — flags interactive
   elements smaller than `a11y.touch_target`.
+- [`color/contrast-aa`](./color-contrast-aa.md) — flags text whose
+  foreground/background contrast misses WCAG 2.1 AA.
 - [`color/palette-conformance`](./color-palette-conformance.md) —
   flags element colors that aren't members of the configured palette.
 - [`edge/near-alignment`](./edge-near-alignment.md) — flags element

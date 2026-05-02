@@ -1,0 +1,98 @@
+---
+source: crates/plumb-core/tests/golden_color_contrast_aa.rs
+assertion_line: 165
+expression: json
+---
+[
+  {
+    "rule_id": "color/contrast-aa",
+    "severity": "warning",
+    "message": "`html > body > div:nth-child(2)` has contrast ratio 4.478:1; WCAG 2.1 AA requires at least 4.500:1 for normal text.",
+    "selector": "html > body > div:nth-child(2)",
+    "viewport": "desktop",
+    "rect": {
+      "x": 0,
+      "y": 32,
+      "width": 320,
+      "height": 24
+    },
+    "dom_order": 3,
+    "fix": {
+      "kind": {
+        "kind": "description",
+        "text": "Increase the foreground/background contrast to at least 4.500:1 for this normal text."
+      },
+      "description": "Raise `html > body > div:nth-child(2)` to the WCAG 2.1 AA contrast floor.",
+      "confidence": "low"
+    },
+    "doc_url": "https://plumb.aramhammoudeh.com/rules/color-contrast-aa",
+    "metadata": {
+      "contrast_ratio": 4.478,
+      "required_ratio": 4.5,
+      "font_size_px": 16.0,
+      "large_text": false,
+      "foreground_color": "rgb(119, 119, 119)"
+    }
+  },
+  {
+    "rule_id": "color/contrast-aa",
+    "severity": "warning",
+    "message": "`html > body > div:nth-child(4)` has contrast ratio 3.033:1; WCAG 2.1 AA requires at least 4.500:1 for normal text.",
+    "selector": "html > body > div:nth-child(4)",
+    "viewport": "desktop",
+    "rect": {
+      "x": 0,
+      "y": 104,
+      "width": 320,
+      "height": 28
+    },
+    "dom_order": 5,
+    "fix": {
+      "kind": {
+        "kind": "description",
+        "text": "Increase the foreground/background contrast to at least 4.500:1 for this normal text."
+      },
+      "description": "Raise `html > body > div:nth-child(4)` to the WCAG 2.1 AA contrast floor.",
+      "confidence": "low"
+    },
+    "doc_url": "https://plumb.aramhammoudeh.com/rules/color-contrast-aa",
+    "metadata": {
+      "contrast_ratio": 3.033,
+      "required_ratio": 4.5,
+      "font_size_px": 18.0,
+      "large_text": false,
+      "foreground_color": "rgb(148, 148, 148)",
+      "font_weight": "700"
+    }
+  },
+  {
+    "rule_id": "color/contrast-aa",
+    "severity": "warning",
+    "message": "`html > body > section > p` has contrast ratio 3.604:1; WCAG 2.1 AA requires at least 4.500:1 for normal text.",
+    "selector": "html > body > section > p",
+    "viewport": "desktop",
+    "rect": {
+      "x": 0,
+      "y": 212,
+      "width": 320,
+      "height": 24
+    },
+    "dom_order": 8,
+    "fix": {
+      "kind": {
+        "kind": "description",
+        "text": "Increase the foreground/background contrast to at least 4.500:1 for this normal text."
+      },
+      "description": "Raise `html > body > section > p` to the WCAG 2.1 AA contrast floor.",
+      "confidence": "low"
+    },
+    "doc_url": "https://plumb.aramhammoudeh.com/rules/color-contrast-aa",
+    "metadata": {
+      "contrast_ratio": 3.604,
+      "required_ratio": 4.5,
+      "font_size_px": 16.0,
+      "large_text": false,
+      "foreground_color": "rgb(120, 120, 120)"
+    }
+  }
+]
