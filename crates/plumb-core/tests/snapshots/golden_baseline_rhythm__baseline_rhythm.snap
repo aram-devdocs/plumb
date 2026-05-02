@@ -29,7 +29,14 @@ expression: json
     "metadata": {
       "baseline_y": 20.2,
       "nearest_grid_y": 24.0,
-      "distance_px": 3.8
+      "distance_px": 3.8,
+      "off_grid_lines": [
+        {
+          "baseline_y": 20.2,
+          "nearest_grid_y": 24.0,
+          "distance_px": 3.8
+        }
+      ]
     }
   }
 ]

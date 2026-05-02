@@ -233,6 +233,13 @@ fn rect_index(snapshot: &PlumbSnapshot) -> IndexMap<u64, Rect> {
 ///
 /// Requires `text_boxes` to be sorted by `(dom_order, start)`.
 fn text_box_index(snapshot: &PlumbSnapshot) -> IndexMap<u64, (usize, usize)> {
+    debug_assert!(
+        snapshot
+            .text_boxes
+            .windows(2)
+            .all(|w| { (w[0].dom_order, w[0].start) <= (w[1].dom_order, w[1].start) }),
+        "text_boxes must be sorted by (dom_order, start)"
+    );
     let mut index: IndexMap<u64, (usize, usize)> = IndexMap::new();
     let boxes = &snapshot.text_boxes;
     let mut i = 0;

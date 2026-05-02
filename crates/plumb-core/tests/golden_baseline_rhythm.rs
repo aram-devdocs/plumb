@@ -435,3 +435,88 @@ fn baseline_rhythm_multifont_text_boxes() {
         violations[0].selector,
     );
 }
+
+#[test]
+fn baseline_rhythm_multiline_both_off_grid() {
+    // One <p> with two text box lines, BOTH off the 24px grid.
+    // font_size=16, line_height=24, half_leading=4, cap_height=11.2.
+    //
+    // Line 1: text_box y=0 → baseline_y = 0+4+11.2 = 15.2 → nearest 24 → dist 8.8 > 2 (off-grid!)
+    // Line 2: text_box y=38 → baseline_y = 38+4+11.2 = 53.2 → nearest 48 → dist 5.2 > 2 (off-grid!)
+    //
+    // Expect exactly ONE aggregated violation with the multi-line message format.
+    let node = text_node(
+        2,
+        "html > body > p:nth-child(1)",
+        "p",
+        &[("font-size", "16px"), ("line-height", "24px")],
+        Some(Rect {
+            x: 0,
+            y: 0,
+            width: 600,
+            height: 62,
+        }),
+    );
+    let snapshot = PlumbSnapshot {
+        url: "plumb-fake://baseline-rhythm-both-off".into(),
+        viewport: ViewportKey::new("desktop"),
+        viewport_width: 1280,
+        viewport_height: 800,
+        nodes: vec![root_html(), body_node(), node],
+        text_boxes: vec![
+            TextBox {
+                dom_order: 2,
+                bounds: Rect {
+                    x: 0,
+                    y: 0,
+                    width: 500,
+                    height: 24,
+                },
+                start: 0,
+                length: 40,
+            },
+            TextBox {
+                dom_order: 2,
+                bounds: Rect {
+                    x: 0,
+                    y: 38,
+                    width: 500,
+                    height: 24,
+                },
+                start: 40,
+                length: 35,
+            },
+        ],
+    };
+    let config = fixture_config();
+    let violations: Vec<plumb_core::Violation> = run(&snapshot, &config)
+        .into_iter()
+        .filter(|v| v.rule_id == "baseline/rhythm")
+        .collect();
+
+    assert_eq!(
+        violations.len(),
+        1,
+        "both off-grid lines must produce exactly one aggregated violation",
+    );
+    assert!(
+        violations[0].message.contains("has 2/2 lines off"),
+        "message should use aggregated format: {}",
+        violations[0].message,
+    );
+    // Worst distance is 8.8 (line 1), so that's the primary metadata.
+    assert!(
+        violations[0].message.contains("8.8px"),
+        "message should reference worst distance: {}",
+        violations[0].message,
+    );
+    // Metadata should contain off_grid_lines array with 2 entries.
+    let off_grid_lines = violations[0]
+        .metadata
+        .get("off_grid_lines")
+        .expect("metadata must contain off_grid_lines");
+    let arr = off_grid_lines
+        .as_array()
+        .expect("off_grid_lines must be an array");
+    assert_eq!(arr.len(), 2, "off_grid_lines must have 2 entries");
+}

@@ -129,52 +129,124 @@ impl Rule for Rhythm {
                 text_boxes.iter().map(|tb| f64::from(tb.bounds.y)).collect()
             };
 
-            for y_origin in y_origins {
-                // Approximate baseline Y position.
-                let baseline_y = y_origin + half_leading + cap_height;
-
-                // Distance to nearest grid line.
-                let nearest_grid_y = (baseline_y / base_line_f).round() * base_line_f;
-                let distance = (baseline_y - nearest_grid_y).abs();
-
-                if distance <= tolerance_f {
-                    continue;
-                }
-
-                let mut metadata = IndexMap::new();
-                metadata.insert("baseline_y".to_owned(), JsonValue::from(baseline_y));
-                metadata.insert("nearest_grid_y".to_owned(), JsonValue::from(nearest_grid_y));
-                metadata.insert(
-                    "distance_px".to_owned(),
-                    JsonValue::from((distance * 100.0).round() / 100.0),
-                );
-
-                sink.push(Violation {
-                    rule_id: self.id().to_owned(),
-                    severity: self.default_severity(),
-                    message: format!(
-                        "`{selector}` baseline at {baseline_y:.1}px is {distance:.1}px off the {base_line}px rhythm grid.",
-                        selector = node.selector,
-                    ),
-                    selector: node.selector.clone(),
-                    viewport: ctx.snapshot().viewport.clone(),
-                    rect: Some(rect),
-                    dom_order: node.dom_order,
-                    fix: Some(Fix {
-                        kind: FixKind::Description {
-                            text: format!(
-                                "Adjust line-height or margin-top so the baseline aligns to the nearest {base_line}px grid line ({nearest_grid_y:.0}px).",
-                            ),
-                        },
-                        description: format!(
-                            "Shift baseline from {baseline_y:.1}px to {nearest_grid_y:.0}px to restore vertical rhythm.",
-                        ),
-                        confidence: Confidence::Low,
-                    }),
-                    doc_url: "https://plumb.aramhammoudeh.com/rules/baseline-rhythm".to_owned(),
-                    metadata,
-                });
+            let off_grid_lines = collect_off_grid(
+                &y_origins,
+                half_leading,
+                cap_height,
+                base_line_f,
+                tolerance_f,
+            );
+            if off_grid_lines.is_empty() {
+                continue;
             }
+
+            sink.push(build_violation(
+                *self,
+                node,
+                ctx,
+                rect,
+                base_line,
+                &y_origins,
+                &off_grid_lines,
+            ));
         }
+    }
+}
+
+/// Collect `(baseline_y, nearest_grid_y, distance)` for each off-grid line.
+fn collect_off_grid(
+    y_origins: &[f64],
+    half_leading: f64,
+    cap_height: f64,
+    base_line_f: f64,
+    tolerance_f: f64,
+) -> Vec<(f64, f64, f64)> {
+    let mut result = Vec::new();
+    for &y_origin in y_origins {
+        let baseline_y = y_origin + half_leading + cap_height;
+        let nearest_grid_y = (baseline_y / base_line_f).round() * base_line_f;
+        let distance = (baseline_y - nearest_grid_y).abs();
+        if distance > tolerance_f {
+            result.push((baseline_y, nearest_grid_y, distance));
+        }
+    }
+    result
+}
+
+/// Build the aggregated violation for a single node.
+fn build_violation(
+    rule: Rhythm,
+    node: &crate::snapshot::SnapshotNode,
+    ctx: &SnapshotCtx<'_>,
+    rect: crate::report::Rect,
+    base_line: u32,
+    y_origins: &[f64],
+    off_grid_lines: &[(f64, f64, f64)],
+) -> Violation {
+    // Worst = largest distance. Caller guarantees non-empty.
+    let &(baseline_y, nearest_grid_y, distance) = off_grid_lines
+        .iter()
+        .max_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal))
+        .unwrap_or(&off_grid_lines[0]);
+
+    let total_lines = y_origins.len();
+    let off_count = off_grid_lines.len();
+
+    let message = if off_count > 1 {
+        format!(
+            "`{selector}` has {off_count}/{total_lines} lines off the {base_line}px rhythm grid (worst: {distance:.1}px at {baseline_y:.1}px).",
+            selector = node.selector,
+        )
+    } else {
+        format!(
+            "`{selector}` baseline at {baseline_y:.1}px is {distance:.1}px off the {base_line}px rhythm grid.",
+            selector = node.selector,
+        )
+    };
+
+    let mut metadata = IndexMap::new();
+    metadata.insert("baseline_y".to_owned(), JsonValue::from(baseline_y));
+    metadata.insert("nearest_grid_y".to_owned(), JsonValue::from(nearest_grid_y));
+    metadata.insert(
+        "distance_px".to_owned(),
+        JsonValue::from((distance * 100.0).round() / 100.0),
+    );
+    metadata.insert(
+        "off_grid_lines".to_owned(),
+        JsonValue::Array(
+            off_grid_lines
+                .iter()
+                .map(|&(by, ngy, d)| {
+                    serde_json::json!({
+                        "baseline_y": by,
+                        "nearest_grid_y": ngy,
+                        "distance_px": (d * 100.0).round() / 100.0,
+                    })
+                })
+                .collect(),
+        ),
+    );
+
+    Violation {
+        rule_id: rule.id().to_owned(),
+        severity: rule.default_severity(),
+        message,
+        selector: node.selector.clone(),
+        viewport: ctx.snapshot().viewport.clone(),
+        rect: Some(rect),
+        dom_order: node.dom_order,
+        fix: Some(Fix {
+            kind: FixKind::Description {
+                text: format!(
+                    "Adjust line-height or margin-top so the baseline aligns to the nearest {base_line}px grid line ({nearest_grid_y:.0}px).",
+                ),
+            },
+            description: format!(
+                "Shift baseline from {baseline_y:.1}px to {nearest_grid_y:.0}px to restore vertical rhythm.",
+            ),
+            confidence: Confidence::Low,
+        }),
+        doc_url: "https://plumb.aramhammoudeh.com/rules/baseline-rhythm".to_owned(),
+        metadata,
     }
 }
