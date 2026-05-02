@@ -76,6 +76,9 @@ const REQUIRED_RELEASE_READINESS_KITS: &[&str] = &[
     "shadow-z-opacity-padding",
     "dynamic-wait",
     "auth-storage",
+    "static-docs",
+    "app-like",
+    "malformed-edge",
     "mcp-inputs",
 ];
 const DISALLOWED_KIT_PATTERNS: &[&str] = &[
