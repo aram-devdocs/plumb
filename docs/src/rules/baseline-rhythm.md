@@ -26,12 +26,10 @@ The rule is a no-op when `rhythm.base_line_px` is `0`.
 
 ## Why it matters
 
-Vertical rhythm keeps text across a page visually aligned to a shared
-grid, giving the layout a consistent cadence that readers perceive as
-orderly even without consciously noticing. Off-rhythm baselines cause
-adjacent columns of text to drift apart vertically, making the page
-feel unpolished. Catching misalignments at lint time avoids slow visual
-QA passes.
+Vertical rhythm aligns text baselines across a page to a shared grid.
+When baselines drift off-grid, adjacent columns of text sit at
+different vertical offsets and the layout looks uneven. Catching these
+misalignments at lint time is faster than manual visual QA.
 
 ## Example violation
 
