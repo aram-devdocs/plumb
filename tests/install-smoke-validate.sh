@@ -8,6 +8,7 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WORKFLOW="$REPO_ROOT/.github/workflows/install-smoke.yml"
 JUSTFILE="$REPO_ROOT/justfile"
 CI_WORKFLOW="$REPO_ROOT/.github/workflows/ci.yml"
+RELEASE_PREP_DOC="$REPO_ROOT/docs/src/ci/release-prep.md"
 
 failures=0
 
@@ -95,6 +96,38 @@ else
     fail "curl channel should not be gated"
 fi
 
+# Current repo contract: cargo/curl run automatically on all supported
+# platforms; brew/npm stay documented as prep-only until external setup
+# exists.
+cargo_count=$(grep -c 'channel: cargo' "$WORKFLOW" || true)
+curl_count=$(grep -c 'channel: curl' "$WORKFLOW" || true)
+brew_count=$(grep -c 'channel: brew' "$WORKFLOW" || true)
+npm_count=$(grep -c 'channel: npm' "$WORKFLOW" || true)
+
+if [ "$cargo_count" -eq 3 ]; then
+    pass "cargo channel covers all three OSes as a non-manual path"
+else
+    fail "cargo channel count is $cargo_count (expected 3 OS legs)"
+fi
+
+if [ "$curl_count" -eq 3 ]; then
+    pass "curl channel covers all three OSes as a non-manual path"
+else
+    fail "curl channel count is $curl_count (expected 3 OS legs)"
+fi
+
+if [ "$brew_count" -eq 2 ]; then
+    pass "brew channel stays limited to supported gated OS legs"
+else
+    fail "brew channel count is $brew_count (expected 2 gated OS legs)"
+fi
+
+if [ "$npm_count" -eq 3 ]; then
+    pass "npm channel stays limited to supported gated OS legs"
+else
+    fail "npm channel count is $npm_count (expected 3 gated OS legs)"
+fi
+
 # ── 5. Verification steps ──────────────────────────────────────────
 
 echo "5. Verification steps"
@@ -152,6 +185,21 @@ else
     fail "npm channel gating/install contract is incorrect"
 fi
 
+if grep -Fq 'Cargo and curl are the current non-manual validation paths' "$WORKFLOW" \
+    && grep -Fq 'Brew and npm stay gated/prep-only' "$WORKFLOW"; then
+    pass "workflow docs describe non-manual vs prep-only channel state"
+else
+    fail "workflow docs do not describe the current non-manual/prep-only channel state"
+fi
+
+if [ -f "$RELEASE_PREP_DOC" ] \
+    && grep -Fq 'Issue #51 is prep-only in this repo state.' "$RELEASE_PREP_DOC" \
+    && grep -Fq 'Issue #52 is also prep-only in this repo state.' "$RELEASE_PREP_DOC"; then
+    pass "release prep doc records #51/#52 as prep-only"
+else
+    fail "release prep doc does not record #51/#52 as prep-only"
+fi
+
 # Exit code handling: 0 and 3 are acceptable, 2 is infra failure.
 if grep -Eq 'rc.*-ne 0.*rc.*-ne 3|exit 0.*exit 3' "$WORKFLOW"; then
     pass "workflow distinguishes acceptable exit codes (0, 3) from failures"
@@ -187,6 +235,12 @@ if grep -Fq 'install-smoke' "$WORKFLOW" && grep -Fq 'gh issue' "$WORKFLOW"; then
     pass "workflow auto-creates tracking issues on failure"
 else
     fail "workflow does not auto-create tracking issues on failure"
+fi
+
+if grep -Fq 'One or more non-gated install channels failed.' "$WORKFLOW"; then
+    pass "failure reporting is scoped to non-gated channels"
+else
+    fail "failure reporting is not scoped to non-gated channels"
 fi
 
 # ── 8. Permissions are minimal ─────────────────────────────────────

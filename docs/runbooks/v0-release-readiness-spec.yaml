@@ -7,16 +7,17 @@ parent:
   labels: ["phase-7", "kind:rfc"]
   summary: |
     Define the release-readiness gate that must pass before the first
-    Homebrew/npm distribution moves and before Phase 7 Gate 1 is
-    dispatchable. This runbook covers the website matrix, local
-    deterministic kits, install smoke, release dry-run checks,
-    token/security blockers, attestations, and reviewer sign-off lanes
-    needed to prove Plumb is ready for a first distribution release.
+    Homebrew/npm distribution moves and before #101 can be accepted as
+    the first distribution release. This runbook covers the website
+    matrix, local deterministic kits, install smoke, release dry-run
+    checks, token/security blockers, attestations, and reviewer
+    sign-off lanes needed to prove Plumb is ready for a first
+    distribution release.
 
     Parking rule: #65 and Phase 7 Gate 1 (#66–#85) remain parked and
-    not dispatchable until this runbook closes, #51/#52 pass their
-    release-channel wiring gates, and #101 passes as the first
-    distribution release. #193 is already closed and remains a recorded
+    not dispatchable until this runbook closes, #51/#52 have their
+    prep-only gating evidence, and #101 has the first-release evidence
+    it still needs. #193 is already closed and remains a recorded
     prerequisite.
 
     This spec is intentionally a shell for later slices. It defines the
@@ -28,8 +29,9 @@ parent:
     - "Local deterministic kits are checked in under `tests/fixtures/release-readiness/`, with the manifest at `tests/fixtures/release-readiness/manifest.json`, and cover static, large-DOM, responsive, typography, color/contrast, shadow/z/opacity/padding, dynamic/wait, auth/storage, and MCP scenarios."
     - "Install smoke expectations are defined per release channel and supported OS, including auth/no-secret-leak behavior."
     - "Release dry-run, token/security blockers, and attestation verification are defined as observable gates before publication."
-    - "Reviewer sign-off lanes are defined so #192, #51/#52, and #101 can be evaluated as one release-readiness boundary."
-    - "#65 and #66–#85 remain parked until this runbook, #51/#52, and #101 all pass."
+    - "Cargo and curl are defined as the current non-manual validation channels, while Homebrew (#51) and npm (#52) remain explicit prep-only/gated channels until external setup and live publish verification exist."
+    - "Reviewer sign-off lanes are defined so #192, #51/#52, and #101 can be evaluated as one release-readiness boundary without treating #51/#52 as complete."
+    - "#65 and #66–#85 remain parked until this runbook closes, #51/#52 retain prep-only gating evidence, and #101 clears its first-release evidence."
   related_prd_sections: ["§10.6", "§14.1", "§14.2", "§14.4", "§15.1", "§15.3", "§15.4", "§15.5", "§16"]
 
 batches:
@@ -83,6 +85,7 @@ batches:
         acceptance_criteria:
           - "The contract names the required channels and operating systems."
           - "Acceptance includes auth/no-secret-leak behavior where install smoke touches protected paths or tokens."
+          - "Cargo and curl are the only non-manual channels that must execute in this repo state; Homebrew and npm stay documented as gated/prep-only."
           - "This slice does not add the workflow; it defines the observable gate."
         reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner", "06-security-auditor"]
       - slug: readiness-token-security-blockers
@@ -143,7 +146,7 @@ batches:
           release evidence is present.
         acceptance_criteria:
           - "Required sign-off lanes are named for readiness, release-channel wiring, and first-release evidence."
-          - "The closure rule states that #65 and #66–#85 remain parked until sign-off completes across #192, #51/#52, and #101."
+          - "The closure rule states that #65 and #66–#85 remain parked until sign-off completes across #192, #51/#52 prep-only evidence, and #101 first-release evidence."
           - "This slice defines the review contract only."
         reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner", "06-security-auditor"]
 
@@ -151,8 +154,10 @@ phase_gate:
   criterion: |
     All readiness batches closed with observable reporting in place AND
     local kits, install smoke, release dry-run, token/security blocker,
-    attestation, and reviewer sign-off evidence captured AND #51/#52
-    release-channel wiring gates pass AND #101 passes as the first
-    distribution release. Until then, #65 and Phase 7 Gate 1 (#66–#85)
-    remain parked and not dispatchable.
+    attestation, and reviewer sign-off evidence captured AND cargo/curl
+    non-manual channel evidence captured AND #51/#52 retain their
+    prep-only gating evidence until external prerequisites exist AND
+    #101 clears its first distribution release evidence. Until then,
+    #65 and Phase 7 Gate 1 (#66–#85) remain parked and not
+    dispatchable.
   unblocks: "issue-51, issue-52, issue-65 gate-1 dispatch, issue-101 completion"

@@ -12,6 +12,7 @@ SECURITY_WORKFLOW="$REPO_ROOT/.github/workflows/security.yml"
 DIST_CONFIG="$REPO_ROOT/dist-workspace.toml"
 JUSTFILE="$REPO_ROOT/justfile"
 CI_WORKFLOW="$REPO_ROOT/.github/workflows/ci.yml"
+RELEASE_PREP_DOC="$REPO_ROOT/docs/src/ci/release-prep.md"
 
 failures=0
 
@@ -90,6 +91,14 @@ if grep -Fq 'attestations: write' "$RELEASE_WORKFLOW"; then
     pass "release workflow has attestations: write permission"
 else
     fail "release workflow missing attestations: write permission"
+fi
+
+if grep -Fq 'Cargo publish and curl installers are the only non-manual release' "$RELEASE_WORKFLOW" \
+    && grep -Fq 'Homebrew tap and npm' "$RELEASE_WORKFLOW" \
+    && grep -Fq 'publishing are intentionally inactive here.' "$RELEASE_WORKFLOW"; then
+    pass "release workflow docs distinguish active non-manual channels from gated ones"
+else
+    fail "release workflow docs do not distinguish active non-manual channels from gated ones"
 fi
 
 # ── 3. Token handling via env indirection ──────────────────────────
@@ -186,6 +195,13 @@ else
     pass "dist-workspace.toml not found — Homebrew publish correctly absent"
 fi
 
+if [ -f "$DIST_CONFIG" ] \
+    && grep -Fq 'Issues #51 and #52 are intentionally prep-only' "$DIST_CONFIG"; then
+    pass "dist-workspace.toml documents #51/#52 as prep-only"
+else
+    fail "dist-workspace.toml does not document #51/#52 as prep-only"
+fi
+
 # ── 6. NPM scope publish is gated ─────────────────────────────────
 
 echo "6. NPM publish gating"
@@ -206,11 +222,26 @@ if [ -f "$DIST_CONFIG" ]; then
     fi
 fi
 
+if [ -f "$DIST_CONFIG" ] \
+    && grep -Fq 'installers = ["shell", "powershell"]' "$DIST_CONFIG"; then
+    pass "dist-workspace.toml keeps npm out of the active installer list"
+else
+    fail "dist-workspace.toml does not keep npm out of the active installer list"
+fi
+
 # The install-smoke workflow documents NPM_TOKEN is not yet wired.
 if grep -Fq 'npm' "$INSTALL_SMOKE"; then
     pass "install-smoke acknowledges npm channel"
 else
     fail "install-smoke does not acknowledge npm channel"
+fi
+
+if [ -f "$RELEASE_PREP_DOC" ] \
+    && grep -Fq 'Until those blockers are resolved, the install docs describe the' "$RELEASE_PREP_DOC" \
+    && grep -Fq 'Until those blockers are resolved, this repo MUST NOT claim that' "$RELEASE_PREP_DOC"; then
+    pass "release prep doc keeps Homebrew/npm claims gated behind external blockers"
+else
+    fail "release prep doc does not keep Homebrew/npm claims gated behind external blockers"
 fi
 
 # ── 7. Security audit workflow exists ──────────────────────────────
