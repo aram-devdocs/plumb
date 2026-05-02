@@ -135,7 +135,10 @@ impl Rule for Rhythm {
             let mut metadata = IndexMap::new();
             metadata.insert("baseline_y".to_owned(), JsonValue::from(baseline_y));
             metadata.insert("nearest_grid_y".to_owned(), JsonValue::from(nearest_grid_y));
-            metadata.insert("distance_px".to_owned(), JsonValue::from(distance));
+            metadata.insert(
+                "distance_px".to_owned(),
+                JsonValue::from((distance * 100.0).round() / 100.0),
+            );
 
             sink.push(Violation {
                 rule_id: self.id().to_owned(),

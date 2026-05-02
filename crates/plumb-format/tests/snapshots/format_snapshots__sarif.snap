@@ -28,6 +28,20 @@ expression: out
               }
             },
             {
+              "id": "baseline/rhythm",
+              "name": "baseline-rhythm",
+              "shortDescription": {
+                "text": "Flags text elements whose baselines miss the vertical-rhythm grid."
+              },
+              "fullDescription": {
+                "text": "Flags text elements whose baselines miss the vertical-rhythm grid."
+              },
+              "helpUri": "https://plumb.aramhammoudeh.com/rules/baseline-rhythm",
+              "defaultConfiguration": {
+                "level": "warning"
+              }
+            },
+            {
               "id": "color/contrast-aa",
               "name": "color-contrast-aa",
               "shortDescription": {
@@ -258,7 +272,7 @@ expression: out
           "properties": {
             "docUrl": "https://plumb.aramhammoudeh.com/rules/spacing-grid-conformance"
           },
-          "ruleIndex": 9
+          "ruleIndex": 10
         }
       ]
     }

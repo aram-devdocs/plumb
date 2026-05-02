@@ -177,3 +177,101 @@ fn baseline_rhythm_run_is_deterministic() -> Result<(), serde_json::Error> {
     assert_eq!(b, c);
     Ok(())
 }
+
+#[test]
+fn baseline_rhythm_skips_when_base_line_px_is_zero() {
+    let snapshot = fixture_snapshot();
+    let config = Config {
+        rhythm: RhythmSpec {
+            base_line_px: 0,
+            tolerance_px: 2,
+            cap_height_fallback_px: 0,
+        },
+        ..Config::default()
+    };
+    assert!(
+        !run(&snapshot, &config)
+            .into_iter()
+            .any(|v| v.rule_id == "baseline/rhythm"),
+        "base_line_px=0 must skip the rule entirely"
+    );
+}
+
+#[test]
+fn baseline_rhythm_uses_cap_height_fallback() {
+    // With cap_height_fallback_px = 12, cap_height = 12 (not 16*0.7=11.2).
+    // off_grid node: rect.y=5, half_leading=(24-16)/2=4, baseline_y=5+4+12=21.
+    // nearest_grid = round(21/24)*24 = 24, distance = 3 > tolerance 2 → violation.
+    let snapshot = fixture_snapshot();
+    let config = Config {
+        rhythm: RhythmSpec {
+            base_line_px: 24,
+            tolerance_px: 2,
+            cap_height_fallback_px: 12,
+        },
+        ..Config::default()
+    };
+    let violations: Vec<plumb_core::Violation> = run(&snapshot, &config)
+        .into_iter()
+        .filter(|v| v.rule_id == "baseline/rhythm")
+        .collect();
+    assert_eq!(
+        violations.len(),
+        1,
+        "cap_height_fallback_px=12 must still flag the off-grid node"
+    );
+    assert!(
+        violations[0].message.contains("21.0px"),
+        "baseline should use fallback cap-height: {}",
+        violations[0].message,
+    );
+}
+
+#[test]
+fn baseline_rhythm_falls_back_on_line_height_normal() {
+    // Node with no line-height style → falls back to font_size * 1.2.
+    // font_size=16, line_height=16*1.2=19.2, half_leading=(19.2-16)/2=1.6
+    // cap_height=16*0.7=11.2, baseline_y=0+1.6+11.2=12.8
+    // nearest_grid = round(12.8/24)*24 = 24, distance=11.2 > tolerance → violation.
+    let node_no_lh = text_node(
+        2,
+        "html > body > p:nth-child(1)",
+        "p",
+        &[("font-size", "16px")],
+        Some(Rect {
+            x: 0,
+            y: 0,
+            width: 600,
+            height: 20,
+        }),
+    );
+    let snapshot = PlumbSnapshot {
+        url: "plumb-fake://baseline-rhythm-lh-normal".into(),
+        viewport: ViewportKey::new("desktop"),
+        viewport_width: 1280,
+        viewport_height: 800,
+        nodes: vec![root_html(), body_node(), node_no_lh],
+    };
+    let config = Config {
+        rhythm: RhythmSpec {
+            base_line_px: 24,
+            tolerance_px: 2,
+            cap_height_fallback_px: 0,
+        },
+        ..Config::default()
+    };
+    let violations: Vec<plumb_core::Violation> = run(&snapshot, &config)
+        .into_iter()
+        .filter(|v| v.rule_id == "baseline/rhythm")
+        .collect();
+    assert_eq!(
+        violations.len(),
+        1,
+        "missing line-height must fall back to 1.2×font-size"
+    );
+    assert!(
+        violations[0].message.contains("12.8px"),
+        "baseline should use 1.2× fallback: {}",
+        violations[0].message,
+    );
+}

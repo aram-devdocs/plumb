@@ -336,7 +336,7 @@
       "additionalProperties": false
     },
     "RhythmSpec": {
-      "description": "Vertical-rhythm spec (schema/defaults only -- rule lands in #73).",
+      "description": "Vertical-rhythm spec.",
       "type": "object",
       "properties": {
         "base_line_px": {

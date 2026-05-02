@@ -232,7 +232,7 @@ pub struct OpacitySpec {
     pub scale: Vec<f32>,
 }
 
-/// Vertical-rhythm spec (schema/defaults only -- rule lands in #73).
+/// Vertical-rhythm spec.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[allow(clippy::struct_field_names)]
