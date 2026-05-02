@@ -23,6 +23,7 @@ plumb-config = { workspace = true }
 plumb-format = { workspace = true }
 rmcp = { workspace = true }
 tokio = { workspace = true }
+axum = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

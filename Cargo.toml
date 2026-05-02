@@ -43,11 +43,13 @@ plumb-mcp = { path = "crates/plumb-mcp", version = "0.0.1" }
 chromiumoxide = { version = "0.8", default-features = false, features = ["tokio-runtime"] }
 
 # MCP SDK.
-rmcp = { version = "1.5", default-features = false, features = ["base64", "macros", "server", "transport-io", "schemars"] }
+rmcp = { version = "1.5", default-features = false, features = ["base64", "macros", "server", "transport-io", "transport-streamable-http-server", "schemars"] }
 
 # Async runtime.
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "io-std", "sync", "time", "fs", "process"] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 
 # CLI parsing.
 clap = { version = "4", features = ["derive", "env", "wrap_help"] }

@@ -42,6 +42,7 @@ scraper = { version = "0.26", default-features = false, features = ["errors", "d
 assert_cmd = { workspace = true }
 predicates = { workspace = true }
 tempfile = { workspace = true }
+reqwest = { workspace = true }
 
 [lints]
 workspace = true

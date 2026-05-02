@@ -33,10 +33,18 @@ pub use explain::rule_ids as documented_rule_ids;
 
 use std::collections::HashMap;
 use std::io;
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
+use axum::{
+    Router,
+    body::Body,
+    http::{Request, StatusCode, header},
+    middleware::{self, Next},
+    response::{IntoResponse, Response},
+};
 use plumb_cdp::{ChromiumOptions, PersistentBrowser, Target, is_fake_url};
 use plumb_config::ConfigError;
 use plumb_core::{Config, PlumbSnapshot, ViewportKey, Violation, register_builtin, run};
@@ -53,7 +61,10 @@ use rmcp::{
     },
     schemars::{self, JsonSchema},
     service::RequestContext,
-    transport::stdio,
+    transport::{
+        StreamableHttpServerConfig, StreamableHttpService, stdio,
+        streamable_http_server::session::local::LocalSessionManager,
+    },
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -70,6 +81,26 @@ pub enum McpError {
     /// rmcp service or transport failure.
     #[error("mcp service: {0}")]
     Service(String),
+}
+
+#[derive(Clone)]
+struct HttpAuthState {
+    token: HttpAuthToken,
+}
+
+#[derive(Clone)]
+struct HttpAuthToken(Arc<str>);
+
+impl HttpAuthToken {
+    fn new(token: String) -> Self {
+        Self(Arc::<str>::from(token))
+    }
+
+    fn matches_authorization_header(&self, value: &str) -> bool {
+        value
+            .strip_prefix("Bearer ")
+            .is_some_and(|candidate| secure_token_eq(self.0.as_bytes(), candidate.as_bytes()))
+    }
 }
 
 /// Arguments to the `echo` tool.
@@ -662,6 +693,37 @@ fn map_config_error(err: &ConfigError) -> ErrorData {
     ErrorData::internal_error(format!("load plumb.toml: {err}"), None)
 }
 
+fn secure_token_eq(expected: &[u8], actual: &[u8]) -> bool {
+    let mut diff = expected.len() ^ actual.len();
+    let max_len = expected.len().max(actual.len());
+
+    for index in 0..max_len {
+        let expected_byte = expected.get(index).copied().unwrap_or_default();
+        let actual_byte = actual.get(index).copied().unwrap_or_default();
+        diff |= usize::from(expected_byte ^ actual_byte);
+    }
+
+    diff == 0
+}
+
+async fn authenticate_http_request(
+    state: axum::extract::State<HttpAuthState>,
+    request: Request<Body>,
+    next: Next,
+) -> Response {
+    let authorized = request
+        .headers()
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| state.token.matches_authorization_header(value));
+
+    if !authorized {
+        return StatusCode::UNAUTHORIZED.into_response();
+    }
+
+    next.run(request).await
+}
+
 /// Run the MCP server on stdin/stdout until EOF.
 ///
 /// On clean exit (EOF on stdin) the persistent browser, if it was
@@ -692,6 +754,47 @@ pub async fn run_stdio(cwd: PathBuf) -> Result<(), McpError> {
     // wins; only report a shutdown failure when the service itself
     // returned cleanly.
     service_result?;
+    shutdown_result?;
+    Ok(())
+}
+
+/// Run the MCP server over Streamable HTTP.
+///
+/// Requests must include `Authorization: Bearer <token>`. Missing or
+/// invalid bearer tokens are rejected with HTTP 401 before the request
+/// reaches the MCP transport.
+///
+/// # Errors
+///
+/// Returns [`McpError::Io`] when the TCP listener or HTTP server fails,
+/// and [`McpError::Service`] when the underlying MCP service cannot be
+/// constructed.
+pub async fn run_http(cwd: PathBuf, addr: SocketAddr, token: String) -> Result<(), McpError> {
+    let handler = PlumbServer::new(cwd);
+    let service: StreamableHttpService<PlumbServer, LocalSessionManager> =
+        StreamableHttpService::new(
+            {
+                let handler = handler.clone();
+                move || Ok(handler.clone())
+            },
+            Arc::default(),
+            StreamableHttpServerConfig::default(),
+        );
+
+    let app = Router::new()
+        .fallback_service(service)
+        .layer(middleware::from_fn_with_state(
+            HttpAuthState {
+                token: HttpAuthToken::new(token),
+            },
+            authenticate_http_request,
+        ));
+
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    let serve_result = axum::serve(listener, app).await.map_err(McpError::Io);
+    let shutdown_result = handler.shutdown().await;
+
+    serve_result?;
     shutdown_result?;
     Ok(())
 }
