@@ -41,6 +41,9 @@ allow = [
     "BSL-1.0",
 ]
 exceptions = []
+[[licenses.exceptions]]
+allow = ["CDLA-Permissive-2.0"]
+crate = "webpki-roots@1.0.7"
 
 [[licenses.clarify]]
 name = "ring"
