@@ -25,7 +25,15 @@ concurrency:
 jobs:
   review:
     name: Claude review
-    if: github.event.pull_request.draft == false
+    # Skip on dependabot / renovate PRs. Bot PRs run with reduced
+    # permissions, so the action's GitHub App token request fails fast
+    # with an "internal error: directory mismatch" before any review can
+    # happen. This is the pattern recommended by Anthropic's security
+    # docs for handling automated bot PRs alongside Claude review.
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.actor != 'dependabot[bot]' &&
+      github.actor != 'renovate[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
