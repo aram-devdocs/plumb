@@ -29,6 +29,7 @@ major version falls in Plumb's supported range (see
 | `--disable-animations [bool]` | CSS animation/transition killer. Default `true`. |
 | `--hide-scrollbars [bool]` | CSS scrollbar killer. Default `true`. |
 | `--dpr <factor>` | Pin device-pixel ratio for `Emulation.setDeviceMetricsOverride`. |
+| `--suggest-ignores` | Append a suggested `.plumbignore` block. See [`--suggest-ignores`](./cli/suggest-ignores.md). |
 
 Exit codes:
 

@@ -15,6 +15,7 @@
 # Using Plumb
 
 - [CLI](./cli.md)
+  - [`--suggest-ignores`](./cli/suggest-ignores.md)
 - [MCP server](./mcp.md)
   - [Claude Code](./mcp/claude.md)
   - [Cursor](./mcp/cursor.md)

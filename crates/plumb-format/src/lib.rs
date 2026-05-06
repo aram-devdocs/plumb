@@ -14,6 +14,11 @@
 //! - [`sarif_with_rules`] — SARIF 2.1.0 for GitHub code-scanning and IDEs.
 //! - [`mcp_compact`] — token-efficient output for the MCP server; returns
 //!   a `(text, structured)` pair matching PRD §14.2.
+//!
+//! [`pretty_with_suggested_ignores`] and [`json_with_suggested_ignores`]
+//! extend the `pretty` and `json` shapes with a `.plumbignore` proposal
+//! derived from the current violations. `plumb lint --suggest-ignores`
+//! routes through them.
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
@@ -160,6 +165,107 @@ pub fn json(violations: &[Violation]) -> Result<String, serde_json::Error> {
     envelope.insert("summary".to_owned(), stats["counts"].clone());
     envelope.insert("violations".to_owned(), serde_json::to_value(&sorted)?);
     serde_json::to_string_pretty(&Value::Object(envelope))
+}
+
+/// Compute the deterministic list of `(rule_id, selector)` ignore
+/// suggestions for a violations slice.
+///
+/// Each unique pair surfaces exactly once. The list is sorted by
+/// `(rule_id, selector)` so two runs with the same violations produce
+/// byte-identical output. Used by [`pretty_with_suggested_ignores`] and
+/// [`json_with_suggested_ignores`] and re-exported for callers that
+/// need the raw pairs.
+#[must_use]
+pub fn suggested_ignores(violations: &[Violation]) -> Vec<(String, String)> {
+    let mut pairs: BTreeSet<(String, String)> = BTreeSet::new();
+    for v in violations {
+        pairs.insert((v.rule_id.clone(), v.selector.clone()));
+    }
+    pairs.into_iter().collect()
+}
+
+/// Render a pretty block followed by a suggested `.plumbignore` footer.
+///
+/// The footer contains one line per `(rule_id, selector)` tuple that
+/// would suppress a current violation, sorted by `(rule_id, selector)`.
+/// Two header lines describe the format. When `violations` is empty the
+/// footer reads `(no violations)` and lists no entries.
+#[must_use]
+pub fn pretty_with_suggested_ignores(violations: &[Violation]) -> String {
+    let mut out = pretty(violations);
+    append_suggested_ignores_block(&mut out, violations);
+    out
+}
+
+/// Same as [`json()`] but extends the envelope with a
+/// `suggested_ignores` array. Each element is `{ "rule_id": …,
+/// "selector": … }`, sorted by `(rule_id, selector)`.
+///
+/// # Errors
+///
+/// Returns an error if serialization fails.
+pub fn json_with_suggested_ignores(violations: &[Violation]) -> Result<String, serde_json::Error> {
+    let sorted = canonical_sorted(violations);
+
+    let run_id = run_id_for_sorted(&sorted)?;
+    let stats = stats_json(&sorted, &run_id);
+    let suggestions = suggested_ignores_json(violations);
+
+    let mut envelope = serde_json::Map::new();
+    envelope.insert(
+        "plumb_version".to_owned(),
+        Value::String(PLUMB_VERSION.to_owned()),
+    );
+    envelope.insert("run_id".to_owned(), Value::String(run_id));
+    envelope.insert("stats".to_owned(), stats.clone());
+    envelope.insert("suggested_ignores".to_owned(), suggestions);
+    envelope.insert("summary".to_owned(), stats["counts"].clone());
+    envelope.insert("violations".to_owned(), serde_json::to_value(&sorted)?);
+    serde_json::to_string_pretty(&Value::Object(envelope))
+}
+
+fn suggested_ignores_json(violations: &[Violation]) -> Value {
+    let pairs = suggested_ignores(violations);
+    let entries: Vec<Value> = pairs
+        .into_iter()
+        .map(|(rule_id, selector)| {
+            // Build each entry with alphabetically ordered keys so the
+            // output is stable regardless of `serde_json`'s
+            // `preserve_order` feature toggle.
+            let mut map = serde_json::Map::new();
+            map.insert("rule_id".to_owned(), Value::String(rule_id));
+            map.insert("selector".to_owned(), Value::String(selector));
+            Value::Object(map)
+        })
+        .collect();
+    Value::Array(entries)
+}
+
+fn append_suggested_ignores_block(out: &mut String, violations: &[Violation]) {
+    let pairs = suggested_ignores(violations);
+
+    if !out.ends_with('\n') {
+        out.push('\n');
+    }
+    out.push('\n');
+    let _ = writeln!(
+        out,
+        "Suggested .plumbignore (would suppress {count} {noun}):",
+        count = violations.len(),
+        noun = if violations.len() == 1 {
+            "violation"
+        } else {
+            "violations"
+        },
+    );
+    out.push_str("# Format: <rule_id> <selector_path>\n");
+    if pairs.is_empty() {
+        out.push_str("# (no violations)\n");
+    } else {
+        for (rule_id, selector) in pairs {
+            let _ = writeln!(out, "{rule_id} {selector}");
+        }
+    }
 }
 
 /// Hex-alphabet table used by [`hex_digest`].
@@ -486,4 +592,115 @@ fn append_pretty_stats(out: &mut String, violations: &[Violation], run_id: &str)
     let _ = writeln!(out, "  {}", summary_line(violations));
     let _ = writeln!(out, "  viewport_count: {viewport_count}");
     let _ = writeln!(out, "  rule_count: {rule_count}");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{json_with_suggested_ignores, pretty_with_suggested_ignores, suggested_ignores};
+    use indexmap::IndexMap;
+    use plumb_core::{Severity, ViewportKey, Violation};
+
+    fn violation(rule_id: &str, selector: &str, viewport: &str, dom_order: u64) -> Violation {
+        Violation {
+            rule_id: rule_id.to_owned(),
+            severity: Severity::Warning,
+            message: "test".to_owned(),
+            selector: selector.to_owned(),
+            viewport: ViewportKey::new(viewport),
+            rect: None,
+            dom_order,
+            fix: None,
+            doc_url: format!(
+                "https://plumb.aramhammoudeh.com/rules/{}",
+                rule_id.replace('/', "-")
+            ),
+            metadata: IndexMap::new(),
+        }
+    }
+
+    #[test]
+    fn suggested_ignores_dedupes_across_viewports() {
+        // The same `(rule_id, selector)` pair fires on two viewports;
+        // the suggested-ignores list collapses it to one entry.
+        let v = vec![
+            violation("spacing/grid-conformance", "body", "desktop", 1),
+            violation("spacing/grid-conformance", "body", "mobile", 1),
+        ];
+        let pairs = suggested_ignores(&v);
+        assert_eq!(
+            pairs,
+            vec![("spacing/grid-conformance".to_owned(), "body".to_owned())]
+        );
+    }
+
+    #[test]
+    fn suggested_ignores_sorts_by_rule_then_selector() {
+        // Input is intentionally unsorted; output MUST be sorted by
+        // `(rule_id, selector)` for byte-identical determinism.
+        let v = vec![
+            violation("spacing/grid-conformance", ".footer", "desktop", 3),
+            violation("color/palette-conformance", "#cta", "desktop", 1),
+            violation("spacing/grid-conformance", ".header", "desktop", 2),
+        ];
+        let pairs = suggested_ignores(&v);
+        assert_eq!(
+            pairs,
+            vec![
+                ("color/palette-conformance".to_owned(), "#cta".to_owned()),
+                ("spacing/grid-conformance".to_owned(), ".footer".to_owned()),
+                ("spacing/grid-conformance".to_owned(), ".header".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn suggested_ignores_empty_for_no_violations() {
+        assert!(suggested_ignores(&[]).is_empty());
+    }
+
+    #[test]
+    fn pretty_with_suggested_ignores_appends_block() {
+        let v = vec![violation("spacing/grid-conformance", "body", "desktop", 1)];
+        let out = pretty_with_suggested_ignores(&v);
+        assert!(out.contains("Suggested .plumbignore (would suppress 1 violation):"));
+        assert!(out.contains("# Format: <rule_id> <selector_path>"));
+        assert!(out.contains("spacing/grid-conformance body"));
+    }
+
+    #[test]
+    fn pretty_with_suggested_ignores_handles_empty() {
+        let out = pretty_with_suggested_ignores(&[]);
+        assert!(out.contains("Suggested .plumbignore (would suppress 0 violations):"));
+        assert!(out.contains("(no violations)"));
+    }
+
+    #[test]
+    fn json_with_suggested_ignores_emits_sorted_array() {
+        let v = vec![
+            violation("spacing/grid-conformance", ".footer", "desktop", 3),
+            violation("color/palette-conformance", "#cta", "desktop", 1),
+        ];
+        let raw = json_with_suggested_ignores(&v).expect("serialize");
+        let parsed: serde_json::Value = serde_json::from_str(&raw).expect("envelope is valid JSON");
+        let arr = parsed
+            .get("suggested_ignores")
+            .and_then(|v| v.as_array())
+            .expect("suggested_ignores array");
+        assert_eq!(arr.len(), 2);
+        assert_eq!(arr[0]["rule_id"], "color/palette-conformance");
+        assert_eq!(arr[0]["selector"], "#cta");
+        assert_eq!(arr[1]["rule_id"], "spacing/grid-conformance");
+        assert_eq!(arr[1]["selector"], ".footer");
+    }
+
+    #[test]
+    fn json_with_suggested_ignores_is_byte_deterministic() {
+        let v = vec![
+            violation("spacing/grid-conformance", ".header", "mobile", 1),
+            violation("color/palette-conformance", "#cta", "desktop", 1),
+        ];
+        let a = json_with_suggested_ignores(&v).expect("serialize a");
+        let b = json_with_suggested_ignores(&v).expect("serialize b");
+        assert_eq!(a, b);
+    }
 }

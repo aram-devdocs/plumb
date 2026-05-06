@@ -24,6 +24,10 @@ use crate::commands::{OutputFormat, selector as selector_filter};
 /// Aggregated args for [`run`]. Bundling them into a struct keeps the
 /// `Command::Lint` dispatch readable as the flag surface grows
 /// (PRD §15 — `--wait-for`, `--cookie`, `--storage-state`, etc.).
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "LintArgs mirrors clap CLI flags 1:1; a state-machine refactor would obscure the flag-to-arg mapping"
+)]
 #[derive(Debug)]
 pub struct LintArgs {
     pub url: String,
@@ -42,6 +46,10 @@ pub struct LintArgs {
     pub disable_animations: bool,
     pub hide_scrollbars: bool,
     pub dpr: Option<f64>,
+    /// When true, append a suggested `.plumbignore` block to the
+    /// rendered output. Pretty format adds a footer; JSON format adds a
+    /// `suggested_ignores` array; SARIF is unchanged.
+    pub suggest_ignores: bool,
     pub auto_fetch_chromium: bool,
 }
 
@@ -89,6 +97,7 @@ pub async fn run(args: LintArgs) -> Result<ExitCode> {
         disable_animations,
         hide_scrollbars,
         dpr,
+        suggest_ignores,
         auto_fetch_chromium,
     } = args;
 
@@ -171,14 +180,7 @@ pub async fn run(args: LintArgs) -> Result<ExitCode> {
 
     let violations = plumb_core::run_many(snapshots.iter(), &config);
 
-    let out = match format {
-        OutputFormat::Pretty => plumb_format::pretty(&violations),
-        OutputFormat::Json => plumb_format::json(&violations).context("serialize JSON")?,
-        OutputFormat::Sarif => {
-            plumb_format::sarif_with_rules(&violations, &plumb_core::builtin_rule_metadata())
-                .context("serialize SARIF")?
-        }
-    };
+    let out = render(&violations, format, suggest_ignores)?;
 
     if let Some(path) = output_path {
         std::fs::write(&path, out)
@@ -293,6 +295,40 @@ fn load_config(path: Option<&Path>) -> Result<Config> {
         tracing::debug!("no plumb.toml in CWD; using defaults");
         Ok(Config::default())
     }
+}
+
+/// Format `violations` into the requested string output, optionally
+/// appending the `.plumbignore` suggestion block.
+///
+/// SARIF intentionally ignores `suggest_ignores`: GitHub Code Scanning
+/// consumers parse the strict 2.1.0 schema, and adding a non-standard
+/// property would either confuse them or be silently dropped. Pretty
+/// and JSON have full control of their own envelope.
+fn render(
+    violations: &[plumb_core::Violation],
+    format: OutputFormat,
+    suggest_ignores: bool,
+) -> Result<String> {
+    Ok(match format {
+        OutputFormat::Pretty => {
+            if suggest_ignores {
+                plumb_format::pretty_with_suggested_ignores(violations)
+            } else {
+                plumb_format::pretty(violations)
+            }
+        }
+        OutputFormat::Json => {
+            if suggest_ignores {
+                plumb_format::json_with_suggested_ignores(violations).context("serialize JSON")?
+            } else {
+                plumb_format::json(violations).context("serialize JSON")?
+            }
+        }
+        OutputFormat::Sarif => {
+            plumb_format::sarif_with_rules(violations, &plumb_core::builtin_rule_metadata())
+                .context("serialize SARIF")?
+        }
+    })
 }
 
 fn exit_code_for(violations: &[plumb_core::Violation]) -> ExitCode {

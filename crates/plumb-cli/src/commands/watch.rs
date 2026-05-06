@@ -324,6 +324,7 @@ fn clone_lint_args(src: &LintArgs) -> LintArgs {
         disable_animations: src.disable_animations,
         hide_scrollbars: src.hide_scrollbars,
         dpr: src.dpr,
+        suggest_ignores: src.suggest_ignores,
         auto_fetch_chromium: src.auto_fetch_chromium,
     }
 }

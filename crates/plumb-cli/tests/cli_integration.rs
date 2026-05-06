@@ -707,6 +707,24 @@ fn lint_accepts_disable_animations_and_hide_scrollbars_and_dpr()
     Ok(())
 }
 
+// `--suggest-ignores` (#84) — after a normal lint run, append a
+// suggested `.plumbignore` block listing one entry per
+// (rule_id, selector) tuple that would suppress every active violation.
+//
+// The canned `plumb-fake://hello` snapshot fires
+// `spacing/grid-conformance` on `body`, so both the pretty and JSON
+// shapes have a single deterministic entry to assert against.
+
+#[test]
+fn lint_without_suggest_ignores_omits_section() -> Result<(), Box<dyn std::error::Error>> {
+    Command::cargo_bin("plumb")?
+        .args(["lint", "plumb-fake://hello"])
+        .assert()
+        .code(3)
+        .stdout(contains("Suggested .plumbignore").not());
+    Ok(())
+}
+
 // ============================================================
 // `plumb watch` (#83) — `--once` flag runs a single lint cycle and
 // exits without entering the filesystem watcher loop, which gives us
@@ -727,6 +745,19 @@ fn watch_once_runs_a_single_cycle_and_emits_status_line() -> Result<(), Box<dyn 
 }
 
 #[test]
+fn lint_pretty_with_suggest_ignores_appends_footer() -> Result<(), Box<dyn std::error::Error>> {
+    Command::cargo_bin("plumb")?
+        .args(["lint", "plumb-fake://hello", "--suggest-ignores"])
+        .assert()
+        .code(3)
+        .stdout(contains("Suggested .plumbignore"))
+        .stdout(contains("would suppress 1 violation"))
+        .stdout(contains("# Format: <rule_id> <selector_path>"))
+        .stdout(contains("spacing/grid-conformance html > body"));
+    Ok(())
+}
+
+#[test]
 fn watch_once_with_json_format_emits_lint_payload() -> Result<(), Box<dyn std::error::Error>> {
     Command::cargo_bin("plumb")?
         .args(["watch", "plumb-fake://hello", "--once", "--format", "json"])
@@ -734,6 +765,34 @@ fn watch_once_with_json_format_emits_lint_payload() -> Result<(), Box<dyn std::e
         .code(3)
         .stdout(contains("\"rule_id\""))
         .stderr(contains("watching"));
+    Ok(())
+}
+
+#[test]
+fn lint_json_with_suggest_ignores_adds_array() -> Result<(), Box<dyn std::error::Error>> {
+    Command::cargo_bin("plumb")?
+        .args([
+            "lint",
+            "plumb-fake://hello",
+            "--format",
+            "json",
+            "--suggest-ignores",
+        ])
+        .assert()
+        .code(3)
+        .stdout(contains("\"suggested_ignores\""))
+        .stdout(contains("\"rule_id\": \"spacing/grid-conformance\""))
+        .stdout(contains("\"selector\": \"html > body\""));
+    Ok(())
+}
+
+#[test]
+fn lint_json_without_suggest_ignores_omits_array() -> Result<(), Box<dyn std::error::Error>> {
+    Command::cargo_bin("plumb")?
+        .args(["lint", "plumb-fake://hello", "--format", "json"])
+        .assert()
+        .code(3)
+        .stdout(contains("\"suggested_ignores\"").not());
     Ok(())
 }
 
