@@ -25,10 +25,14 @@ e2e-chromium = ["plumb-core/test-fake"]
 
 [dependencies]
 plumb-core = { workspace = true }
-# `_fetcher-rustls-tokio` enables `chromiumoxide::fetcher::BrowserFetcher`
-# (Chrome-for-Testing download) used by the auto-fetch path (issue #78).
-# The rustls transport matches the workspace `reqwest` policy.
-chromiumoxide = { workspace = true, features = ["_fetcher-rustls-tokio"] }
+# `fetcher` + `rustls` + `zip8` enables
+# `chromiumoxide::fetcher::BrowserFetcher` (Chrome-for-Testing download)
+# used by the auto-fetch path (issue #78). The rustls transport matches
+# the workspace `reqwest` policy. The `zip8` feature selects `zip` 0.8
+# as the unpacker; chromiumoxide 0.9 requires either `zip0` or `zip8`
+# at the workspace level (they're mutually exclusive on the consumer
+# side; `zip8` matches the upstream default).
+chromiumoxide = { workspace = true, features = ["fetcher", "rustls", "zip8"] }
 futures-util = { workspace = true }
 tokio = { workspace = true }
 thiserror = { workspace = true }

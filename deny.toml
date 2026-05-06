@@ -44,6 +44,13 @@ allow = [
 allow = ["CDLA-Permissive-2.0"]
 crate = "webpki-roots@1.0.7"
 
+# Transitive dep pulled in via `rustls-platform-verifier` -> `reqwest` 0.13
+# under `chromiumoxide` 0.9. Same license + publisher as `webpki-roots`;
+# just a separate crate that ships the trust-store certificate bundle.
+[[licenses.exceptions]]
+allow = ["CDLA-Permissive-2.0"]
+crate = "webpki-root-certs@1.0.7"
+
 [[licenses.clarify]]
 name = "ring"
 version = "*"
