@@ -1,0 +1,54 @@
+# Dogfood config — used by `.github/workflows/dogfood.yml` when running
+# `plumb lint https://plumb.aramhammoudeh.com/`.
+#
+# The mdBook theme that renders the docs site introduces several
+# violation classes that aren't ours to fix: theme padding, code-block
+# indentation, sidebar chrome, etc. The `[[ignore]]` blocks below
+# document each exemption with the reason they exist so reviewers can
+# audit (or remove) them as the theme evolves.
+#
+# The list is initially populated from the live site via:
+#
+#     plumb lint https://plumb.aramhammoudeh.com/ --suggest-ignores --format json
+#
+# and then trimmed to the entries whose reason genuinely belongs to the
+# upstream theme rather than Plumb's own design system.
+
+# ---------------------------------------------------------------------------
+# mdBook chrome — root padding, page wrapper, sidebar, search overlay.
+# These are owned by the rust-lang/mdBook default theme; bumping the
+# theme version is the only way to influence them.
+
+[[ignore]]
+selector = "html > body"
+rule_id = "spacing/grid-conformance"
+reason = "mdBook root <body> padding is theme-controlled"
+
+[[ignore]]
+selector = "html > body"
+rule_id = "spacing/scale-conformance"
+reason = "mdBook root <body> spacing is theme-controlled"
+
+[[ignore]]
+selector = "html > body > div.page-wrapper"
+reason = "mdBook page wrapper grid is theme-controlled"
+
+[[ignore]]
+selector = "html > body > div.page-wrapper > nav#sidebar"
+reason = "mdBook sidebar layout is theme-controlled"
+
+[[ignore]]
+selector = "html > body > div.page-wrapper > div.page"
+reason = "mdBook page container layout is theme-controlled"
+
+# ---------------------------------------------------------------------------
+# Search popover / theme picker — both are mdBook chrome that the docs
+# site never customizes.
+
+[[ignore]]
+selector = "html > body > div.searchbar-outer"
+reason = "mdBook search popover layout"
+
+[[ignore]]
+selector = "html > body > div.theme-popup"
+reason = "mdBook theme picker layout"
