@@ -544,17 +544,46 @@ pub struct StorageStateLocalStorageEntry {
 impl StorageState {
     /// Parse a Playwright `storage-state.json` from a string.
     ///
+    /// Validates every cookie name, value, domain, and path for
+    /// header-injection-style payloads (control bytes) and sorts the
+    /// cookies / origins / localStorage entries for deterministic
+    /// injection order.
+    ///
     /// # Errors
     ///
     /// Returns [`CdpError::MalformedStorageState`] with `path = ""` when
-    /// the JSON cannot be parsed. Callers that have a real path on hand
-    /// should use [`Self::load_from_path`] instead so the error carries
-    /// the source filename.
+    /// the JSON cannot be parsed. Returns [`CdpError::InvalidCookie`]
+    /// when a cookie field contains control bytes. Callers that have a
+    /// real path on hand should use [`Self::load_from_path`] instead so
+    /// the error carries the source filename.
     pub fn parse_str(json: &str) -> Result<Self, CdpError> {
-        serde_json::from_str(json).map_err(|err| CdpError::MalformedStorageState {
-            path: PathBuf::new(),
-            reason: err.to_string(),
-        })
+        let mut state: Self =
+            serde_json::from_str(json).map_err(|err| CdpError::MalformedStorageState {
+                path: PathBuf::new(),
+                reason: err.to_string(),
+            })?;
+        // Validate every cookie name/value/domain/path for
+        // header-injection style payloads — Playwright files are
+        // typically machine-written but Plumb cannot trust their
+        // provenance. `domain` and `path` flow into a CDP
+        // `Network.setCookies` call alongside the name/value, so an
+        // unchecked CR/LF in either field would smuggle just as
+        // effectively as one in the value.
+        for cookie in &state.cookies {
+            validate_no_ctl(&cookie.name, "name", "cookie")?;
+            validate_no_ctl(&cookie.value, "value", "cookie")?;
+            validate_no_ctl(&cookie.domain, "domain", "cookie")?;
+            validate_no_ctl(&cookie.path, "path", "cookie")?;
+        }
+        // Sort cookies and origins for deterministic injection order.
+        state.cookies.sort_by(|a, b| {
+            (a.domain.as_str(), a.name.as_str()).cmp(&(b.domain.as_str(), b.name.as_str()))
+        });
+        state.origins.sort_by(|a, b| a.origin.cmp(&b.origin));
+        for origin in &mut state.origins {
+            origin.local_storage.sort_by(|a, b| a.name.cmp(&b.name));
+        }
+        Ok(state)
     }
 
     /// Read and parse a storage-state file from disk.
@@ -585,27 +614,17 @@ impl StorageState {
                 path: canonical.clone(),
                 reason: err.to_string(),
             })?;
-        let mut state: Self =
-            serde_json::from_str(&bytes).map_err(|err| CdpError::MalformedStorageState {
-                path: canonical.clone(),
-                reason: err.to_string(),
-            })?;
-        // Validate every cookie name/value for header-injection style
-        // payloads — Playwright files are typically machine-written but
-        // Plumb cannot trust their provenance.
-        for cookie in &state.cookies {
-            validate_no_ctl(&cookie.name, "name", "cookie")?;
-            validate_no_ctl(&cookie.value, "value", "cookie")?;
-        }
-        // Sort cookies and origins for deterministic injection order.
-        state.cookies.sort_by(|a, b| {
-            (a.domain.as_str(), a.name.as_str()).cmp(&(b.domain.as_str(), b.name.as_str()))
-        });
-        state.origins.sort_by(|a, b| a.origin.cmp(&b.origin));
-        for origin in &mut state.origins {
-            origin.local_storage.sort_by(|a, b| a.name.cmp(&b.name));
-        }
-        Ok(state)
+        // Re-stamp `MalformedStorageState` errors with the source path
+        // so callers see *which* file failed; cookie-validation errors
+        // pass through unchanged because they carry the offending input
+        // rather than a path.
+        Self::parse_str(&bytes).map_err(|err| match err {
+            CdpError::MalformedStorageState { reason, .. } => CdpError::MalformedStorageState {
+                path: canonical,
+                reason,
+            },
+            other => other,
+        })
     }
 }
 
@@ -2502,6 +2521,53 @@ mod tests {
         let json = r#"{"cookies":[],"origins":[],"unexpected":42}"#;
         let err = StorageState::parse_str(json).unwrap_err();
         assert!(matches!(err, CdpError::MalformedStorageState { .. }));
+    }
+
+    #[test]
+    fn storage_state_parse_str_rejects_crlf_in_cookie_domain() {
+        // `parse_str` is the canonical validation entry point —
+        // `load_from_path` delegates to it. Drive it directly so the
+        // test doesn't need disk I/O or a CWD swap.
+        let json = "{\"cookies\":[{\"name\":\"a\",\"value\":\"1\",\
+            \"domain\":\"evil\\r\\nSet-Cookie: x=y\",\"path\":\"/\",\
+            \"expires\":-1,\"httpOnly\":false,\"secure\":false,\"sameSite\":\"Lax\"}],\
+            \"origins\":[]}";
+        let err = StorageState::parse_str(json).unwrap_err();
+        match err {
+            CdpError::InvalidCookie { field, reason, .. } => {
+                assert_eq!(field, "domain");
+                assert!(reason.contains("control characters"));
+            }
+            other => panic!("expected InvalidCookie domain rejection, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn storage_state_parse_str_rejects_crlf_in_cookie_path() {
+        let json = "{\"cookies\":[{\"name\":\"a\",\"value\":\"1\",\
+            \"domain\":\"example.com\",\"path\":\"/foo\\nbar\",\
+            \"expires\":-1,\"httpOnly\":false,\"secure\":false,\"sameSite\":\"Lax\"}],\
+            \"origins\":[]}";
+        let err = StorageState::parse_str(json).unwrap_err();
+        match err {
+            CdpError::InvalidCookie { field, reason, .. } => {
+                assert_eq!(field, "path");
+                assert!(reason.contains("control characters"));
+            }
+            other => panic!("expected InvalidCookie path rejection, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn storage_state_parse_str_rejects_full_c0_range_in_cookie_value() {
+        // M1 + M3: the parser rejects every C0 byte (and DEL) in
+        // cookie value, not only CR/LF/NUL.
+        let json = "{\"cookies\":[{\"name\":\"a\",\"value\":\"v\\u001bx\",\
+            \"domain\":\"example.com\",\"path\":\"/\",\
+            \"expires\":-1,\"httpOnly\":false,\"secure\":false,\"sameSite\":\"Lax\"}],\
+            \"origins\":[]}";
+        let err = StorageState::parse_str(json).unwrap_err();
+        assert!(matches!(err, CdpError::InvalidCookie { field: "value", .. }));
     }
 
     #[test]
