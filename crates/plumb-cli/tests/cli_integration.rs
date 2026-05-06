@@ -603,6 +603,61 @@ fn lint_accepts_storage_state_path_against_fake_driver() -> Result<(), Box<dyn s
 }
 
 #[test]
+fn lint_rejects_auth_script_outside_cwd() -> Result<(), Box<dyn std::error::Error>> {
+    // Two tempdirs: one contains the benign script, the other is the
+    // CWD we run `plumb` from. The script is absolute and outside the
+    // CWD, so the safe-path check MUST refuse it with exit code 2 even
+    // though the URL is `plumb-fake://hello` (the FakeDriver doesn't
+    // need an auth script — the CLI validates the path up front).
+    let script_dir = TempDir::new()?;
+    let script_path = script_dir.path().join("auth.js");
+    fs::write(&script_path, "// benign auth script\n")?;
+
+    let cwd = TempDir::new()?;
+
+    Command::cargo_bin("plumb")?
+        .args([
+            "lint",
+            "plumb-fake://hello",
+            "--auth-script",
+            script_path
+                .to_str()
+                .ok_or("auth.js path is not valid UTF-8")?,
+        ])
+        .current_dir(cwd.path())
+        .assert()
+        .code(2)
+        .stderr(contains("outside the current working directory"));
+    Ok(())
+}
+
+#[test]
+fn lint_rejects_storage_state_outside_cwd() -> Result<(), Box<dyn std::error::Error>> {
+    // Same shape as the auth-script test above: the storage-state file
+    // is in a separate tempdir and therefore outside the CLI's CWD.
+    let state_dir = TempDir::new()?;
+    let state_path = state_dir.path().join("storage-state.json");
+    fs::write(&state_path, r#"{"cookies":[],"origins":[]}"#)?;
+
+    let cwd = TempDir::new()?;
+
+    Command::cargo_bin("plumb")?
+        .args([
+            "lint",
+            "plumb-fake://hello",
+            "--storage-state",
+            state_path
+                .to_str()
+                .ok_or("storage-state.json path is not valid UTF-8")?,
+        ])
+        .current_dir(cwd.path())
+        .assert()
+        .code(2)
+        .stderr(contains("outside the current working directory"));
+    Ok(())
+}
+
+#[test]
 fn lint_accepts_disable_animations_and_hide_scrollbars_and_dpr()
 -> Result<(), Box<dyn std::error::Error>> {
     Command::cargo_bin("plumb")?

@@ -628,6 +628,30 @@ impl StorageState {
     }
 }
 
+/// Public CLI-facing wrapper around [`canonicalize_safe_path`].
+///
+/// `plumb-cli` validates `--auth-script` / `--storage-state` paths up
+/// front (before driver dispatch) so the FakeDriver path also rejects
+/// outside-CWD inputs — without this, the safe-path check would only
+/// fire on the real Chromium code path and tests against
+/// `plumb-fake://hello` would silently accept a malicious-looking
+/// `--auth-script /etc/passwd`.
+///
+/// # Errors
+///
+/// Returns [`CdpError::InvalidPath`] when `path` cannot be
+/// canonicalized or canonicalizes to a location outside the current
+/// working directory.
+///
+/// # Security boundary
+///
+/// Same caveats as [`canonicalize_safe_path`]: this is a best-effort
+/// usability guard, **not** a sandbox. See that function's docs for
+/// the full TOCTOU discussion.
+pub fn validate_safe_path(path: &Path) -> Result<PathBuf, CdpError> {
+    canonicalize_safe_path(path)
+}
+
 /// Canonicalize `path` and reject symlinks pointing outside the current
 /// working directory.
 ///

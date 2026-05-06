@@ -14,7 +14,7 @@ use std::process::ExitCode;
 use anyhow::{Context, Result};
 use plumb_cdp::{
     BrowserDriver, ChromiumDriver, ChromiumOptions, Cookie, FakeDriver, Target, is_fake_url,
-    parse_header_kv,
+    parse_header_kv, validate_safe_path,
 };
 use plumb_core::{Config, Severity, ViewportKey};
 use thiserror::Error;
@@ -116,6 +116,18 @@ pub async fn run(args: LintArgs) -> Result<ExitCode> {
         .map(|raw| parse_header_kv(raw).map_err(anyhow::Error::from))
         .collect::<Result<Vec<_>>>()
         .context("parse --header value")?;
+
+    // PRD §15: validate `--auth-script` / `--storage-state` paths up
+    // front so the safe-path check fires on every URL scheme — without
+    // this, the FakeDriver path would silently accept outside-CWD
+    // paths because it never reaches the cdp loaders that own the
+    // check.
+    if let Some(p) = auth_script.as_deref() {
+        validate_safe_path(p).context("validate --auth-script path")?;
+    }
+    if let Some(p) = storage_state.as_deref() {
+        validate_safe_path(p).context("validate --storage-state path")?;
+    }
 
     let snapshots = if is_fake_url(&url) {
         // FakeDriver ignores ChromiumOptions and per-target capture
