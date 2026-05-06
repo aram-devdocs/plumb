@@ -57,7 +57,8 @@ Pick the channel that fits your workflow:
 
 - [Install script (macOS / Linux / Windows)](./install.md#install-script-macos--linux--windows) — one-line curl/irm
 - [`cargo install`](./install.md#cargo) — if you already have a Rust toolchain
-- [Homebrew](./install.md#homebrew) — `brew install plumb-dev/tap/plumb`
+- [Homebrew](./install.md#homebrew) — `brew install plumb-dev/tap/plumb-cli`
+- [npm](./install.md#npm) — `npm i -g plumb-cli`
 - [Build from source](./install.md#build-from-source) — the only path available today (pre-alpha)
 
 Then continue with the docs for your workflow:

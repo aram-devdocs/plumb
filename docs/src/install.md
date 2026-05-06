@@ -70,11 +70,20 @@ cargo install plumb-cli --version 0.1.0
 For macOS or Linuxbrew:
 
 ```bash
-brew install plumb-dev/tap/plumb
+brew install plumb-dev/tap/plumb-cli
 ```
 
 The tap repository is `plumb-dev/homebrew-tap`. The formula tracks the
 latest tagged release.
+
+## npm
+
+```bash
+npm i -g plumb-cli
+```
+
+The npm package wraps the same binaries cargo-dist publishes. The
+binary is `plumb` regardless of channel.
 
 ## Build from source
 

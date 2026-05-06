@@ -40,8 +40,14 @@ curl -LsSf https://plumb.aramhammoudeh.com/install.sh | sh
 cargo install plumb-cli
 
 # Homebrew (coming soon)
-brew install plumb-dev/tap/plumb
+brew install plumb-dev/tap/plumb-cli
+
+# npm (coming soon)
+npm i -g plumb-cli
 ```
+
+The package name on every channel is `plumb-cli`. The installed binary
+is `plumb`, so usage stays `plumb lint <url>` regardless of channel.
 
 ## Documentation
 

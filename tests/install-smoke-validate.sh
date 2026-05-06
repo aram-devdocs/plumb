@@ -171,7 +171,7 @@ fi
 
 if [ "$brew_gated" -gt 0 ] \
     && grep -Fq "if: \"!matrix.gated && matrix.channel == 'brew'\"" "$WORKFLOW" \
-    && grep -Fq 'brew install plumb-dev/tap/plumb' "$WORKFLOW"; then
+    && grep -Fq 'brew install plumb-dev/tap/plumb-cli' "$WORKFLOW"; then
     pass "brew channel stays gated until a publish path exists"
 else
     fail "brew channel gating/install contract is incorrect"
@@ -179,7 +179,7 @@ fi
 
 if [ "$npm_gated" -gt 0 ] \
     && grep -Fq "if: \"!matrix.gated && matrix.channel == 'npm'\"" "$WORKFLOW" \
-    && grep -Fq 'npm install -g @plumb/cli' "$WORKFLOW"; then
+    && grep -Fq 'npm install -g plumb-cli' "$WORKFLOW"; then
     pass "npm channel stays gated until a publish path exists"
 else
     fail "npm channel gating/install contract is incorrect"

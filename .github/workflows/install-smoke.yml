@@ -159,14 +159,14 @@ jobs:
         if: "!matrix.gated && matrix.channel == 'brew'"
         shell: bash
         run: |
-          brew install plumb-dev/tap/plumb
+          brew install plumb-dev/tap/plumb-cli
 
       # ── npm ───────────────────────────────────────────────────
       - name: Install via npm
         if: "!matrix.gated && matrix.channel == 'npm'"
         shell: bash
         run: |
-          npm install -g @plumb/cli
+          npm install -g plumb-cli
 
       # ── Verify ────────────────────────────────────────────────
       - name: Verify plumb

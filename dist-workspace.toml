@@ -29,19 +29,21 @@ allow-dirty = ["ci"]
 # Uncomment these only after:
 # 1. the `plumb-dev` GitHub org exists,
 # 2. the `plumb-dev/homebrew-tap` repo exists and is wired for cargo-dist,
-# 3. the `@plumb` npm scope and the `@plumb/cli` package are owned by the
-#    release account that will publish from this repo,
+# 3. an npm account with publish permission for the `plumb-cli` unscoped
+#    package exists. The `plumb` name on crates.io and npm is already
+#    taken (a different project), so the V0 install string is
+#    `npm i -g plumb-cli` mirroring `cargo install plumb-cli` and
+#    `brew install plumb-dev/tap/plumb-cli`. The binary is `plumb` so
+#    `plumb lint <url>` works after install regardless of channel.
 # 4. the release token/permissions for cargo-dist publishing are in place,
 # 5. a live publish has verified the public install command shape before docs
-#    claim `npm i -g @plumb/cli` support.
+#    claim `npm i -g plumb-cli` support.
 # Issues #51 and #52 are intentionally prep-only, so this repo must not enable
 # either installer yet.
 # tap = "plumb-dev/homebrew-tap"
-# Keep the value aligned with the intended package name `@plumb/cli`, but do
-# not uncomment this field until the external npm prerequisites above exist.
-# Future activation also needs `npm` added to `installers`; `npm-scope` alone
-# does not produce npm artifacts in cargo-dist 0.28.0.
-# npm-scope = "@plumb"
+# Future activation needs `npm` added to `installers`. The unscoped
+# `plumb-cli` package matches the cargo package name; no `npm-scope` is
+# needed.
 
 [dist.github-custom-runners]
 aarch64-unknown-linux-gnu = "ubuntu-24.04-arm"
