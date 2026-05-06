@@ -753,13 +753,18 @@ async fn capture_on_page(
     options: &ChromiumOptions,
 ) -> Result<PlumbSnapshot, CdpError> {
     apply_viewport(page, target).await?;
-    pre_navigate(page, target, options).await?;
+    // `pre_navigate` returns the parsed `StorageState` (when one is
+    // configured) so the post-navigate localStorage step reuses the
+    // same parsed value. Loading the file twice would open a
+    // time-of-check / time-of-use race where the file changes between
+    // cookie installation and localStorage replay.
+    let storage_state = pre_navigate(page, target, options).await?;
 
     page.goto(target.url.as_str()).await.map_err(driver_error)?;
     page.wait_for_navigation().await.map_err(driver_error)?;
 
     apply_post_navigate_waits(page, target).await?;
-    apply_storage_state_local_storage(page, target, options).await?;
+    apply_storage_state_local_storage(page, target, storage_state.as_ref()).await?;
 
     let params = CaptureSnapshotParams {
         computed_styles: COMPUTED_STYLE_WHITELIST
@@ -1020,11 +1025,18 @@ async fn apply_viewport(page: &Page, target: &Target) -> Result<(), CdpError> {
 /// 4. Storage-state cookies — same network layer; localStorage entries
 ///    in the storage-state are deferred to [`apply_storage_state_local_storage`]
 ///    after the origin loads, since localStorage is origin-scoped.
+///
+/// When [`ChromiumOptions::storage_state`] is set, the file is loaded
+/// and parsed exactly once here. The returned [`StorageState`] is
+/// threaded back into [`apply_storage_state_local_storage`] so the
+/// driver never re-reads the file (closing a TOCTOU window where the
+/// content could change between cookie installation and localStorage
+/// replay).
 async fn pre_navigate(
     page: &Page,
     target: &Target,
     options: &ChromiumOptions,
-) -> Result<(), CdpError> {
+) -> Result<Option<StorageState>, CdpError> {
     if target.disable_animations {
         inject_animation_killer(page).await?;
     }
@@ -1040,10 +1052,14 @@ async fn pre_navigate(
     if !options.cookies.is_empty() {
         install_cookies(page, &options.cookies, target.url.as_str()).await?;
     }
-    if let Some(state_path) = options.storage_state.as_deref() {
-        install_storage_state_cookies(page, state_path).await?;
-    }
-    Ok(())
+    let storage_state = if let Some(state_path) = options.storage_state.as_deref() {
+        let state = StorageState::load_from_path(state_path)?;
+        install_storage_state_cookies(page, &state).await?;
+        Some(state)
+    } else {
+        None
+    };
+    Ok(storage_state)
 }
 
 /// Wait stages that must run *after* navigation. PRD §15 — `--wait-for`
@@ -1063,21 +1079,25 @@ async fn apply_post_navigate_waits(page: &Page, target: &Target) -> Result<(), C
     Ok(())
 }
 
-/// Install localStorage entries from a Playwright storage-state file.
+/// Install localStorage entries from an already-parsed Playwright
+/// storage-state.
 ///
 /// Runs *after* navigation because `localStorage` is origin-scoped and
 /// the only way to write to it from the driver is to evaluate a script
 /// in the page context. Entries whose `origin` does not match the
 /// navigated URL's origin are skipped (same isolation Playwright applies).
+///
+/// The caller provides the parsed [`StorageState`] (loaded once in
+/// [`pre_navigate`]) so the file is never read twice — closing the
+/// TOCTOU window between cookie installation and localStorage replay.
 async fn apply_storage_state_local_storage(
     page: &Page,
     target: &Target,
-    options: &ChromiumOptions,
+    state: Option<&StorageState>,
 ) -> Result<(), CdpError> {
-    let Some(state_path) = options.storage_state.as_deref() else {
+    let Some(state) = state else {
         return Ok(());
     };
-    let state = StorageState::load_from_path(state_path)?;
     let target_origin = origin_of(target.url.as_str()).unwrap_or_default();
     for origin_entry in &state.origins {
         if origin_entry.origin != target_origin {
@@ -1086,15 +1106,14 @@ async fn apply_storage_state_local_storage(
         for entry in &origin_entry.local_storage {
             // Build a JSON.stringify-style argument so the values are
             // safe regardless of contained quotes.
-            let key = serde_json::to_string(&entry.name).map_err(|err| {
-                CdpError::MalformedStorageState {
-                    path: state_path.to_path_buf(),
+            let key =
+                serde_json::to_string(&entry.name).map_err(|err| CdpError::MalformedStorageState {
+                    path: PathBuf::new(),
                     reason: format!("could not serialize key: {err}"),
-                }
-            })?;
+                })?;
             let value = serde_json::to_string(&entry.value).map_err(|err| {
                 CdpError::MalformedStorageState {
-                    path: state_path.to_path_buf(),
+                    path: PathBuf::new(),
                     reason: format!("could not serialize value: {err}"),
                 }
             })?;
@@ -1216,16 +1235,15 @@ async fn install_cookies(
     Ok(())
 }
 
-async fn install_storage_state_cookies(page: &Page, path: &Path) -> Result<(), CdpError> {
-    let state = StorageState::load_from_path(path)?;
+async fn install_storage_state_cookies(page: &Page, state: &StorageState) -> Result<(), CdpError> {
     if state.cookies.is_empty() {
         return Ok(());
     }
     let mut params: Vec<CookieParam> = Vec::with_capacity(state.cookies.len());
-    for cookie in state.cookies {
-        let mut p = CookieParam::new(cookie.name, cookie.value);
-        p.domain = Some(cookie.domain);
-        p.path = Some(cookie.path);
+    for cookie in &state.cookies {
+        let mut p = CookieParam::new(cookie.name.clone(), cookie.value.clone());
+        p.domain = Some(cookie.domain.clone());
+        p.path = Some(cookie.path.clone());
         p.secure = Some(cookie.secure);
         p.http_only = Some(cookie.http_only);
         params.push(p);
