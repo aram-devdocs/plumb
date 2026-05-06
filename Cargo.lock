@@ -1941,6 +1941,7 @@ name = "plumb-mcp"
 version = "0.0.1"
 dependencies = [
  "axum",
+ "indexmap",
  "plumb-cdp",
  "plumb-config",
  "plumb-core",

@@ -33,6 +33,7 @@ subtle = { workspace = true }
 [dev-dependencies]
 plumb-core = { workspace = true, features = ["test-fake"] }
 tokio = { workspace = true, features = ["test-util"] }
+indexmap = { workspace = true }
 
 [lints]
 workspace = true
