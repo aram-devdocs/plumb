@@ -41,8 +41,9 @@ matches the rest of the matrix.
 
 `expected.json` sets a `wait_for` block that the harness threads onto
 `plumb lint --wait-for <selector> --wait-ms <ms>`. The selector is
-`html[data-plumb-ready="true"]`; the marker is set from a `useEffect`
-in `app/plumb-ready.tsx`, so it appears only after React has hydrated
-the tree on the client. Without it Chromium occasionally captures a
-half-hydrated DOM under CI load — that flake was the reason the leg
-ran with `continue-on-error: true` in `e2e-sites.yml`.
+`html[data-plumb-ready="true"]`; the marker is server-rendered
+directly onto the `<html>` element in `app/layout.tsx`, so it appears
+on the very first paint. The fixture is a pure static export with no
+`'use client'` components — Chromium captures a stable, byte-identical
+DOM on every run, which is what the harness's 3× determinism check
+relies on.
