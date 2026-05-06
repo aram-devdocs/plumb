@@ -25,7 +25,10 @@ e2e-chromium = ["plumb-core/test-fake"]
 
 [dependencies]
 plumb-core = { workspace = true }
-chromiumoxide = { workspace = true }
+# `_fetcher-rustls-tokio` enables `chromiumoxide::fetcher::BrowserFetcher`
+# (Chrome-for-Testing download) used by the auto-fetch path (issue #78).
+# The rustls transport matches the workspace `reqwest` policy.
+chromiumoxide = { workspace = true, features = ["_fetcher-rustls-tokio"] }
 futures-util = { workspace = true }
 tokio = { workspace = true }
 thiserror = { workspace = true }
@@ -41,6 +44,8 @@ serde_json = { workspace = true }
 # and stripping of userinfo / path / query / fragment so the
 # storage-state origin compare matches Playwright's stored format.
 url = { workspace = true }
+# SHA-256 verification of auto-fetched Chromium binaries (issue #78).
+sha2 = { workspace = true }
 
 [dev-dependencies]
 plumb-core = { workspace = true, features = ["test-fake"] }

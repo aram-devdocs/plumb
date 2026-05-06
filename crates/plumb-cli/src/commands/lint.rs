@@ -42,6 +42,7 @@ pub struct LintArgs {
     pub disable_animations: bool,
     pub hide_scrollbars: bool,
     pub dpr: Option<f64>,
+    pub auto_fetch_chromium: bool,
 }
 
 /// CLI-side errors that never need to leak across the
@@ -88,6 +89,7 @@ pub async fn run(args: LintArgs) -> Result<ExitCode> {
         disable_animations,
         hide_scrollbars,
         dpr,
+        auto_fetch_chromium,
     } = args;
 
     tracing::debug!(url = %url, format = %format, viewports = ?viewports, selector = ?selector, "lint");
@@ -144,6 +146,7 @@ pub async fn run(args: LintArgs) -> Result<ExitCode> {
             headers: parsed_headers,
             auth_script,
             storage_state,
+            auto_fetch_chromium,
             ..ChromiumOptions::default()
         });
         driver

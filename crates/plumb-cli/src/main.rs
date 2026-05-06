@@ -140,6 +140,16 @@ enum Command {
         /// for stress-testing rules against hidpi rendering.
         #[arg(long, value_name = "FACTOR")]
         dpr: Option<f64>,
+        /// Opt in to downloading Chrome-for-Testing into Plumb's cache
+        /// directory when no `--executable-path` is given and no
+        /// system Chromium is detected. The download happens once;
+        /// subsequent runs reuse the cached binary and verify its
+        /// SHA-256 against an installed sidecar. Off by default —
+        /// auto-fetch downloads and executes a third-party binary,
+        /// so passing this flag is the explicit acknowledgement of
+        /// trust.
+        #[arg(long = "auto-fetch-chromium", default_value_t = false)]
+        auto_fetch_chromium: bool,
     },
     /// Write a starter `plumb.toml` to the current directory.
     Init {
@@ -228,6 +238,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 disable_animations,
                 hide_scrollbars,
                 dpr,
+                auto_fetch_chromium,
             } => {
                 commands::lint::run(commands::lint::LintArgs {
                     url,
@@ -246,6 +257,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
                     disable_animations,
                     hide_scrollbars,
                     dpr,
+                    auto_fetch_chromium,
                 })
                 .await
             }
