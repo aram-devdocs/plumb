@@ -1631,6 +1631,153 @@ pub const SNAPSHOT_FROM_HTML_INPUT_BYTE_CAP: usize = 1024 * 1024;
 /// allocation proportional to the node count.
 pub const SNAPSHOT_FROM_HTML_ELEMENT_CAP: usize = 10_000;
 
+/// Parse an HTML inline `style="…"` attribute into a property → value
+/// map.
+///
+/// The parser is deliberately lenient — it never returns an error.
+/// Empty segments, declarations missing a colon, and declarations with
+/// an empty property name are silently skipped. Property names are
+/// lowercased; the value side is preserved verbatim with two edits:
+/// surrounding whitespace is trimmed, and a trailing `!important` (any
+/// case, with optional whitespace) is stripped.
+///
+/// Iteration order follows the source declaration order via
+/// [`IndexMap`]; later declarations for the same property overwrite
+/// earlier ones, matching CSS cascade order within a single
+/// declaration block.
+fn parse_inline_styles(style_attr: &str) -> IndexMap<String, String> {
+    let mut out: IndexMap<String, String> = IndexMap::new();
+    for raw_decl in style_attr.split(';') {
+        let decl = raw_decl.trim();
+        if decl.is_empty() {
+            continue;
+        }
+        let Some((prop_raw, value_raw)) = decl.split_once(':') else {
+            continue;
+        };
+        let prop = prop_raw.trim();
+        if prop.is_empty() {
+            continue;
+        }
+        let mut value = value_raw.trim().to_owned();
+        // Strip a trailing `!important` marker (case-insensitive,
+        // optional whitespace before the bang). The marker affects the
+        // cascade, but Plumb's rules consume the post-cascade value;
+        // leaving it in the string would mis-parse `13px !important`
+        // as a non-numeric value.
+        if let Some(stripped) = strip_important_suffix(&value) {
+            value = stripped;
+        }
+        if value.is_empty() {
+            continue;
+        }
+        out.insert(prop.to_lowercase(), value);
+    }
+    out
+}
+
+/// Strip a trailing `!important` marker (case-insensitive) from a CSS
+/// declaration value. Returns `Some(trimmed)` when the marker is
+/// present, otherwise `None`.
+fn strip_important_suffix(value: &str) -> Option<String> {
+    let trimmed = value.trim_end();
+    let lower = trimmed.to_ascii_lowercase();
+    if !lower.ends_with("!important") {
+        return None;
+    }
+    let cut_to = trimmed.len() - "!important".len();
+    Some(trimmed[..cut_to].trim_end().to_owned())
+}
+
+/// Expand a CSS shorthand declaration into its physical longhands.
+///
+/// V0 covers the three shorthands the rule engine needs today:
+///
+/// - `padding` and `margin` — 1/2/3/4-value forms map onto
+///   `*-top` / `*-right` / `*-bottom` / `*-left`.
+/// - `border-radius` — 1/2/3/4-value forms map onto
+///   `border-top-left-radius` / `border-top-right-radius` /
+///   `border-bottom-right-radius` / `border-bottom-left-radius`. The
+///   four-value order is clockwise starting from the top-left corner,
+///   which differs from `padding`/`margin`'s top-right-bottom-left
+///   walk (per MDN).
+///
+/// Other shorthands (`font`, `background`, `border`, `inset`, …) are
+/// passed through unchanged — they're tracked for a follow-up. Values
+/// are forwarded verbatim; the rule layer is responsible for parsing
+/// `13px` / `0.5rem` / `var(--token)` etc.
+fn expand_shorthand(prop: &str, val: &str) -> Vec<(String, String)> {
+    match prop {
+        "padding" | "margin" => {
+            let parts = split_top_level(val);
+            let (top, right, bottom, left) = match parts.as_slice() {
+                [a] => (a.clone(), a.clone(), a.clone(), a.clone()),
+                [a, b] => (a.clone(), b.clone(), a.clone(), b.clone()),
+                [a, b, c] => (a.clone(), b.clone(), c.clone(), b.clone()),
+                [a, b, c, d] => (a.clone(), b.clone(), c.clone(), d.clone()),
+                // Empty or > 4 values: leave the shorthand alone so the
+                // rule layer can ignore it gracefully rather than
+                // emit a fictitious longhand.
+                _ => return vec![(prop.to_owned(), val.to_owned())],
+            };
+            vec![
+                (format!("{prop}-top"), top),
+                (format!("{prop}-right"), right),
+                (format!("{prop}-bottom"), bottom),
+                (format!("{prop}-left"), left),
+            ]
+        }
+        "border-radius" => {
+            let parts = split_top_level(val);
+            let (tl, tr, br, bl) = match parts.as_slice() {
+                [a] => (a.clone(), a.clone(), a.clone(), a.clone()),
+                [a, b] => (a.clone(), b.clone(), a.clone(), b.clone()),
+                [a, b, c] => (a.clone(), b.clone(), c.clone(), b.clone()),
+                [a, b, c, d] => (a.clone(), b.clone(), c.clone(), d.clone()),
+                _ => return vec![(prop.to_owned(), val.to_owned())],
+            };
+            vec![
+                ("border-top-left-radius".to_owned(), tl),
+                ("border-top-right-radius".to_owned(), tr),
+                ("border-bottom-right-radius".to_owned(), br),
+                ("border-bottom-left-radius".to_owned(), bl),
+            ]
+        }
+        _ => vec![(prop.to_owned(), val.to_owned())],
+    }
+}
+
+/// Split a CSS shorthand value on ASCII whitespace at the top level —
+/// values inside balanced parentheses are kept together so a function
+/// like `calc(8px + 4px)` is treated as one component, not three.
+fn split_top_level(value: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let mut depth: u32 = 0;
+    for ch in value.chars() {
+        match ch {
+            '(' => {
+                depth = depth.saturating_add(1);
+                current.push(ch);
+            }
+            ')' => {
+                depth = depth.saturating_sub(1);
+                current.push(ch);
+            }
+            c if c.is_ascii_whitespace() && depth == 0 => {
+                if !current.is_empty() {
+                    out.push(std::mem::take(&mut current));
+                }
+            }
+            _ => current.push(ch),
+        }
+    }
+    if !current.is_empty() {
+        out.push(current);
+    }
+    out
+}
+
 /// Build a [`PlumbSnapshot`] from a static HTML string, without
 /// launching Chromium.
 ///
@@ -1648,9 +1795,17 @@ pub const SNAPSHOT_FROM_HTML_ELEMENT_CAP: usize = 10_000;
 /// - `selector` is the lowercase tag chain joined by ` > ` (matches the
 ///   real CDP driver's selector output for the canned shape).
 /// - `attrs` preserves parse order via [`IndexMap`].
-/// - `computed_styles` is empty — there is no rendering pass available
-///   from a static HTML string.
-/// - `rect` is `None` for the same reason.
+/// - `computed_styles` is populated from the inline `style="…"`
+///   attribute on each element. Property names are lowercased; values
+///   are stored as written (minus a trailing `!important` marker).
+///   `padding`, `margin`, and `border-radius` shorthands are expanded
+///   into their physical longhands so the spacing and radius rules see
+///   the same property names they do under the real Chromium driver.
+///   Browser default styles and external stylesheets are NOT captured
+///   by this path — callers that need a full computed-style cascade
+///   should use the real CDP driver against a live URL.
+/// - `rect` is `None` because no rendering pass is available from a
+///   static HTML string.
 /// - `text_boxes` is always empty.
 ///
 /// # Errors
@@ -1727,6 +1882,26 @@ pub fn snapshot_from_html(html: &str, base_url: &str) -> Result<PlumbSnapshot, C
                 .or_insert_with(|| value.to_owned());
         }
 
+        // Pull computed styles out of the inline `style="…"` attribute.
+        // External stylesheets and browser defaults are intentionally
+        // NOT captured here — the rendering cascade is what `lint_url`
+        // is for. The expansion of `padding`/`margin`/`border-radius`
+        // shorthands into longhands is the minimum the spacing and
+        // radius rules need to flag inline `style="padding: 13px"`.
+        let computed_styles: IndexMap<String, String> = match attrs.get("style") {
+            Some(style_attr) => {
+                let parsed = parse_inline_styles(style_attr);
+                let mut expanded: IndexMap<String, String> = IndexMap::new();
+                for (prop, val) in parsed {
+                    for (long_prop, long_val) in expand_shorthand(&prop, &val) {
+                        expanded.insert(long_prop, long_val);
+                    }
+                }
+                expanded
+            }
+            None => IndexMap::new(),
+        };
+
         let parent_dom_order = node
             .parent()
             .and_then(|parent| dom_orders.get(&parent.id()).copied());
@@ -1743,7 +1918,7 @@ pub fn snapshot_from_html(html: &str, base_url: &str) -> Result<PlumbSnapshot, C
             selector: String::new(),
             tag,
             attrs,
-            computed_styles: IndexMap::new(),
+            computed_styles,
             rect: None,
             parent: parent_dom_order,
             children: Vec::new(),
@@ -3019,5 +3194,202 @@ mod tests {
             }
             other => panic!("expected HtmlElementLimitExceeded, got {other:?}"),
         }
+    }
+
+    fn html_with_styled_div(style: &str) -> String {
+        format!("<!doctype html><html><body><div style=\"{style}\">x</div></body></html>")
+    }
+
+    fn computed_styles_for_div(html: &str) -> indexmap::IndexMap<String, String> {
+        let snap = super::snapshot_from_html(html, "https://example.com/")
+            .expect("snapshot_from_html must succeed for the fixture");
+        let div = snap
+            .nodes
+            .iter()
+            .find(|n| n.tag == "div")
+            .expect("fixture must contain a <div>");
+        div.computed_styles.clone()
+    }
+
+    #[test]
+    fn inline_style_populates_computed_styles() {
+        let html = html_with_styled_div("color: red; padding-top: 8px");
+        let styles = computed_styles_for_div(&html);
+        assert_eq!(styles.get("color").map(String::as_str), Some("red"));
+        assert_eq!(styles.get("padding-top").map(String::as_str), Some("8px"));
+    }
+
+    #[test]
+    fn padding_shorthand_one_value() {
+        let html = html_with_styled_div("padding: 8px");
+        let styles = computed_styles_for_div(&html);
+        for prop in [
+            "padding-top",
+            "padding-right",
+            "padding-bottom",
+            "padding-left",
+        ] {
+            assert_eq!(
+                styles.get(prop).map(String::as_str),
+                Some("8px"),
+                "{prop} must be expanded to 8px"
+            );
+        }
+    }
+
+    #[test]
+    fn padding_shorthand_two_values() {
+        let html = html_with_styled_div("padding: 8px 16px");
+        let styles = computed_styles_for_div(&html);
+        assert_eq!(styles.get("padding-top").map(String::as_str), Some("8px"));
+        assert_eq!(
+            styles.get("padding-bottom").map(String::as_str),
+            Some("8px")
+        );
+        assert_eq!(
+            styles.get("padding-right").map(String::as_str),
+            Some("16px")
+        );
+        assert_eq!(styles.get("padding-left").map(String::as_str), Some("16px"));
+    }
+
+    #[test]
+    fn padding_shorthand_three_values() {
+        let html = html_with_styled_div("padding: 1px 2px 3px");
+        let styles = computed_styles_for_div(&html);
+        assert_eq!(styles.get("padding-top").map(String::as_str), Some("1px"));
+        assert_eq!(styles.get("padding-right").map(String::as_str), Some("2px"));
+        assert_eq!(styles.get("padding-left").map(String::as_str), Some("2px"));
+        assert_eq!(
+            styles.get("padding-bottom").map(String::as_str),
+            Some("3px")
+        );
+    }
+
+    #[test]
+    fn padding_shorthand_four_values() {
+        let html = html_with_styled_div("padding: 1px 2px 3px 4px");
+        let styles = computed_styles_for_div(&html);
+        assert_eq!(styles.get("padding-top").map(String::as_str), Some("1px"));
+        assert_eq!(styles.get("padding-right").map(String::as_str), Some("2px"));
+        assert_eq!(
+            styles.get("padding-bottom").map(String::as_str),
+            Some("3px")
+        );
+        assert_eq!(styles.get("padding-left").map(String::as_str), Some("4px"));
+    }
+
+    #[test]
+    fn margin_shorthand_two_values() {
+        let html = html_with_styled_div("margin: 10px 20px");
+        let styles = computed_styles_for_div(&html);
+        assert_eq!(styles.get("margin-top").map(String::as_str), Some("10px"));
+        assert_eq!(
+            styles.get("margin-bottom").map(String::as_str),
+            Some("10px")
+        );
+        assert_eq!(styles.get("margin-right").map(String::as_str), Some("20px"));
+        assert_eq!(styles.get("margin-left").map(String::as_str), Some("20px"));
+    }
+
+    #[test]
+    fn border_radius_shorthand_four_values() {
+        let html = html_with_styled_div("border-radius: 1px 2px 3px 4px");
+        let styles = computed_styles_for_div(&html);
+        assert_eq!(
+            styles.get("border-top-left-radius").map(String::as_str),
+            Some("1px")
+        );
+        assert_eq!(
+            styles.get("border-top-right-radius").map(String::as_str),
+            Some("2px")
+        );
+        assert_eq!(
+            styles.get("border-bottom-right-radius").map(String::as_str),
+            Some("3px")
+        );
+        assert_eq!(
+            styles.get("border-bottom-left-radius").map(String::as_str),
+            Some("4px")
+        );
+    }
+
+    #[test]
+    fn style_attribute_absent_yields_empty_map() {
+        let snap = super::snapshot_from_html(
+            "<!doctype html><html><body><div>x</div></body></html>",
+            "https://example.com/",
+        )
+        .expect("snapshot_from_html must succeed");
+        let div = snap
+            .nodes
+            .iter()
+            .find(|n| n.tag == "div")
+            .expect("fixture must contain a <div>");
+        assert!(
+            div.computed_styles.is_empty(),
+            "no style attr means an empty computed_styles map"
+        );
+    }
+
+    #[test]
+    fn whitespace_and_trailing_semicolon_tolerated() {
+        let html = html_with_styled_div("  padding: 8px;  ");
+        let styles = computed_styles_for_div(&html);
+        for prop in [
+            "padding-top",
+            "padding-right",
+            "padding-bottom",
+            "padding-left",
+        ] {
+            assert_eq!(styles.get(prop).map(String::as_str), Some("8px"));
+        }
+    }
+
+    #[test]
+    fn important_marker_stripped() {
+        let html = html_with_styled_div("padding: 8px !important");
+        let styles = computed_styles_for_div(&html);
+        for prop in [
+            "padding-top",
+            "padding-right",
+            "padding-bottom",
+            "padding-left",
+        ] {
+            assert_eq!(
+                styles.get(prop).map(String::as_str),
+                Some("8px"),
+                "`!important` must be stripped from the value"
+            );
+        }
+    }
+
+    #[test]
+    fn snapshot_from_html_is_byte_deterministic_with_inline_styles() {
+        let html = "<!doctype html><html><body><main style=\"padding: 8px 16px; color: red\"><p style=\"margin: 4px\">hi</p><p style=\"border-radius: 2px\">there</p></main></body></html>";
+        let a = super::snapshot_from_html(html, "https://example.com/").expect("snapshot a");
+        let b = super::snapshot_from_html(html, "https://example.com/").expect("snapshot b");
+        let ja = serde_json::to_string(&a).expect("serialize a");
+        let jb = serde_json::to_string(&b).expect("serialize b");
+        assert_eq!(
+            ja, jb,
+            "two calls with identical input (with inline styles) must match byte-for-byte"
+        );
+    }
+
+    #[test]
+    fn parse_inline_styles_skips_malformed_declarations() {
+        // Lenient parsing: missing colon, empty segments, and lone
+        // semicolons are silently skipped — never errors.
+        let parsed = super::parse_inline_styles(";;color: red;: red;notacolon;padding:8px;");
+        assert_eq!(parsed.get("color").map(String::as_str), Some("red"));
+        assert_eq!(parsed.get("padding").map(String::as_str), Some("8px"));
+        assert_eq!(parsed.len(), 2);
+    }
+
+    #[test]
+    fn parse_inline_styles_lowercases_property_preserves_value_case() {
+        let parsed = super::parse_inline_styles("Color: Red");
+        assert_eq!(parsed.get("color").map(String::as_str), Some("Red"));
     }
 }
