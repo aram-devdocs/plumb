@@ -1693,11 +1693,10 @@ pub fn snapshot_from_html(html: &str, base_url: &str) -> Result<PlumbSnapshot, C
             // (10 000) at this point, so the conversion is total. The
             // `try_from` keeps this honest if the cap ever grows beyond
             // `u64::MAX` on a future 128-bit target.
-            let dom_order = u64::try_from(element_count).map_err(|_| {
-                CdpError::HtmlElementLimitExceeded {
+            let dom_order =
+                u64::try_from(element_count).map_err(|_| CdpError::HtmlElementLimitExceeded {
                     limit_elements: SNAPSHOT_FROM_HTML_ELEMENT_CAP,
-                }
-            })?;
+                })?;
             dom_orders.insert(node.id(), dom_order);
             element_count += 1;
         }
@@ -2971,15 +2970,15 @@ mod tests {
 
     #[test]
     fn snapshot_from_html_is_byte_deterministic() {
-        let html =
-            "<!doctype html><html><body><main><p>hi</p><p>there</p></main></body></html>";
-        let a =
-            super::snapshot_from_html(html, "https://example.com/").expect("snapshot a");
-        let b =
-            super::snapshot_from_html(html, "https://example.com/").expect("snapshot b");
+        let html = "<!doctype html><html><body><main><p>hi</p><p>there</p></main></body></html>";
+        let a = super::snapshot_from_html(html, "https://example.com/").expect("snapshot a");
+        let b = super::snapshot_from_html(html, "https://example.com/").expect("snapshot b");
         let ja = serde_json::to_string(&a).expect("serialize a");
         let jb = serde_json::to_string(&b).expect("serialize b");
-        assert_eq!(ja, jb, "two calls with identical input must match byte-for-byte");
+        assert_eq!(
+            ja, jb,
+            "two calls with identical input must match byte-for-byte"
+        );
     }
 
     #[test]
