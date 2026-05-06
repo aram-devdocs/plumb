@@ -118,6 +118,7 @@ predicates = "3"
 proptest = "1"
 criterion = { version = "0.8", features = ["html_reports"] }
 tempfile = "3"
+serial_test = "3"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
