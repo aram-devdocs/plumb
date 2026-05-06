@@ -79,6 +79,12 @@ enum Command {
         /// Overwrite an existing `plumb.toml`.
         #[arg(long)]
         force: bool,
+        /// Infer the starter config from a project tree. The walker
+        /// discovers CSS custom properties, Tailwind configs, and DTCG
+        /// token JSON files under the given path and bootstraps a
+        /// `plumb.toml` from them.
+        #[arg(long, value_name = "PATH")]
+        from: Option<PathBuf>,
     },
     /// Print the long-form documentation for a rule.
     Explain {
@@ -158,7 +164,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 )
                 .await
             }
-            Command::Init { force } => commands::init::run(force),
+            Command::Init { force, from } => commands::init::run(force, from.as_deref()),
             Command::Explain { rule } => commands::explain::run(&rule),
             Command::Schema => commands::schema::run(),
             Command::Mcp { transport, port } => commands::mcp::run(transport, port).await,

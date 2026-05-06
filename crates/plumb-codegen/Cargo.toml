@@ -1,0 +1,31 @@
+[package]
+name = "plumb-codegen"
+description = "Source-tree token inference for Plumb. Bootstraps a starter `plumb.toml` from CSS / Tailwind / DTCG sources."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords.workspace = true
+categories.workspace = true
+exclude = ["AGENTS.md", "CLAUDE.md"]
+
+[dependencies]
+plumb-core = { workspace = true }
+plumb-config = { workspace = true }
+indexmap = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+insta = { workspace = true }
+tempfile = { workspace = true }
+
+[lints]
+workspace = true
