@@ -8,6 +8,7 @@ members = [
     "crates/plumb-codegen",
     "crates/plumb-mcp",
     "crates/plumb-cli",
+    "crates/plumb-e2e",
     "xtask",
 ]
 default-members = [
