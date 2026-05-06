@@ -53,6 +53,7 @@ predicates = { workspace = true }
 tempfile = { workspace = true }
 reqwest = { workspace = true }
 insta = { workspace = true }
+serial_test = { workspace = true }
 
 [lints]
 workspace = true

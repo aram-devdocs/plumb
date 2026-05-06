@@ -111,6 +111,7 @@ fn http_transport_refuses_to_boot_with_empty_token() {
         .stderr(contains("non-empty bearer token"));
 }
 
+#[serial_test::serial(mcp_http)]
 #[tokio::test]
 async fn http_transport_rejects_requests_without_bearer_token()
 -> Result<(), Box<dyn std::error::Error>> {
@@ -123,6 +124,7 @@ async fn http_transport_rejects_requests_without_bearer_token()
     Ok(())
 }
 
+#[serial_test::serial(mcp_http)]
 #[tokio::test]
 async fn http_transport_rejects_invalid_bearer_token() -> Result<(), Box<dyn std::error::Error>> {
     let (_server, port) = spawn_http_server("secret-token").await?;
@@ -134,6 +136,7 @@ async fn http_transport_rejects_invalid_bearer_token() -> Result<(), Box<dyn std
     Ok(())
 }
 
+#[serial_test::serial(mcp_http)]
 #[tokio::test]
 async fn http_transport_accepts_valid_bearer_token() -> Result<(), Box<dyn std::error::Error>> {
     let (_server, port) = spawn_http_server("secret-token").await?;
@@ -145,6 +148,7 @@ async fn http_transport_accepts_valid_bearer_token() -> Result<(), Box<dyn std::
     Ok(())
 }
 
+#[serial_test::serial(mcp_http)]
 #[tokio::test]
 async fn http_transport_trims_bearer_token_from_environment()
 -> Result<(), Box<dyn std::error::Error>> {
