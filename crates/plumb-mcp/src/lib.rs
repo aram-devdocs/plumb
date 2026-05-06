@@ -19,6 +19,10 @@
 //!   severity, and one-line summary.
 //! - `get_config` — resolves `plumb.toml` for a given working directory
 //!   and returns the [`Config`] as JSON. Memoized per `(path, mtime)`.
+//! - `compare_viewports` — captures snapshots at two-or-more viewports
+//!   and returns a deterministic diff (missing nodes, size changes,
+//!   reorderings, computed-style changes). 10 KB structuredContent
+//!   budget; aggregate counts plus a capped diff list.
 //!
 //! The [`PlumbServer`] type implements [`rmcp::ServerHandler`] directly.
 //! Extend it by adding a tool descriptor to `list_tools` and a matching
@@ -29,6 +33,7 @@
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 
+mod compare_viewports;
 mod explain;
 
 #[doc(hidden)]
@@ -174,6 +179,33 @@ pub struct GetConfigArgs {
     /// The tool resolves `<working_dir>/plumb.toml` deterministically;
     /// it never reads the process current directory.
     pub working_dir: String,
+}
+
+/// One viewport definition for the `compare_viewports` tool.
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+pub struct CompareViewport {
+    /// Stable name (echoed back in the response under `viewports`).
+    pub name: String,
+    /// Viewport width in CSS pixels.
+    pub width: u32,
+    /// Viewport height in CSS pixels.
+    pub height: u32,
+    /// Device pixel ratio (e.g. 1.0 for desktop, 2.0 for retina).
+    pub dpr: f32,
+}
+
+/// Arguments to the `compare_viewports` tool.
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct CompareViewportsArgs {
+    /// URL to capture. Accepts `http(s)://` and `plumb-fake://` URLs.
+    pub url: String,
+    /// Two-or-more viewports to capture. The first viewport acts as
+    /// the diff baseline; later viewports are compared against it.
+    pub viewports: Vec<CompareViewport>,
+    /// Pixel threshold above which width/height differences are
+    /// reported. Defaults to 4 px when omitted.
+    #[serde(default)]
+    pub size_threshold_px: Option<u32>,
 }
 
 /// The Plumb MCP server.
@@ -464,6 +496,104 @@ impl PlumbServer {
         Ok(result)
     }
 
+    /// Capture snapshots at two-or-more viewports and return a deterministic
+    /// diff: missing nodes, size changes that exceed `size_threshold_px`,
+    /// document-order reorderings, and computed-style differences.
+    ///
+    /// `plumb-fake://` URLs are served from [`PlumbSnapshot::canned`] without
+    /// warming Chromium. Real URLs share the persistent browser warmed by
+    /// [`PlumbServer::lint_url`].
+    ///
+    /// The structured payload is bounded: the diff list is capped at 200
+    /// entries, and aggregate counts are always reported in `summary`. A
+    /// `truncated` flag signals when entries were clipped.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorData::invalid_params`] when fewer than two viewports
+    /// are supplied, when viewport names are non-unique, or when any
+    /// viewport has zero width or height. Driver failures surface as a
+    /// successful response with `is_error = true` and a single text
+    /// content block — never as a JSON-RPC error.
+    pub async fn compare_viewports(
+        &self,
+        args: CompareViewportsArgs,
+    ) -> Result<CallToolResult, ErrorData> {
+        validate_compare_viewports_args(&args)?;
+
+        let viewport_names: Vec<String> = args.viewports.iter().map(|v| v.name.clone()).collect();
+        let snapshots = match self.capture_viewport_snapshots(&args).await {
+            Ok(snaps) => snaps,
+            Err(message) => {
+                return Ok(CallToolResult::error(vec![Content::text(message)]));
+            }
+        };
+
+        let threshold = args
+            .size_threshold_px
+            .unwrap_or(compare_viewports::DEFAULT_SIZE_THRESHOLD_PX);
+        let result = compare_viewports::compare_snapshots(&snapshots, &viewport_names, threshold);
+
+        Ok(build_compare_viewports_result(
+            &args.url,
+            &viewport_names,
+            threshold,
+            result,
+        ))
+    }
+
+    async fn capture_viewport_snapshots(
+        &self,
+        args: &CompareViewportsArgs,
+    ) -> Result<Vec<PlumbSnapshot>, String> {
+        if is_fake_url(&args.url) {
+            // Fake-URL fast path: reuse `PlumbSnapshot::canned` per viewport,
+            // overriding the viewport key + dimensions so downstream diffing
+            // sees distinct viewport metadata. Content stays identical so
+            // the agent gets a clean "no diffs" result it can rely on as
+            // a smoke test.
+            let mut out = Vec::with_capacity(args.viewports.len());
+            for v in &args.viewports {
+                let mut snap = PlumbSnapshot::canned();
+                snap.viewport = ViewportKey::new(v.name.clone());
+                snap.viewport_width = v.width;
+                snap.viewport_height = v.height;
+                snap.url.clone_from(&args.url);
+                out.push(snap);
+            }
+            return Ok(out);
+        }
+
+        let targets: Vec<Target> = args
+            .viewports
+            .iter()
+            .map(|v| Target {
+                url: args.url.clone(),
+                viewport: ViewportKey::new(v.name.clone()),
+                width: v.width,
+                height: v.height,
+                device_pixel_ratio: v.dpr,
+                ..Target::default()
+            })
+            .collect();
+
+        let browser = self
+            .browser
+            .get_or_try_init(|| PersistentBrowser::launch(ChromiumOptions::default()))
+            .await
+            .map_err(|err| format!("compare_viewports failed: {err}"))?;
+
+        let mut snapshots = Vec::with_capacity(targets.len());
+        for target in targets {
+            let snap = browser
+                .snapshot(target)
+                .await
+                .map_err(|err| format!("compare_viewports failed: {err}"))?;
+            snapshots.push(snap);
+        }
+        Ok(snapshots)
+    }
+
     fn resolve_config_for_tool(&self, working_dir: &str) -> Result<ResolvedConfig, ErrorData> {
         if working_dir.is_empty() {
             return Err(ErrorData::invalid_params(
@@ -597,6 +727,127 @@ fn enforce_response_cap(
     Ok(())
 }
 
+/// 10 KB cap on the `compare_viewports` `structuredContent` payload —
+/// matches the budget called out in PRD §14.2 for any tool that returns
+/// per-node detail. Aggregation + diff-list capping keeps real-world
+/// payloads well below this limit.
+const COMPARE_VIEWPORTS_RESPONSE_CAP_BYTES: usize = 10 * 1024;
+
+fn validate_compare_viewports_args(args: &CompareViewportsArgs) -> Result<(), ErrorData> {
+    if args.url.is_empty() {
+        return Err(ErrorData::invalid_params(
+            "url must not be empty".to_string(),
+            None,
+        ));
+    }
+    if args.viewports.len() < 2 {
+        return Err(ErrorData::invalid_params(
+            format!(
+                "compare_viewports requires at least 2 viewports, got {}",
+                args.viewports.len()
+            ),
+            None,
+        ));
+    }
+    let mut seen: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
+    for v in &args.viewports {
+        if v.name.is_empty() {
+            return Err(ErrorData::invalid_params(
+                "viewport name must not be empty".to_string(),
+                None,
+            ));
+        }
+        if v.width == 0 || v.height == 0 {
+            return Err(ErrorData::invalid_params(
+                format!("viewport `{}` must have non-zero width and height", v.name),
+                None,
+            ));
+        }
+        if !seen.insert(v.name.as_str()) {
+            return Err(ErrorData::invalid_params(
+                format!("viewport name `{}` is duplicated", v.name),
+                None,
+            ));
+        }
+    }
+    Ok(())
+}
+
+// `result` is consumed: we move `result.diffs` (a Vec) into the JSON
+// payload and only read `result.summary` / `result.truncated` (both
+// `Copy`). Borrowing would force a clone of the diff vector for no
+// gain.
+#[allow(clippy::needless_pass_by_value)]
+fn build_compare_viewports_result(
+    url: &str,
+    viewport_names: &[String],
+    threshold_px: u32,
+    result: compare_viewports::CompareResult,
+) -> CallToolResult {
+    let summary = result.summary;
+    let truncated = result.truncated;
+    let diff_count = result.diffs.len();
+
+    let mut text = format!(
+        "compare_viewports {} across {} viewports: {} diff(s) [missing={}, size={}, reorder={}, style={}]",
+        url,
+        viewport_names.len(),
+        summary.total,
+        summary.missing,
+        summary.size_changes,
+        summary.reordered,
+        summary.style_changes,
+    );
+    if truncated {
+        use std::fmt::Write as _;
+        let _ = write!(text, " (showing first {diff_count})");
+    }
+
+    let structured = json!({
+        "url": url,
+        "viewports": viewport_names,
+        "size_threshold_px": threshold_px,
+        "summary": {
+            "total": summary.total,
+            "missing": summary.missing,
+            "size_changes": summary.size_changes,
+            "reordered": summary.reordered,
+            "style_changes": summary.style_changes,
+        },
+        "diffs": result.diffs,
+        "truncated": truncated,
+    });
+
+    // Best-effort cap enforcement. Truncation already shrinks oversized
+    // payloads in practice; on the rare path where the cap is still
+    // tripped (e.g. unusually long selectors), drop the diff list and
+    // keep the summary so the caller never receives an oversized blob.
+    let serialized = serde_json::to_string(&structured).unwrap_or_default();
+    let final_structured = if serialized.len() > COMPARE_VIEWPORTS_RESPONSE_CAP_BYTES {
+        json!({
+            "url": url,
+            "viewports": viewport_names,
+            "size_threshold_px": threshold_px,
+            "summary": {
+                "total": summary.total,
+                "missing": summary.missing,
+                "size_changes": summary.size_changes,
+                "reordered": summary.reordered,
+                "style_changes": summary.style_changes,
+            },
+            "diffs": [],
+            "truncated": true,
+            "dropped_for_cap": true,
+        })
+    } else {
+        structured
+    };
+
+    let mut result_obj = CallToolResult::success(vec![Content::text(text)]);
+    result_obj.structured_content = Some(final_structured);
+    result_obj
+}
+
 impl ServerHandler for PlumbServer {
     fn get_info(&self) -> ServerInfo {
         let mut info = ServerInfo::default();
@@ -609,6 +860,7 @@ impl ServerHandler for PlumbServer {
         info.instructions = Some(
             "Deterministic design-system linter. Call `lint_url` with a URL to get violations; \
              use `lint_page_html` to lint a static HTML string without launching Chromium; \
+             use `compare_viewports` to diff a URL across mobile/desktop; \
              use `explain_rule` for canonical rule documentation; use `list_rules` to enumerate \
              every built-in rule; use `get_config` to fetch the resolved `plumb.toml` for a \
              working directory; read `plumb://config` to fetch the resolved config for the \
@@ -631,6 +883,7 @@ impl ServerHandler for PlumbServer {
             "explain_rule" => self.explain_rule(parse_tool_args(arguments)?).await,
             "list_rules" => self.list_rules(parse_tool_args(arguments)?).await,
             "get_config" => self.get_config(parse_tool_args(arguments)?).await,
+            "compare_viewports" => self.compare_viewports(parse_tool_args(arguments)?).await,
             unknown => Err(ErrorData::invalid_params(
                 format!("unknown tool: {unknown}"),
                 None,
@@ -664,6 +917,10 @@ impl ServerHandler for PlumbServer {
             tool_descriptor::<GetConfigArgs>(
                 "get_config",
                 "Return the resolved plumb.toml for a working directory as JSON. Memoized per (path, mtime).",
+            ),
+            tool_descriptor::<CompareViewportsArgs>(
+                "compare_viewports",
+                "Capture snapshots at 2+ viewports and return a deterministic diff (missing nodes, size changes, reorderings, computed-style changes). 10 KB structuredContent budget.",
             ),
         ];
         std::future::ready(Ok(ListToolsResult::with_all_items(tools)))

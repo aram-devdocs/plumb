@@ -22,6 +22,7 @@ From the first release onward, this file is maintained automatically by [`releas
 - Initial workspace scaffold, tooling, and walking skeleton.
 - PRD-style `[spacing]` and `[type]` config sections with schema validation.
 - `plumb mcp` `lint_url` now accepts an optional `detail` argument. The default `compact` mode preserves the existing MCP payload, while `detail: "full"` returns the canonical full JSON envelope and rejects structured payloads above 50 KB.
+- `plumb mcp` `compare_viewports`: capture snapshots at two-or-more viewports of the same URL and return a deterministic per-node delta (missing nodes, size changes above a configurable pixel threshold, document-order reorderings, computed-style differences). Aggregate counts plus a 200-entry capped diff list keep `structuredContent` under the 10 KB budget.
 - `plumb mcp` now exposes a `plumb://config` resource that returns the resolved `plumb.toml` for the server working directory as JSON.
 - Rule `spacing/grid-conformance`: flags `margin-*`, `padding-*`, `gap`, `row-gap`, and `column-gap` values that aren't multiples of `spacing.base_unit`.
 - Rule `spacing/scale-conformance`: flags the same property set when values aren't members of `spacing.scale`.

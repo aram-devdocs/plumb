@@ -12,8 +12,8 @@ use std::path::PathBuf;
 
 use plumb_core::register_builtin;
 use plumb_mcp::{
-    ExplainRuleArgs, LintPageHtmlArgs, LintUrlArgs, LintUrlDetail, PlumbServer,
-    documented_rule_ids,
+    CompareViewport, CompareViewportsArgs, ExplainRuleArgs, LintPageHtmlArgs, LintUrlArgs,
+    LintUrlDetail, PlumbServer, documented_rule_ids,
 };
 use rmcp::ServerHandler;
 use rmcp::model::ErrorCode;
@@ -340,4 +340,199 @@ async fn lint_page_html_above_byte_cap_returns_invalid_params() {
         .await
         .expect_err("oversized html must fail");
     assert_eq!(err.code, ErrorCode::INVALID_PARAMS);
+}
+
+fn viewport(name: &str, width: u32, height: u32, dpr: f32) -> CompareViewport {
+    CompareViewport {
+        name: name.to_owned(),
+        width,
+        height,
+        dpr,
+    }
+}
+
+/// Happy path: two viewports against `plumb-fake://hello` succeed
+/// without warming Chromium and produce a structured payload with the
+/// expected shape.
+#[tokio::test]
+async fn compare_viewports_happy_path_returns_structured_payload() {
+    let server = server();
+    let result = server
+        .compare_viewports(CompareViewportsArgs {
+            url: "plumb-fake://hello".to_owned(),
+            viewports: vec![
+                viewport("mobile", 375, 800, 2.0),
+                viewport("desktop", 1280, 800, 1.0),
+            ],
+            size_threshold_px: None,
+        })
+        .await
+        .expect("fake-url compare_viewports must succeed");
+
+    assert!(
+        !result.is_error.unwrap_or(false),
+        "fake-url compare_viewports must not surface a driver error"
+    );
+
+    let structured = result
+        .structured_content
+        .expect("response must include structuredContent");
+
+    assert_eq!(
+        structured.get("url").and_then(serde_json::Value::as_str),
+        Some("plumb-fake://hello"),
+    );
+    assert_eq!(
+        structured
+            .get("size_threshold_px")
+            .and_then(serde_json::Value::as_u64),
+        Some(4),
+    );
+    let viewports = structured
+        .get("viewports")
+        .and_then(serde_json::Value::as_array)
+        .expect("viewports array");
+    assert_eq!(viewports.len(), 2);
+    assert_eq!(viewports[0].as_str(), Some("mobile"));
+    assert_eq!(viewports[1].as_str(), Some("desktop"));
+
+    let summary = structured
+        .get("summary")
+        .and_then(serde_json::Value::as_object)
+        .expect("summary object");
+    assert_eq!(summary["total"].as_u64(), Some(0));
+    assert_eq!(summary["missing"].as_u64(), Some(0));
+    assert_eq!(summary["size_changes"].as_u64(), Some(0));
+    assert_eq!(summary["reordered"].as_u64(), Some(0));
+    assert_eq!(summary["style_changes"].as_u64(), Some(0));
+
+    assert!(
+        structured
+            .get("diffs")
+            .and_then(serde_json::Value::as_array)
+            .is_some_and(std::vec::Vec::is_empty),
+        "identical canned snapshots produce zero diffs"
+    );
+    assert_eq!(
+        structured
+            .get("truncated")
+            .and_then(serde_json::Value::as_bool),
+        Some(false)
+    );
+
+    server
+        .shutdown()
+        .await
+        .expect("shutdown must be a no-op when no browser was warmed");
+}
+
+/// Fewer than two viewports MUST return JSON-RPC `-32602`.
+#[tokio::test]
+async fn compare_viewports_requires_two_viewports() {
+    let server = server();
+    let error = server
+        .compare_viewports(CompareViewportsArgs {
+            url: "plumb-fake://hello".to_owned(),
+            viewports: vec![viewport("desktop", 1280, 800, 1.0)],
+            size_threshold_px: None,
+        })
+        .await
+        .expect_err("single-viewport input must be rejected");
+    assert_eq!(error.code, ErrorCode::INVALID_PARAMS);
+    assert!(
+        error.to_string().contains("at least 2 viewports"),
+        "unexpected error: {error:?}"
+    );
+}
+
+/// Duplicate viewport names MUST return JSON-RPC `-32602`.
+#[tokio::test]
+async fn compare_viewports_rejects_duplicate_viewport_names() {
+    let server = server();
+    let error = server
+        .compare_viewports(CompareViewportsArgs {
+            url: "plumb-fake://hello".to_owned(),
+            viewports: vec![
+                viewport("desktop", 1280, 800, 1.0),
+                viewport("desktop", 1440, 900, 2.0),
+            ],
+            size_threshold_px: None,
+        })
+        .await
+        .expect_err("duplicate viewport names must be rejected");
+    assert_eq!(error.code, ErrorCode::INVALID_PARAMS);
+    assert!(
+        error.to_string().contains("duplicated"),
+        "unexpected error: {error:?}"
+    );
+}
+
+/// Empty URL MUST return JSON-RPC `-32602`.
+#[tokio::test]
+async fn compare_viewports_rejects_empty_url() {
+    let server = server();
+    let error = server
+        .compare_viewports(CompareViewportsArgs {
+            url: String::new(),
+            viewports: vec![
+                viewport("mobile", 375, 800, 2.0),
+                viewport("desktop", 1280, 800, 1.0),
+            ],
+            size_threshold_px: None,
+        })
+        .await
+        .expect_err("empty url must be rejected");
+    assert_eq!(error.code, ErrorCode::INVALID_PARAMS);
+}
+
+/// Zero-dimension viewports MUST return JSON-RPC `-32602`.
+#[tokio::test]
+async fn compare_viewports_rejects_zero_dimension_viewports() {
+    let server = server();
+    let error = server
+        .compare_viewports(CompareViewportsArgs {
+            url: "plumb-fake://hello".to_owned(),
+            viewports: vec![
+                viewport("mobile", 0, 800, 2.0),
+                viewport("desktop", 1280, 800, 1.0),
+            ],
+            size_threshold_px: None,
+        })
+        .await
+        .expect_err("zero-width viewport must be rejected");
+    assert_eq!(error.code, ErrorCode::INVALID_PARAMS);
+}
+
+/// Three back-to-back invocations with identical inputs MUST produce
+/// byte-identical structured payloads — the determinism contract from
+/// PRD §16.
+#[tokio::test]
+async fn compare_viewports_is_deterministic_across_runs() {
+    let server = server();
+    let args = || CompareViewportsArgs {
+        url: "plumb-fake://hello".to_owned(),
+        viewports: vec![
+            viewport("mobile", 375, 800, 2.0),
+            viewport("desktop", 1280, 800, 1.0),
+            viewport("widescreen", 1920, 1080, 1.0),
+        ],
+        size_threshold_px: Some(8),
+    };
+    let r1 = server
+        .compare_viewports(args())
+        .await
+        .expect("call 1 must succeed");
+    let r2 = server
+        .compare_viewports(args())
+        .await
+        .expect("call 2 must succeed");
+    let r3 = server
+        .compare_viewports(args())
+        .await
+        .expect("call 3 must succeed");
+    let s1 = serde_json::to_string(&r1.structured_content).expect("serialize 1");
+    let s2 = serde_json::to_string(&r2.structured_content).expect("serialize 2");
+    let s3 = serde_json::to_string(&r3.structured_content).expect("serialize 3");
+    assert_eq!(s1, s2, "compare_viewports must be deterministic");
+    assert_eq!(s2, s3, "compare_viewports must be deterministic");
 }

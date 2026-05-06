@@ -164,6 +164,7 @@ fn mcp_initialize_and_tools_list() {
     assert!(names.contains(&"explain_rule"));
     assert!(names.contains(&"list_rules"));
     assert!(names.contains(&"get_config"));
+    assert!(names.contains(&"compare_viewports"));
 
     let lint_page_html = tools
         .iter()
@@ -555,4 +556,108 @@ fn mcp_list_rules_returns_every_rule() {
         .as_str()
         .expect("first rule must carry an id string");
     assert!(!first_id.is_empty(), "rule id must not be empty");
+}
+
+fn compare_viewports_request(id: u32, url: &str, viewports: &[Value]) -> Value {
+    json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "method": "tools/call",
+        "params": {
+            "name": "compare_viewports",
+            "arguments": { "url": url, "viewports": viewports }
+        }
+    })
+}
+
+#[test]
+fn mcp_compare_viewports_happy_path_returns_structured_payload() {
+    let viewports = vec![
+        json!({ "name": "mobile", "width": 375, "height": 800, "dpr": 2.0 }),
+        json!({ "name": "desktop", "width": 1280, "height": 800, "dpr": 1.0 }),
+    ];
+    let request = compare_viewports_request(2, "plumb-fake://hello", &viewports);
+    let responses = send_and_read(vec![init_request(1), initialized_notification(), request]);
+
+    let resp = responses
+        .iter()
+        .find(|r| r["id"] == 2)
+        .unwrap_or_else(|| panic!("compare_viewports response missing: got {responses:?}"));
+    let result = &resp["result"];
+
+    assert_eq!(result["isError"].as_bool(), Some(false));
+
+    let text = result["content"][0]["text"].as_str().expect("text content");
+    assert!(
+        text.starts_with("compare_viewports plumb-fake://hello across 2 viewports"),
+        "unexpected compare_viewports text: {text}"
+    );
+
+    let structured = result["structuredContent"]
+        .as_object()
+        .expect("structuredContent object");
+    assert_eq!(structured["url"].as_str(), Some("plumb-fake://hello"));
+    assert_eq!(structured["size_threshold_px"].as_u64(), Some(4));
+    let viewports = structured["viewports"].as_array().expect("viewports array");
+    assert_eq!(viewports.len(), 2);
+    assert_eq!(viewports[0].as_str(), Some("mobile"));
+    assert_eq!(viewports[1].as_str(), Some("desktop"));
+
+    assert_eq!(structured["summary"]["total"].as_u64(), Some(0));
+    assert_eq!(
+        structured["diffs"].as_array().map(std::vec::Vec::is_empty),
+        Some(true),
+        "identical canned snapshots produce zero diffs"
+    );
+    assert_eq!(structured["truncated"].as_bool(), Some(false));
+}
+
+#[test]
+fn mcp_compare_viewports_rejects_single_viewport() {
+    let viewports = vec![json!({ "name": "desktop", "width": 1280, "height": 800, "dpr": 1.0 })];
+    let request = compare_viewports_request(2, "plumb-fake://hello", &viewports);
+    let responses = send_and_read(vec![init_request(1), initialized_notification(), request]);
+
+    let resp = responses
+        .iter()
+        .find(|r| r["id"] == 2)
+        .unwrap_or_else(|| panic!("compare_viewports error response missing: got {responses:?}"));
+    let error = resp["error"].as_object().expect("error object");
+    assert_eq!(error["code"].as_i64(), Some(-32602));
+    let message = error["message"].as_str().expect("error message");
+    assert!(
+        message.contains("at least 2 viewports"),
+        "unexpected error message: {message}"
+    );
+}
+
+#[test]
+fn mcp_compare_viewports_response_is_byte_identical_across_runs() {
+    let viewports = vec![
+        json!({ "name": "mobile", "width": 375, "height": 800, "dpr": 2.0 }),
+        json!({ "name": "desktop", "width": 1280, "height": 800, "dpr": 1.0 }),
+    ];
+    let r1 = compare_viewports_request(2, "plumb-fake://hello", &viewports);
+    let r2 = compare_viewports_request(3, "plumb-fake://hello", &viewports);
+    let r3 = compare_viewports_request(4, "plumb-fake://hello", &viewports);
+    let responses = send_and_read(vec![
+        init_request(1),
+        initialized_notification(),
+        r1,
+        r2,
+        r3,
+    ]);
+    let payloads: Vec<&Value> = (2..=4)
+        .map(|id| {
+            responses.iter().find(|r| r["id"] == id).map_or_else(
+                || panic!("compare_viewports response {id} missing"),
+                |r| &r["result"]["structuredContent"],
+            )
+        })
+        .collect();
+    let s0 = serde_json::to_string(payloads[0]).expect("serialize 0");
+    let s1 = serde_json::to_string(payloads[1]).expect("serialize 1");
+    let s2 = serde_json::to_string(payloads[2]).expect("serialize 2");
+    assert_eq!(s0, s1, "compare_viewports output must be deterministic");
+    assert_eq!(s1, s2, "compare_viewports output must be deterministic");
 }

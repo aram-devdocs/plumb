@@ -25,7 +25,10 @@ e2e-chromium = ["plumb-core/test-fake"]
 
 [dependencies]
 plumb-core = { workspace = true }
-chromiumoxide = { workspace = true }
+# `_fetcher-rustls-tokio` enables `chromiumoxide::fetcher::BrowserFetcher`
+# (Chrome-for-Testing download) used by the auto-fetch path (issue #78).
+# The rustls transport matches the workspace `reqwest` policy.
+chromiumoxide = { workspace = true, features = ["_fetcher-rustls-tokio"] }
 futures-util = { workspace = true }
 tokio = { workspace = true }
 thiserror = { workspace = true }
@@ -50,6 +53,8 @@ scraper = { version = "0.26", default-features = false, features = ["errors", "d
 # Tree storage backing `scraper::Html::tree`. Used by `snapshot_from_html`
 # to walk parent/child links via `NodeRef`.
 ego-tree = "0.11"
+# SHA-256 verification of auto-fetched Chromium binaries (issue #78).
+sha2 = { workspace = true }
 
 [dev-dependencies]
 plumb-core = { workspace = true, features = ["test-fake"] }

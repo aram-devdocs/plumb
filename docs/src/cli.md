@@ -69,3 +69,34 @@ plumb schema > plumb.schema.json
 ### `plumb mcp`
 
 Run the Model Context Protocol server on stdio. See [MCP server](./mcp.md).
+
+### `plumb watch [<url>]`
+
+Re-run `plumb lint` whenever a file under the current directory (or
+`--path <dir>`) changes. The first cycle runs immediately on startup so
+you get a baseline; subsequent cycles fire after a 250 ms debounce
+window collapses each burst of editor events into a single re-lint.
+
+Press Ctrl-C to exit. The status line on stderr after every cycle
+records the cycle's shape:
+
+```text
+watching… changed: <N> files; lint: <M> violations; took <T> ms
+```
+
+Stdout carries the rendered lint output (`pretty` by default;
+`--format json` and `--format sarif` work the same as `lint`), so you
+can tail the watch output with the JSON consumer of your choice
+without losing the status line.
+
+Watch flags mirror `plumb lint`'s. Two extras:
+
+| Flag | Description |
+|------|-------------|
+| `--path <dir>` | Directory to watch. Repeatable. Defaults to CWD. |
+| `--once` | Hidden — runs a single cycle and exits, used by tests. |
+
+A `.plumbignore` file at the root of any watched directory excludes
+paths whose substring matches any of its lines. Blank lines and lines
+starting with `#` are ignored. The defaults already skip `.git/`,
+`target/`, `node_modules/`, `.idea/`, and `.vscode/`.
