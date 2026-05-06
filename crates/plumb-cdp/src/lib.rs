@@ -320,9 +320,8 @@ impl Cookie {
     ///
     /// Returns [`CdpError::InvalidCookie`] when:
     /// - The token has no `=` separator.
-    /// - The name is empty.
-    /// - The name or value contains a CR, LF, or NUL byte (header
-    ///   injection).
+    /// - The name is empty or contains whitespace / control bytes.
+    /// - The value contains control bytes (header injection).
     pub fn parse_kv(token: &str) -> Result<Self, CdpError> {
         let (name, value) = token
             .split_once('=')
@@ -333,15 +332,8 @@ impl Cookie {
             })?;
         let name = name.trim().to_owned();
         let value = value.to_owned();
-        if name.is_empty() {
-            return Err(CdpError::InvalidCookie {
-                field: "name",
-                input: token.to_owned(),
-                reason: "name must not be empty",
-            });
-        }
-        validate_no_ctl(&name, "name", "cookie")?;
-        validate_no_ctl(&value, "value", "cookie")?;
+        validate_cookie_name(&name)?;
+        validate_cookie_value(&value)?;
         Ok(Self {
             name,
             value,
@@ -360,20 +352,101 @@ impl Cookie {
     }
 }
 
+/// Reject any byte that is a C0 control character (`< 0x20`) or DEL
+/// (`0x7F`). Plumb chooses to reject every C0 byte rather than only the
+/// HTTP-specific CR/LF/NUL trio because a cookie or header value with
+/// any control byte is almost certainly a smuggling attempt and never
+/// a legitimate input. Tab (`\t`, `0x09`) is also rejected; HTTP
+/// whitespace folding has been deprecated in RFC 7230 §3.2.4 and Plumb
+/// has no compatibility need for it on inputs the user types into a
+/// shell flag.
+fn is_disallowed_ctl(byte: u8) -> bool {
+    byte < 0x20 || byte == 0x7F
+}
+
 fn validate_no_ctl(input: &str, field: &'static str, kind: &'static str) -> Result<(), CdpError> {
-    if input.bytes().any(|b| b == b'\r' || b == b'\n' || b == 0) {
+    if input.bytes().any(is_disallowed_ctl) {
         return match kind {
             "cookie" => Err(CdpError::InvalidCookie {
                 field,
                 input: input.to_owned(),
-                reason: "control characters (CR/LF/NUL) are not allowed",
+                reason: "control characters (C0 / DEL) are not allowed",
             }),
             _ => Err(CdpError::InvalidHeader {
                 field,
                 input: input.to_owned(),
-                reason: "control characters (CR/LF/NUL) are not allowed",
+                reason: "control characters (C0 / DEL) are not allowed",
             }),
         };
+    }
+    Ok(())
+}
+
+/// Validate an HTTP header name. Rejects empty names, names containing
+/// `:` (the field-line separator), whitespace, or control bytes.
+///
+/// Shared between [`parse_header_kv`] (CLI input parser) and the
+/// pre-injection sweep in `install_extra_headers` (library boundary).
+fn validate_header_name(name: &str) -> Result<(), CdpError> {
+    if name.is_empty() {
+        return Err(CdpError::InvalidHeader {
+            field: "name",
+            input: name.to_owned(),
+            reason: "name must not be empty",
+        });
+    }
+    if name
+        .bytes()
+        .any(|b| b == b':' || b == b' ' || b == b'\t' || is_disallowed_ctl(b))
+    {
+        return Err(CdpError::InvalidHeader {
+            field: "name",
+            input: name.to_owned(),
+            reason: "name must not contain whitespace, `:`, or control bytes",
+        });
+    }
+    Ok(())
+}
+
+/// Validate a cookie name. Rejects empty names, names containing `=`
+/// (the cookie separator), whitespace, or control bytes.
+///
+/// Shared between [`Cookie::parse_kv`] (CLI input parser) and the
+/// pre-injection sweep in `install_cookies` (library boundary). The
+/// rules mirror RFC 6265 token characters minus the bytes Chromium's
+/// `Network.setCookies` would reject.
+fn validate_cookie_name(name: &str) -> Result<(), CdpError> {
+    if name.is_empty() {
+        return Err(CdpError::InvalidCookie {
+            field: "name",
+            input: name.to_owned(),
+            reason: "name must not be empty",
+        });
+    }
+    if name
+        .bytes()
+        .any(|b| b == b'=' || b == b' ' || b == b'\t' || is_disallowed_ctl(b))
+    {
+        return Err(CdpError::InvalidCookie {
+            field: "name",
+            input: name.to_owned(),
+            reason: "name must not contain whitespace, `=`, or control bytes",
+        });
+    }
+    Ok(())
+}
+
+/// Validate a cookie value. Rejects values containing whitespace
+/// (which Chromium normalizes inconsistently) or control bytes.
+///
+/// Shared between [`Cookie::parse_kv`] and `install_cookies`.
+fn validate_cookie_value(value: &str) -> Result<(), CdpError> {
+    if value.bytes().any(is_disallowed_ctl) {
+        return Err(CdpError::InvalidCookie {
+            field: "value",
+            input: value.to_owned(),
+            reason: "control characters (C0 / DEL) are not allowed",
+        });
     }
     Ok(())
 }
@@ -385,7 +458,7 @@ fn validate_no_ctl(input: &str, field: &'static str, kind: &'static str) -> Resu
 /// Returns [`CdpError::InvalidHeader`] when:
 /// - The token has no `:` separator.
 /// - The name is empty or contains whitespace / `:` / control bytes.
-/// - The value contains CR, LF, or NUL bytes (header injection).
+/// - The value contains control bytes (header injection).
 pub fn parse_header_kv(token: &str) -> Result<(String, String), CdpError> {
     let (name, value) = token
         .split_once(':')
@@ -396,23 +469,7 @@ pub fn parse_header_kv(token: &str) -> Result<(String, String), CdpError> {
         })?;
     let name = name.trim().to_owned();
     let value = value.trim_start().to_owned();
-    if name.is_empty() {
-        return Err(CdpError::InvalidHeader {
-            field: "name",
-            input: token.to_owned(),
-            reason: "name must not be empty",
-        });
-    }
-    if name
-        .bytes()
-        .any(|b| b == b':' || b == b' ' || b == b'\t' || b == b'\r' || b == b'\n' || b == 0)
-    {
-        return Err(CdpError::InvalidHeader {
-            field: "name",
-            input: name,
-            reason: "name must not contain whitespace, `:`, or control bytes",
-        });
-    }
+    validate_header_name(&name)?;
     validate_no_ctl(&value, "value", "header")?;
     Ok((name, value))
 }
@@ -1244,7 +1301,12 @@ async fn install_extra_headers(page: &Page, headers: &[(String, String)]) -> Res
     entries.sort_by(|a, b| a.0.cmp(&b.0));
     let mut object = serde_json::Map::with_capacity(entries.len());
     for (name, value) in entries {
-        validate_no_ctl(&name, "name", "header")?;
+        // Library-boundary re-validation: `headers: Vec<(String, String)>`
+        // is `pub` on `ChromiumOptions`, so a downstream consumer can
+        // construct entries without going through `parse_header_kv`.
+        // Apply the same checks here to keep header-injection guards
+        // intact regardless of how the entries were built.
+        validate_header_name(&name)?;
         validate_no_ctl(&value, "value", "header")?;
         object.insert(name, serde_json::Value::String(value));
     }
@@ -1264,6 +1326,21 @@ async fn install_cookies(
     sorted.sort_by(|a, b| {
         (a.name.as_str(), a.value.as_str()).cmp(&(b.name.as_str(), b.value.as_str()))
     });
+    // Library-boundary re-validation: `Cookie` fields are all `pub`, so
+    // a downstream consumer can build a `Cookie` without going through
+    // `Cookie::parse_kv`. Apply the same name/value checks here so the
+    // injection guards are not bypassable. `domain` and `path`, when
+    // present, also pass through the control-byte check.
+    for cookie in &sorted {
+        validate_cookie_name(&cookie.name)?;
+        validate_cookie_value(&cookie.value)?;
+        if let Some(domain) = cookie.domain.as_deref() {
+            validate_no_ctl(domain, "domain", "cookie")?;
+        }
+        if let Some(path) = cookie.path.as_deref() {
+            validate_no_ctl(path, "path", "cookie")?;
+        }
+    }
     let url_for_cookies = if default_url.starts_with("http") {
         Some(default_url)
     } else {
@@ -2322,6 +2399,67 @@ mod tests {
     fn header_parse_kv_rejects_space_in_name() {
         let err = parse_header_kv("X Header: 1").unwrap_err();
         assert!(matches!(err, CdpError::InvalidHeader { .. }));
+    }
+
+    #[test]
+    fn validate_header_name_rejects_colon() {
+        // Library-boundary check: a downstream consumer might construct
+        // `headers: vec![("Foo:Bar".into(), "1".into())]` directly.
+        // `parse_header_kv` would split that, but
+        // `install_extra_headers` calls the validator straight on the
+        // tuple — so the validator must catch `:` itself.
+        let err = super::validate_header_name("Foo:Bar").unwrap_err();
+        assert!(matches!(err, CdpError::InvalidHeader { field: "name", .. }));
+    }
+
+    #[test]
+    fn validate_header_name_rejects_whitespace() {
+        let err = super::validate_header_name("X Header").unwrap_err();
+        assert!(matches!(err, CdpError::InvalidHeader { .. }));
+        let err = super::validate_header_name("X\tHeader").unwrap_err();
+        assert!(matches!(err, CdpError::InvalidHeader { .. }));
+    }
+
+    #[test]
+    fn validate_header_name_rejects_control_bytes() {
+        // Every C0 control byte (and DEL) is rejected. Spot-check the
+        // canonical ones plus a non-CRLF C1-adjacent byte (BEL, 0x07).
+        for &c in b"\r\n\0\x07\x1b\x7f" {
+            let name = format!("X-Hi{}Foo", c as char);
+            let err = super::validate_header_name(&name).unwrap_err();
+            assert!(
+                matches!(err, CdpError::InvalidHeader { .. }),
+                "expected InvalidHeader for byte {c:#x}, got {err:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn validate_cookie_name_rejects_equals_and_whitespace() {
+        // Library-boundary: `Cookie { name: "foo=bar", .. }` would be
+        // accepted by the parser (it splits on the *first* `=`) but
+        // direct construction would let `=` through. The standalone
+        // validator must reject it.
+        let err = super::validate_cookie_name("foo=bar").unwrap_err();
+        assert!(matches!(err, CdpError::InvalidCookie { field: "name", .. }));
+        let err = super::validate_cookie_name("foo bar").unwrap_err();
+        assert!(matches!(err, CdpError::InvalidCookie { .. }));
+    }
+
+    #[test]
+    fn validate_cookie_value_rejects_full_c0_range() {
+        // Tightened beyond CR/LF/NUL — every C0 byte and DEL is now
+        // rejected. Tab is in the C0 range so it's also rejected.
+        for c in 0u8..0x20 {
+            let value = format!("v{}x", c as char);
+            let err = super::validate_cookie_value(&value).unwrap_err();
+            assert!(
+                matches!(err, CdpError::InvalidCookie { .. }),
+                "expected InvalidCookie for byte {c:#x}, got {err:?}"
+            );
+        }
+        let err = super::validate_cookie_value("v\x7fx").unwrap_err();
+        assert!(matches!(err, CdpError::InvalidCookie { .. }));
     }
 
     #[test]
