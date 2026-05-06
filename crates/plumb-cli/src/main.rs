@@ -245,9 +245,10 @@ enum Command {
         /// Pin the device-pixel ratio used by the driver.
         #[arg(long, value_name = "FACTOR")]
         dpr: Option<f64>,
-        /// Mirror of `lint --auto-fetch-chromium`. Off by default —
-        /// auto-fetch downloads and executes a third-party binary, so
-        /// passing this flag is the explicit acknowledgement of trust.
+        /// Opt in to downloading Chrome-for-Testing into Plumb's cache
+        /// directory when no `--executable-path` is given and no
+        /// system Chromium is detected. See `plumb lint --help` for the
+        /// trust trade-off.
         #[arg(long = "auto-fetch-chromium", default_value_t = false)]
         auto_fetch_chromium: bool,
         /// Directory to watch. Repeatable. Defaults to the current

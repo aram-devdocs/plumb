@@ -12,8 +12,8 @@ use std::path::PathBuf;
 
 use plumb_core::register_builtin;
 use plumb_mcp::{
-    CompareViewport, CompareViewportsArgs, ExplainRuleArgs, LintUrlArgs, LintUrlDetail,
-    PlumbServer, documented_rule_ids,
+    CompareViewport, CompareViewportsArgs, ExplainRuleArgs, LintPageHtmlArgs, LintUrlArgs,
+    LintUrlDetail, PlumbServer, documented_rule_ids,
 };
 use rmcp::ServerHandler;
 use rmcp::model::ErrorCode;
@@ -255,6 +255,91 @@ async fn many_fake_url_lints_share_one_server_without_warming_chromium() {
         .shutdown()
         .await
         .expect("shutdown must be a no-op after only fake-url calls");
+}
+
+/// `lint_page_html` happy path: a small HTML literal round-trips to the
+/// MCP-compact response shape — `content[0].text` exists and
+/// `structuredContent.violations` is an array. This pins the response
+/// contract and the no-Chromium guarantee at the same time.
+#[tokio::test]
+async fn lint_page_html_round_trips_static_html_to_compact_payload() {
+    let server = server();
+    let result = server
+        .lint_page_html(LintPageHtmlArgs {
+            html: "<!doctype html><html><body><p>hi</p></body></html>".to_owned(),
+            base_url: "https://example.com/".to_owned(),
+        })
+        .await
+        .expect("lint_page_html must succeed for a small valid document");
+
+    assert!(
+        !result.is_error.unwrap_or(false),
+        "lint_page_html must not surface a driver error"
+    );
+    let text = result
+        .content
+        .iter()
+        .find_map(|content| content.as_text().map(|text| text.text.clone()))
+        .expect("response must include a text content block");
+    assert!(!text.is_empty(), "compact text block must not be empty");
+
+    let structured = result
+        .structured_content
+        .expect("response must include structured_content");
+    let violations = structured
+        .get("violations")
+        .and_then(serde_json::Value::as_array)
+        .expect("structuredContent.violations must be an array");
+    // No rendering pass means no spacing/color/typography violations
+    // for the static-HTML path; the array exists but is empty here.
+    assert!(violations.is_empty());
+    assert!(
+        structured.get("counts").is_some(),
+        "structuredContent must carry the mcp_compact counts block"
+    );
+
+    // No browser was warmed — shutdown must remain a no-op.
+    server
+        .shutdown()
+        .await
+        .expect("shutdown must be a no-op after only lint_page_html calls");
+}
+
+/// `lint_page_html` rejects empty `html` with a JSON-RPC `invalid_params`
+/// error so the agent gets a clear contract failure rather than a
+/// silently-empty snapshot.
+#[tokio::test]
+async fn lint_page_html_empty_html_returns_invalid_params() {
+    let server = server();
+    let err = server
+        .lint_page_html(LintPageHtmlArgs {
+            html: String::new(),
+            base_url: "https://example.com/".to_owned(),
+        })
+        .await
+        .expect_err("empty html must fail");
+    assert_eq!(err.code, ErrorCode::INVALID_PARAMS);
+}
+
+/// `lint_page_html` rejects oversized HTML at the parser cap (1 MiB).
+/// The cap surfaces as `invalid_params` so a chatty agent can react
+/// without parsing the underlying `CdpError` variant.
+#[tokio::test]
+async fn lint_page_html_above_byte_cap_returns_invalid_params() {
+    let server = server();
+    // 1 MiB + 1 byte. Most of it is body text inside a single <p> so
+    // the element-count cap stays out of the way and the byte cap is
+    // the variant that fires first.
+    let big_body = "x".repeat(1024 * 1024 + 1);
+    let html = format!("<!doctype html><html><body><p>{big_body}</p></body></html>");
+    let err = server
+        .lint_page_html(LintPageHtmlArgs {
+            html,
+            base_url: "https://example.com/".to_owned(),
+        })
+        .await
+        .expect_err("oversized html must fail");
+    assert_eq!(err.code, ErrorCode::INVALID_PARAMS);
 }
 
 fn viewport(name: &str, width: u32, height: u32, dpr: f32) -> CompareViewport {
