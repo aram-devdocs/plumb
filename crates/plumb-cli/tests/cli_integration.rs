@@ -477,3 +477,202 @@ fn lint_fake_url_json_rect_matches_requested_viewport() -> Result<(), Box<dyn st
         .stdout(contains("\"height\": 800").not());
     Ok(())
 }
+
+// ============================================================
+// Driver-ergonomics wave (#74 #75 #76 #77)
+//
+// FakeDriver short-circuits before any browser-side wiring runs, so
+// these tests focus on:
+//   - Argument parsing accepts every flag without error.
+//   - Validation errors surface as exit code 2 with the expected message.
+//   - Successful cases still produce the canned snapshot's violation.
+// Real Chromium-driven coverage lives behind the `e2e-chromium`
+// feature in `crates/plumb-cdp/tests/`.
+
+#[test]
+fn lint_accepts_wait_for_and_wait_ms_against_fake_driver() -> Result<(), Box<dyn std::error::Error>>
+{
+    Command::cargo_bin("plumb")?
+        .args([
+            "lint",
+            "plumb-fake://hello",
+            "--wait-for",
+            "body",
+            "--wait-ms",
+            "10",
+        ])
+        .assert()
+        .code(3)
+        .stdout(contains("spacing/grid-conformance"));
+    Ok(())
+}
+
+#[test]
+fn lint_accepts_repeated_cookies_against_fake_driver() -> Result<(), Box<dyn std::error::Error>> {
+    Command::cargo_bin("plumb")?
+        .args([
+            "lint",
+            "plumb-fake://hello",
+            "--cookie",
+            "session=abc123",
+            "--cookie",
+            "lang=en",
+        ])
+        .assert()
+        .code(3)
+        .stdout(contains("spacing/grid-conformance"));
+    Ok(())
+}
+
+#[test]
+fn lint_rejects_malformed_cookie_with_input_error() -> Result<(), Box<dyn std::error::Error>> {
+    Command::cargo_bin("plumb")?
+        .args(["lint", "plumb-fake://hello", "--cookie", "no-equals"])
+        .assert()
+        .code(2)
+        .stderr(contains("invalid cookie"));
+    Ok(())
+}
+
+#[test]
+fn lint_rejects_cookie_with_crlf() -> Result<(), Box<dyn std::error::Error>> {
+    Command::cargo_bin("plumb")?
+        .args([
+            "lint",
+            "plumb-fake://hello",
+            "--cookie",
+            "name=value\r\nSet-Cookie: pwn=1",
+        ])
+        .assert()
+        .code(2)
+        .stderr(contains("control characters"));
+    Ok(())
+}
+
+#[test]
+fn lint_accepts_repeated_headers_against_fake_driver() -> Result<(), Box<dyn std::error::Error>> {
+    Command::cargo_bin("plumb")?
+        .args([
+            "lint",
+            "plumb-fake://hello",
+            "--header",
+            "X-Trace-Id: 12345",
+            "--header",
+            "Authorization: Bearer xyz",
+        ])
+        .assert()
+        .code(3)
+        .stdout(contains("spacing/grid-conformance"));
+    Ok(())
+}
+
+#[test]
+fn lint_rejects_header_with_lf_injection() -> Result<(), Box<dyn std::error::Error>> {
+    Command::cargo_bin("plumb")?
+        .args([
+            "lint",
+            "plumb-fake://hello",
+            "--header",
+            "X-Pwn: hello\nInjected: 1",
+        ])
+        .assert()
+        .code(2)
+        .stderr(contains("control characters"));
+    Ok(())
+}
+
+#[test]
+fn lint_accepts_storage_state_path_against_fake_driver() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = TempDir::new()?;
+    let path = dir.path().join("storage-state.json");
+    fs::write(&path, r#"{"cookies":[],"origins":[]}"#)?;
+    // Run from inside the tempdir so the safe-path canonicalize check
+    // passes (the path resolves under CWD).
+    Command::cargo_bin("plumb")?
+        .args([
+            "lint",
+            "plumb-fake://hello",
+            "--storage-state",
+            "storage-state.json",
+        ])
+        .current_dir(dir.path())
+        .assert()
+        .code(3)
+        .stdout(contains("spacing/grid-conformance"));
+    Ok(())
+}
+
+#[test]
+fn lint_rejects_auth_script_outside_cwd() -> Result<(), Box<dyn std::error::Error>> {
+    // Two tempdirs: one contains the benign script, the other is the
+    // CWD we run `plumb` from. The script is absolute and outside the
+    // CWD, so the safe-path check MUST refuse it with exit code 2 even
+    // though the URL is `plumb-fake://hello` (the FakeDriver doesn't
+    // need an auth script — the CLI validates the path up front).
+    let script_dir = TempDir::new()?;
+    let script_path = script_dir.path().join("auth.js");
+    fs::write(&script_path, "// benign auth script\n")?;
+
+    let cwd = TempDir::new()?;
+
+    Command::cargo_bin("plumb")?
+        .args([
+            "lint",
+            "plumb-fake://hello",
+            "--auth-script",
+            script_path
+                .to_str()
+                .ok_or("auth.js path is not valid UTF-8")?,
+        ])
+        .current_dir(cwd.path())
+        .assert()
+        .code(2)
+        .stderr(contains("outside the current working directory"));
+    Ok(())
+}
+
+#[test]
+fn lint_rejects_storage_state_outside_cwd() -> Result<(), Box<dyn std::error::Error>> {
+    // Same shape as the auth-script test above: the storage-state file
+    // is in a separate tempdir and therefore outside the CLI's CWD.
+    let state_dir = TempDir::new()?;
+    let state_path = state_dir.path().join("storage-state.json");
+    fs::write(&state_path, r#"{"cookies":[],"origins":[]}"#)?;
+
+    let cwd = TempDir::new()?;
+
+    Command::cargo_bin("plumb")?
+        .args([
+            "lint",
+            "plumb-fake://hello",
+            "--storage-state",
+            state_path
+                .to_str()
+                .ok_or("storage-state.json path is not valid UTF-8")?,
+        ])
+        .current_dir(cwd.path())
+        .assert()
+        .code(2)
+        .stderr(contains("outside the current working directory"));
+    Ok(())
+}
+
+#[test]
+fn lint_accepts_disable_animations_and_hide_scrollbars_and_dpr()
+-> Result<(), Box<dyn std::error::Error>> {
+    Command::cargo_bin("plumb")?
+        .args([
+            "lint",
+            "plumb-fake://hello",
+            "--disable-animations",
+            "true",
+            "--hide-scrollbars",
+            "false",
+            "--dpr",
+            "2.0",
+        ])
+        .assert()
+        .code(3)
+        .stdout(contains("spacing/grid-conformance"));
+    Ok(())
+}

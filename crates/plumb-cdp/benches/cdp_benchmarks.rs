@@ -178,6 +178,7 @@ mod cdp {
             width: 1280,
             height: 800,
             device_pixel_ratio: 1.0,
+            ..Target::default()
         }
     }
 

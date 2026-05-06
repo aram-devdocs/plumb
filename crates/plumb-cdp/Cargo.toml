@@ -31,6 +31,16 @@ tokio = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 indexmap = { workspace = true }
+# Cookie / header / storage-state plumbing (PRD §15) — `Headers` in
+# chromiumoxide is a `serde_json::Value` wrapper; storage-state.json
+# parsing uses serde with `deny_unknown_fields`.
+serde = { workspace = true }
+serde_json = { workspace = true }
+# WHATWG URL parsing — `Url::origin().ascii_serialization()` handles
+# default-port elision, IDNA host normalization, scheme case-folding,
+# and stripping of userinfo / path / query / fragment so the
+# storage-state origin compare matches Playwright's stored format.
+url = { workspace = true }
 
 [dev-dependencies]
 plumb-core = { workspace = true, features = ["test-fake"] }

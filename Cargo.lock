@@ -1834,12 +1834,14 @@ dependencies = [
  "futures-util",
  "indexmap",
  "plumb-core",
+ "serde",
  "serde_json",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "url",
 ]
 
 [[package]]

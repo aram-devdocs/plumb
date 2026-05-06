@@ -12,11 +12,37 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::{Context, Result};
-use plumb_cdp::{BrowserDriver, ChromiumDriver, ChromiumOptions, FakeDriver, Target, is_fake_url};
+use plumb_cdp::{
+    BrowserDriver, ChromiumDriver, ChromiumOptions, Cookie, FakeDriver, Target, is_fake_url,
+    parse_header_kv, validate_safe_path,
+};
 use plumb_core::{Config, Severity, ViewportKey};
 use thiserror::Error;
 
 use crate::commands::{OutputFormat, selector as selector_filter};
+
+/// Aggregated args for [`run`]. Bundling them into a struct keeps the
+/// `Command::Lint` dispatch readable as the flag surface grows
+/// (PRD §15 — `--wait-for`, `--cookie`, `--storage-state`, etc.).
+#[derive(Debug)]
+pub struct LintArgs {
+    pub url: String,
+    pub config_path: Option<PathBuf>,
+    pub executable_path: Option<PathBuf>,
+    pub format: OutputFormat,
+    pub output_path: Option<PathBuf>,
+    pub viewports: Vec<String>,
+    pub selector: Option<String>,
+    pub wait_for: Option<String>,
+    pub wait_ms: Option<u64>,
+    pub cookies: Vec<String>,
+    pub headers: Vec<String>,
+    pub auth_script: Option<PathBuf>,
+    pub storage_state: Option<PathBuf>,
+    pub disable_animations: bool,
+    pub hide_scrollbars: bool,
+    pub dpr: Option<f64>,
+}
 
 /// CLI-side errors that never need to leak across the
 /// `commands::lint` boundary. Bubbles up to `main` via `anyhow::Error`,
@@ -44,21 +70,68 @@ enum LintError {
     ViewportFlagWithoutConfig { names: Vec<String> },
 }
 
-pub async fn run(
-    url: String,
-    config_path: Option<PathBuf>,
-    executable_path: Option<PathBuf>,
-    format: OutputFormat,
-    output_path: Option<PathBuf>,
-    viewports: Vec<String>,
-    selector: Option<String>,
-) -> Result<ExitCode> {
+pub async fn run(args: LintArgs) -> Result<ExitCode> {
+    let LintArgs {
+        url,
+        config_path,
+        executable_path,
+        format,
+        output_path,
+        viewports,
+        selector,
+        wait_for,
+        wait_ms,
+        cookies,
+        headers,
+        auth_script,
+        storage_state,
+        disable_animations,
+        hide_scrollbars,
+        dpr,
+    } = args;
+
     tracing::debug!(url = %url, format = %format, viewports = ?viewports, selector = ?selector, "lint");
 
     let config = load_config(config_path.as_deref())?;
-    let targets = resolve_targets(&url, &config, &viewports).map_err(anyhow::Error::from)?;
+    let mut targets = resolve_targets(&url, &config, &viewports).map_err(anyhow::Error::from)?;
+
+    // Apply the per-target capture knobs (PRD §15) to every target the
+    // viewport resolver returned. `wait_for` / `wait_ms` / `pin_dpr` are
+    // identical across viewports, so a per-target apply is fine.
+    for target in &mut targets {
+        target.wait_for_selector.clone_from(&wait_for);
+        target.wait_ms = wait_ms;
+        target.disable_animations = disable_animations;
+        target.hide_scrollbars = hide_scrollbars;
+        target.pin_dpr = dpr;
+    }
+
+    let parsed_cookies: Vec<Cookie> = cookies
+        .iter()
+        .map(|raw| Cookie::parse_kv(raw).map_err(anyhow::Error::from))
+        .collect::<Result<Vec<_>>>()
+        .context("parse --cookie value")?;
+    let parsed_headers: Vec<(String, String)> = headers
+        .iter()
+        .map(|raw| parse_header_kv(raw).map_err(anyhow::Error::from))
+        .collect::<Result<Vec<_>>>()
+        .context("parse --header value")?;
+
+    // PRD §15: validate `--auth-script` / `--storage-state` paths up
+    // front so the safe-path check fires on every URL scheme — without
+    // this, the FakeDriver path would silently accept outside-CWD
+    // paths because it never reaches the cdp loaders that own the
+    // check.
+    if let Some(p) = auth_script.as_deref() {
+        validate_safe_path(p).context("validate --auth-script path")?;
+    }
+    if let Some(p) = storage_state.as_deref() {
+        validate_safe_path(p).context("validate --storage-state path")?;
+    }
 
     let snapshots = if is_fake_url(&url) {
+        // FakeDriver ignores ChromiumOptions and per-target capture
+        // knobs by design — the canned snapshot is deterministic.
         let driver = FakeDriver;
         driver
             .snapshot_all(targets)
@@ -67,6 +140,10 @@ pub async fn run(
     } else {
         let driver = ChromiumDriver::new(ChromiumOptions {
             executable_path,
+            cookies: parsed_cookies,
+            headers: parsed_headers,
+            auth_script,
+            storage_state,
             ..ChromiumOptions::default()
         });
         driver
@@ -153,6 +230,7 @@ fn resolve_targets(
             width: 1280,
             height: 800,
             device_pixel_ratio: 1.0,
+            ..Target::default()
         }]);
     }
 
@@ -166,6 +244,7 @@ fn resolve_targets(
                 width: spec.width,
                 height: spec.height,
                 device_pixel_ratio: spec.device_pixel_ratio,
+                ..Target::default()
             })
             .collect());
     }
@@ -190,6 +269,7 @@ fn resolve_targets(
                 width: spec.width,
                 height: spec.height,
                 device_pixel_ratio: spec.device_pixel_ratio,
+                ..Target::default()
             })
         })
         .collect())

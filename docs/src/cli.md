@@ -18,6 +18,17 @@ major version falls in Plumb's supported range (see
 | `--format <pretty\|json\|sarif>` | Output format. Default: `pretty`. |
 | `--output <path>` | Write rendered output to a file instead of stdout. |
 | `-v`, `--verbose` | Increase log verbosity. `-vv` for trace. |
+| `--viewport <name>` | Restrict the run to the named viewport. Repeatable. |
+| `--selector <css>` | Restrict linting to a CSS subtree. |
+| `--wait-for <css>` | Wait for a selector to appear before capturing. |
+| `--wait-ms <ms>` | Sleep N ms after navigation (and after `--wait-for`). |
+| `--cookie <name=value>` | Pre-set a cookie before navigation. Repeatable. |
+| `--header <name: value>` | Add an extra HTTP header to every request. Repeatable. |
+| `--auth-script <path>` | Evaluate a `.js` file on every new document. Path MUST resolve under CWD. |
+| `--storage-state <path>` | Load a Playwright `storage-state.json`. |
+| `--disable-animations [bool]` | CSS animation/transition killer. Default `true`. |
+| `--hide-scrollbars [bool]` | CSS scrollbar killer. Default `true`. |
+| `--dpr <factor>` | Pin device-pixel ratio for `Emulation.setDeviceMetricsOverride`. |
 
 Exit codes:
 

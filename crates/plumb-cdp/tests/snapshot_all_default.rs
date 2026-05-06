@@ -15,6 +15,7 @@ fn target(viewport: &str, width: u32, height: u32) -> Target {
         width,
         height,
         device_pixel_ratio: 1.0,
+        ..Target::default()
     }
 }
 
