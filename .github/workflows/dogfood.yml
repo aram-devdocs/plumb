@@ -46,13 +46,8 @@ jobs:
         env:
           CHROME_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
         run: |
-          # `docs/plumb.toml` carries `[[ignore]]` entries for the
-          # mdBook theme chrome that Plumb does not own. The lint MUST
-          # report zero violations against it (see PRD §15 — "0
-          # violations dogfooding clean").
           target/release/plumb lint https://plumb.aramhammoudeh.com/ \
-            --executable-path "$CHROME_PATH" \
-            --config docs/plumb.toml
+            --executable-path "$CHROME_PATH"
 
   lint-deployed-test-sites:
     name: lint deployed test-sites
