@@ -48,3 +48,108 @@ jobs:
         run: |
           target/release/plumb lint https://plumb.aramhammoudeh.com/ \
             --executable-path "$CHROME_PATH"
+
+  lint-deployed-test-sites:
+    name: lint deployed test-sites
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        framework:
+          - html-css
+          - tailwind-html
+          - react-vite
+          - vue
+          - angular
+          - nextjs
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: extractions/setup-just@v4
+
+      - name: Set up Node 20
+        if: matrix.framework != 'html-css'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: e2e-sites/${{ matrix.framework }}/package-lock.json
+
+      - name: Prepare Chrome sandbox
+        run: sudo bash scripts/ci-chrome-sandbox.sh
+
+      - name: Install Chrome
+        id: setup-chrome
+        uses: browser-actions/setup-chrome@v2
+        with:
+          chrome-version: stable
+          install-dependencies: true
+
+      - name: Build the fixture (local copy)
+        working-directory: e2e-sites/${{ matrix.framework }}
+        run: just build
+
+      - name: Build plumb
+        run: cargo build --release -p plumb-cli
+
+      # Lint the local build via the harness — establishes the local
+      # violation breakdown that the deployed copy must match.
+      - name: Lint local copy via harness
+        env:
+          CHROME_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
+        run: |
+          cargo run --release -p plumb-e2e -- \
+            --site "${{ matrix.framework }}" \
+            --no-build \
+            --plumb-bin target/release/plumb \
+            --chrome-path "$CHROME_PATH" \
+            > local-report.txt
+          cat local-report.txt
+
+      # Lint the deployed copy at https://plumb.aramhammoudeh.com/test-sites/<framework>/
+      # and assert the same target-rule counts that `expected.json`
+      # promises. This mirrors what the e2e-sites matrix asserts at PR
+      # time, but against the live URL.
+      - name: Lint deployed copy and diff against expected.json
+        env:
+          CHROME_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
+        run: |
+          set -euo pipefail
+          url="https://plumb.aramhammoudeh.com/test-sites/${{ matrix.framework }}/"
+          target/release/plumb lint "$url" \
+            --executable-path "$CHROME_PATH" \
+            --config e2e-sites/plumb.toml \
+            --format json \
+            > deployed.json || code=$?
+          # `plumb lint` exits 3 on warnings-only — that is the expected
+          # steady state for every fixture. Anything else is an infra
+          # failure that bubbles up.
+          : "${code:=0}"
+          if [ "$code" != "0" ] && [ "$code" != "3" ]; then
+            echo "::error::plumb lint exited $code"
+            exit "$code"
+          fi
+          python3 - <<'PY'
+          import json, sys
+          deployed = json.load(open("deployed.json"))
+          expected = json.load(open("e2e-sites/${{ matrix.framework }}/expected.json"))
+          target = expected["target_rules"]
+          actual = {r: 0 for r in target}
+          for v in deployed["violations"]:
+              if v["rule_id"] in actual:
+                  actual[v["rule_id"]] += 1
+          mismatches = []
+          for rule, count in expected["by_rule_id"].items():
+              if actual.get(rule, 0) != count:
+                  mismatches.append((rule, count, actual.get(rule, 0)))
+          if mismatches:
+              for rule, want, got in mismatches:
+                  print(f"::error::deployed copy: {rule} expected {want}, got {got}")
+              sys.exit(1)
+          print(f"OK deployed copy matches expected target-rule counts: {actual}")
+          PY

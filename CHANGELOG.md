@@ -10,6 +10,7 @@ From the first release onward, this file is maintained automatically by [`releas
 
 ### Added
 
+- Real-world e2e test-site matrix at `e2e-sites/` covering vanilla HTML/CSS, static Tailwind, React + Vite, Vue 3 + Vite, Angular 17, and Next.js 14. The fixtures publish to `https://plumb.aramhammoudeh.com/test-sites/<framework>/` alongside the docs and are linted on every CI run via the new `plumb-e2e` harness crate.
 - `plumb init --from <path>`: bootstrap a starter `plumb.toml` from an existing project tree. The new `plumb-codegen` crate walks the directory, scrapes CSS custom properties under `:root`, records discovered Tailwind config files, and merges DTCG token JSON. Walk order is deterministic; two runs produce byte-identical output.
 - Rule `baseline/rhythm`: flags text elements whose typographic baselines miss the configured vertical-rhythm grid.
 - Per-crate README files and package metadata for crates.io publishing.

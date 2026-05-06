@@ -146,6 +146,23 @@ determinism-check:
     @diff -q /tmp/plumb-det-2.json /tmp/plumb-det-3.json
     @echo "▸ OK — all three runs produced byte-identical output."
 
+# End-to-end matrix: build every `e2e-sites/<framework>/` fixture,
+# serve it on a local loopback port, run `plumb lint` against the URL,
+# and assert the violation breakdown against `expected.json`. Three
+# back-to-back runs per fixture confirm byte-identical output.
+#
+# Requires: a Chromium binary (set CHROME_PATH if not on the default
+# search path). `--all` is the default; pass `SITE=<name>` to limit.
+test-e2e:
+    cargo build --release -p plumb-cli
+    @if [ -n "${SITE:-}" ]; then \
+        cargo run --release -p plumb-e2e -- --site "${SITE}" \
+            --plumb-bin target/release/plumb $${CHROME_PATH:+--chrome-path "$$CHROME_PATH"}; \
+    else \
+        cargo run --release -p plumb-e2e -- --all \
+            --plumb-bin target/release/plumb $${CHROME_PATH:+--chrome-path "$$CHROME_PATH"}; \
+    fi
+
 # Run per_rule_dom benchmarks (no Chromium required).
 bench:
     cargo bench -p plumb-cdp
