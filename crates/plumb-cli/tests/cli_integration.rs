@@ -676,3 +676,43 @@ fn lint_accepts_disable_animations_and_hide_scrollbars_and_dpr()
         .stdout(contains("spacing/grid-conformance"));
     Ok(())
 }
+
+// ============================================================
+// `plumb watch` (#83) — `--once` flag runs a single lint cycle and
+// exits without entering the filesystem watcher loop, which gives us
+// a deterministic shape to assert against without racing the OS.
+
+#[test]
+fn watch_once_runs_a_single_cycle_and_emits_status_line() -> Result<(), Box<dyn std::error::Error>>
+{
+    Command::cargo_bin("plumb")?
+        .args(["watch", "plumb-fake://hello", "--once"])
+        .assert()
+        .code(3)
+        .stdout(contains("spacing/grid-conformance"))
+        .stderr(contains("watching"))
+        .stderr(contains("lint:"))
+        .stderr(contains("violations"));
+    Ok(())
+}
+
+#[test]
+fn watch_once_with_json_format_emits_lint_payload() -> Result<(), Box<dyn std::error::Error>> {
+    Command::cargo_bin("plumb")?
+        .args(["watch", "plumb-fake://hello", "--once", "--format", "json"])
+        .assert()
+        .code(3)
+        .stdout(contains("\"rule_id\""))
+        .stderr(contains("watching"));
+    Ok(())
+}
+
+#[test]
+fn watch_help_lists_the_subcommand() -> Result<(), Box<dyn std::error::Error>> {
+    Command::cargo_bin("plumb")?
+        .args(["watch", "--help"])
+        .assert()
+        .success()
+        .stdout(contains("watch").or(contains("Watch")));
+    Ok(())
+}

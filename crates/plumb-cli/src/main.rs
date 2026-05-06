@@ -169,6 +169,82 @@ enum Command {
         #[arg(long, default_value_t = 4242)]
         port: u16,
     },
+    /// Watch the local source tree and re-run `plumb lint` on changes.
+    ///
+    /// Mirrors `plumb lint`'s flags. Filesystem events are debounced
+    /// with a 250 ms window so a single cycle covers a burst of edits
+    /// (editor save → temp swap → atomic rename). Press Ctrl-C to exit.
+    Watch {
+        /// URL to lint on each cycle. Defaults to `plumb-fake://hello`
+        /// so a fresh checkout demos the loop without a Chromium binary.
+        #[arg(default_value = "plumb-fake://hello")]
+        url: String,
+        /// Path to the config file. Defaults to `plumb.toml` in CWD.
+        #[arg(long, short = 'c')]
+        config: Option<PathBuf>,
+        /// Explicit Chrome or Chromium executable path.
+        #[arg(long, value_name = "PATH")]
+        executable_path: Option<PathBuf>,
+        /// Output format.
+        #[arg(long, value_enum, default_value_t = Format::Pretty)]
+        format: Format,
+        /// Restrict the run to the named viewports (repeatable).
+        #[arg(long = "viewport", value_name = "NAME", action = ArgAction::Append)]
+        viewports: Vec<String>,
+        /// Restrict linting to elements matching this CSS selector.
+        #[arg(long, value_name = "CSS_SELECTOR")]
+        selector: Option<String>,
+        /// Wait for a CSS selector to appear in the page before
+        /// capturing the snapshot.
+        #[arg(long, value_name = "CSS_SELECTOR")]
+        wait_for: Option<String>,
+        /// Sleep N milliseconds after navigation before capturing.
+        #[arg(long, value_name = "MS")]
+        wait_ms: Option<u64>,
+        /// Pre-set a cookie before navigation, in `name=value` form.
+        #[arg(long = "cookie", value_name = "NAME=VALUE", action = ArgAction::Append)]
+        cookies: Vec<String>,
+        /// Add an extra HTTP header to every outgoing request.
+        #[arg(long = "header", value_name = "NAME:VALUE", action = ArgAction::Append)]
+        headers: Vec<String>,
+        /// Path to a JavaScript file evaluated on every new document
+        /// before navigation.
+        #[arg(long, value_name = "PATH")]
+        auth_script: Option<PathBuf>,
+        /// Path to a Playwright `storage-state.json`.
+        #[arg(long, value_name = "PATH")]
+        storage_state: Option<PathBuf>,
+        /// Disable CSS animations and transitions before navigation.
+        #[arg(
+            long = "disable-animations",
+            default_value_t = true,
+            action = ArgAction::Set,
+            num_args = 0..=1,
+            default_missing_value = "true"
+        )]
+        disable_animations: bool,
+        /// Inject CSS that hides scrollbars before navigation.
+        #[arg(
+            long = "hide-scrollbars",
+            default_value_t = true,
+            action = ArgAction::Set,
+            num_args = 0..=1,
+            default_missing_value = "true"
+        )]
+        hide_scrollbars: bool,
+        /// Pin the device-pixel ratio used by the driver.
+        #[arg(long, value_name = "FACTOR")]
+        dpr: Option<f64>,
+        /// Directory to watch. Repeatable. Defaults to the current
+        /// working directory when absent.
+        #[arg(long = "path", value_name = "PATH", action = ArgAction::Append)]
+        watch_paths: Vec<PathBuf>,
+        /// Run a single lint cycle and exit instead of entering the
+        /// filesystem watch loop. Hidden — exists for integration tests
+        /// and ad-hoc shell use.
+        #[arg(long, hide = true)]
+        once: bool,
+    },
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -253,6 +329,49 @@ fn run(cli: Cli) -> Result<ExitCode> {
             Command::Explain { rule } => commands::explain::run(&rule),
             Command::Schema => commands::schema::run(),
             Command::Mcp { transport, port } => commands::mcp::run(transport, port).await,
+            Command::Watch {
+                url,
+                config,
+                executable_path,
+                format,
+                viewports,
+                selector,
+                wait_for,
+                wait_ms,
+                cookies,
+                headers,
+                auth_script,
+                storage_state,
+                disable_animations,
+                hide_scrollbars,
+                dpr,
+                watch_paths,
+                once,
+            } => {
+                commands::watch::run(commands::watch::WatchArgs {
+                    lint: commands::lint::LintArgs {
+                        url,
+                        config_path: config,
+                        executable_path,
+                        format: format.into(),
+                        output_path: None,
+                        viewports,
+                        selector,
+                        wait_for,
+                        wait_ms,
+                        cookies,
+                        headers,
+                        auth_script,
+                        storage_state,
+                        disable_animations,
+                        hide_scrollbars,
+                        dpr,
+                    },
+                    watch_paths,
+                    once,
+                })
+                .await
+            }
         }
     })
 }

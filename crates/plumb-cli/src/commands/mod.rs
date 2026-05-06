@@ -9,6 +9,7 @@ pub mod lint;
 pub mod mcp;
 pub mod schema;
 pub mod selector;
+pub mod watch;
 
 use std::fmt;
 
