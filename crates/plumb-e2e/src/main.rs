@@ -134,19 +134,31 @@ fn resolve_plumb_bin(
         } else {
             workspace_root.join(path)
         };
-        if !abs.is_file() {
-            return Err(anyhow::anyhow!(
-                "plumb binary not found at `{}` (--plumb-bin override)",
-                abs.display(),
-            ));
-        }
-        return Ok(abs);
+        // On Windows, `target/release/plumb` (no `.exe`) won't resolve.
+        // Try appending `EXE_SUFFIX` before failing.
+        let resolved = if abs.is_file() {
+            abs
+        } else {
+            let with_suffix = with_exe_suffix(&abs);
+            if with_suffix.is_file() {
+                with_suffix
+            } else {
+                return Err(anyhow::anyhow!(
+                    "plumb binary not found at `{}` (--plumb-bin override)",
+                    abs.display(),
+                ));
+            }
+        };
+        // Normalize separators so log lines and child-process invocations
+        // don't carry the mixed `\` / `/` form that callers may pass on
+        // Windows.
+        return Ok(resolved.canonicalize().unwrap_or(resolved));
     }
-    let bin_name = if cfg!(windows) { "plumb.exe" } else { "plumb" };
+    let bin_name = format!("plumb{}", std::env::consts::EXE_SUFFIX);
     for profile in ["release", "debug"] {
-        let candidate = workspace_root.join("target").join(profile).join(bin_name);
+        let candidate = workspace_root.join("target").join(profile).join(&bin_name);
         if candidate.is_file() {
-            return Ok(candidate);
+            return Ok(candidate.canonicalize().unwrap_or(candidate));
         }
     }
     Err(anyhow::anyhow!(
@@ -154,4 +166,22 @@ fn resolve_plumb_bin(
          Build it first (`cargo build --release -p plumb-cli`) or pass --plumb-bin.",
     ))
     .context("resolve plumb binary path")
+}
+
+/// Append `std::env::consts::EXE_SUFFIX` to `path` if it doesn't already
+/// end with it. On Unix this is a no-op (suffix is empty); on Windows it
+/// turns `…/plumb` into `…/plumb.exe`.
+fn with_exe_suffix(path: &std::path::Path) -> PathBuf {
+    let suffix = std::env::consts::EXE_SUFFIX;
+    if suffix.is_empty() {
+        return path.to_path_buf();
+    }
+    match path.extension().and_then(|s| s.to_str()) {
+        Some(ext) if ext.eq_ignore_ascii_case(suffix.trim_start_matches('.')) => path.to_path_buf(),
+        _ => {
+            let mut s = path.as_os_str().to_owned();
+            s.push(suffix);
+            PathBuf::from(s)
+        }
+    }
 }
