@@ -132,13 +132,49 @@ impl Rule for PaddingConsistency {
 ///
 /// For even counts, the lower of the two middle values wins (same
 /// deterministic tie-break as `sibling/height-consistency`).
+///
+/// Uses [`f64::total_cmp`] for the sort key — `partial_cmp` returns
+/// `None` on `NaN`, which would force a fallback comparator and risk
+/// nondeterministic ordering. `total_cmp` defines a total order over
+/// all `f64` bit patterns (including `NaN`s), which keeps the median
+/// reproducible regardless of the input distribution.
 fn median_f64(values: &[f64]) -> f64 {
     let mut sorted: Vec<f64> = values.to_vec();
-    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    sorted.sort_by(f64::total_cmp);
     let mid = sorted.len() / 2;
     if sorted.len().is_multiple_of(2) {
         sorted[mid - 1]
     } else {
         sorted[mid]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::median_f64;
+
+    #[test]
+    fn median_odd_count_picks_middle() {
+        assert!((median_f64(&[1.0, 5.0, 3.0]) - 3.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn median_even_count_picks_lower_middle() {
+        // Sorted: [1.0, 3.0, 5.0, 7.0]. Lower of the two middle values
+        // wins, which is 3.0.
+        assert!((median_f64(&[1.0, 7.0, 3.0, 5.0]) - 3.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn median_with_nan_is_total_and_does_not_panic() {
+        // `f64::total_cmp` defines a total order over NaN bit patterns,
+        // so the sort is well-defined and deterministic. Without
+        // `total_cmp`, `partial_cmp` would return `None` and the
+        // fallback comparator would risk a nondeterministic median.
+        // total_cmp orders NaN after positive infinity, so sorted
+        // looks like [1.0, 2.0, 3.0, NaN]; the lower middle is 2.0.
+        let values = [1.0_f64, f64::NAN, 3.0, 2.0];
+        let result = median_f64(&values);
+        assert!((result - 2.0).abs() < f64::EPSILON);
     }
 }

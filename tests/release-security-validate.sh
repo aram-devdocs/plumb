@@ -16,9 +16,30 @@ RELEASE_PREP_DOC="$REPO_ROOT/docs/src/ci/release-prep.md"
 
 failures=0
 
+# `pass`/`fail` track the total number of FAIL lines emitted so the
+# final exit status reflects true severity (e.g. a "1 failure" run
+# vs a "5 failures" run). The summary at the bottom reads `failures`
+# directly, which lets reviewers see drift across the whole batch
+# instead of clamping it to a boolean.
 pass() { echo "  PASS: $1"; }
-fail() { echo "  FAIL: $1" >&2; failures=1; }
+fail() { echo "  FAIL: $1" >&2; failures=$((failures + 1)); }
 
+# Scan a workflow file for `${{ secrets.* }}` interpolation that lives
+# inside a `run:` block body — the unsafe shape that risks leaking
+# secrets in shell logs.
+#
+# Supported: literal block scalars (`run: |`, `run: |-`, `run: |+`).
+# The Python parser walks the file by indentation: once it sees a
+# `run:` line whose value is `|`, `|-`, or `|+` it considers every
+# more-indented line as part of the run body until indentation
+# returns to the parent.
+#
+# Out of scope: folded scalars (`run: >`, `run: >-`, `run: >+`) and
+# inline single-line `run:` shell commands that already use
+# `${{ secrets.* }}` directly. Plumb's release-related workflows have
+# never used the folded shape — if that changes, extend this scanner
+# in the same PR. Inline `run:` lines containing `secrets.*` are
+# still flagged on the same line.
 scan_run_block_secrets() {
     python3 - "$1" <<'PY'
 import sys
@@ -47,6 +68,9 @@ for i, raw in enumerate(lines, 1):
 
     if stripped.startswith("run:"):
         rest = stripped[len("run:"):].strip()
+        # Literal block scalars only. Folded scalars (`>`, `>-`, `>+`)
+        # are intentionally out of scope; see scan_run_block_secrets
+        # docstring.
         if rest in ("|", "|-", "|+"):
             in_run = True
             run_indent = indent
@@ -127,6 +151,14 @@ echo "4. Secret leakage prevention"
 # in run blocks. The safe pattern is: env: { TOKEN: ${{ secrets.X }} }
 # then reference $TOKEN in the script. Direct ${{ secrets.* }} in run
 # blocks risks leaking secrets in logs.
+#
+# `legacy_env_key_pattern` is built up across two assignments on
+# purpose: the literal we are checking for is the very pattern that
+# would match this validator's source if it were written as a single
+# string. Splitting the pattern into two concatenated halves avoids a
+# self-match here while still letting `grep` reconstruct the full
+# regex — without the split, the guard below would always fail
+# because the validator file itself contains the regex.
 legacy_env_key_pattern='[A-Z_]'
 legacy_env_key_pattern+='*:\s*\${{'
 if grep -Fq "$legacy_env_key_pattern" "$0"; then
@@ -139,7 +171,11 @@ fi
 # the same text inside a run: block must be flagged. This documents the
 # anchored env-key behavior Claude requested while using a stricter
 # context-aware scanner.
+#
+# The fixture file is registered with an EXIT trap so the temp file is
+# removed even if a later assertion exits non-zero under `set -e`.
 scanner_fixture="$(mktemp)"
+trap 'rm -f "$scanner_fixture"' EXIT
 cat >"$scanner_fixture" <<'EOF'
 steps:
   - name: safe env block
@@ -153,6 +189,7 @@ steps:
 EOF
 fixture_hits="$(scan_run_block_secrets "$scanner_fixture")"
 rm -f "$scanner_fixture"
+trap - EXIT
 if printf '%s\n' "$fixture_hits" | grep -Fq 'GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} && curl'; then
     pass "scanner ignores env-key entries and flags direct run-block interpolation"
 else
@@ -184,6 +221,15 @@ else
     pass "release workflow does not contain active Homebrew publish steps"
 fi
 
+# `dist-workspace.toml` is part of the release contract (cargo-dist
+# generates it; the repo checks it in). Treat absence uniformly as a
+# failure across the gating, prep-only-docs, and installer-list checks
+# below — silent passes on absence would let a missing file mask real
+# regressions.
+if [ ! -f "$DIST_CONFIG" ]; then
+    fail "dist-workspace.toml missing — required for Homebrew/npm gating checks"
+fi
+
 # dist-workspace.toml must not have tap field set (gated until prereqs exist).
 if [ -f "$DIST_CONFIG" ]; then
     if grep -Eq '^\s*tap\s*=' "$DIST_CONFIG"; then
@@ -191,15 +237,14 @@ if [ -f "$DIST_CONFIG" ]; then
     else
         pass "dist-workspace.toml does not set tap — Homebrew publish correctly gated"
     fi
-else
-    pass "dist-workspace.toml not found — Homebrew publish correctly absent"
 fi
 
-if [ -f "$DIST_CONFIG" ] \
-    && grep -Fq 'Issues #51 and #52 are intentionally prep-only' "$DIST_CONFIG"; then
-    pass "dist-workspace.toml documents #51/#52 as prep-only"
-else
-    fail "dist-workspace.toml does not document #51/#52 as prep-only"
+if [ -f "$DIST_CONFIG" ]; then
+    if grep -Fq 'Issues #51 and #52 are intentionally prep-only' "$DIST_CONFIG"; then
+        pass "dist-workspace.toml documents #51/#52 as prep-only"
+    else
+        fail "dist-workspace.toml does not document #51/#52 as prep-only"
+    fi
 fi
 
 # ── 6. NPM scope publish is gated ─────────────────────────────────
@@ -213,7 +258,11 @@ else
     pass "release workflow does not contain active npm publish steps"
 fi
 
-# dist-workspace.toml must not have npm-scope field set.
+# Absent-file behavior here mirrors section 5: a missing
+# dist-workspace.toml has already been flagged as a fail above, so the
+# inner checks short-circuit without re-emitting noise. When the file
+# is present, both shape (no `npm-scope`) and content
+# (`installers = ["shell", "powershell"]`) get checked.
 if [ -f "$DIST_CONFIG" ]; then
     if grep -Eq '^\s*npm-scope\s*=' "$DIST_CONFIG"; then
         fail "dist-workspace.toml has npm-scope field set — NPM publish must stay gated"
@@ -222,11 +271,12 @@ if [ -f "$DIST_CONFIG" ]; then
     fi
 fi
 
-if [ -f "$DIST_CONFIG" ] \
-    && grep -Fq 'installers = ["shell", "powershell"]' "$DIST_CONFIG"; then
-    pass "dist-workspace.toml keeps npm out of the active installer list"
-else
-    fail "dist-workspace.toml does not keep npm out of the active installer list"
+if [ -f "$DIST_CONFIG" ]; then
+    if grep -Fq 'installers = ["shell", "powershell"]' "$DIST_CONFIG"; then
+        pass "dist-workspace.toml keeps npm out of the active installer list"
+    else
+        fail "dist-workspace.toml does not keep npm out of the active installer list"
+    fi
 fi
 
 # The install-smoke workflow documents NPM_TOKEN is not yet wired.
@@ -317,7 +367,7 @@ fi
 
 echo ""
 if [ "$failures" -ne 0 ]; then
-    echo "FAILED: one or more checks failed."
+    echo "FAILED: $failures check(s) failed."
     exit 1
 else
     echo "PASSED: all checks passed."
