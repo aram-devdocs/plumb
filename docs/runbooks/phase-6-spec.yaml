@@ -16,7 +16,7 @@ parent:
     This is the phase that flips Plumb from "works" to "launchable."
   acceptance_criteria:
     - "plumb.aramhammoudeh.com live and indexed, with install / quick-start / config / rule / MCP / FAQ chapters."
-    - "`plumb lint https://plumb.aramhammoudeh.com` exits 0 or 3 (no errors) and produces byte-identical output across 3 runs (deterministic dogfooding). Reaching 0 total violations is tracked as a post-V0 follow-up — see #235."
+    - "`plumb lint https://plumb.aramhammoudeh.com` exits 0 or 3 (no errors) and produces byte-identical output across 3 runs (deterministic dogfooding). Reaching 0 total violations is tracked as a post-V0 follow-up — see #238."
     - "Benchmarks published showing cold-start, warm-run, per-rule cost across DOM sizes."
     - "Landing site live with 90%-UI problem framing + quick demo + install CTA."
     - "GitHub Discussions enabled; roadmap umbrella pinned."
