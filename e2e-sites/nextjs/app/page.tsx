@@ -3,12 +3,9 @@
 // Same intentional violations as the rest of the matrix: see
 // ../README.md.
 
-import PlumbReady from "./plumb-ready";
-
 export default function Page() {
   return (
     <main className="p-6">
-      <PlumbReady />
       <section className="bg-white text-[#0b0b0b] p-4 mb-6">
         <h1 className="text-2xl font-semibold mb-2">Plumb e2e — nextjs</h1>
         <p className="text-base">
