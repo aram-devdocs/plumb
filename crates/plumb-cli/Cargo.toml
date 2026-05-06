@@ -26,7 +26,10 @@ plumb-codegen = { workspace = true }
 plumb-cdp = { workspace = true }
 plumb-mcp = { workspace = true }
 clap = { workspace = true }
-tokio = { workspace = true }
+# `signal` feature: needed by `plumb watch` (#83) for `tokio::signal::ctrl_c`.
+# The workspace tokio dep stays minimal; adding it as a per-crate feature
+# keeps libraries that don't run the watcher from pulling the dep.
+tokio = { workspace = true, features = ["signal"] }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 miette = { workspace = true }
@@ -38,6 +41,11 @@ indexmap = { workspace = true }
 # selector parser's error types; `deterministic` keeps internal hash maps
 # deterministic so filter output is byte-stable across runs.
 scraper = { version = "0.26", default-features = false, features = ["errors", "deterministic"] }
+# Filesystem watcher for `plumb watch` (#83). The debouncer collapses
+# bursts (editor save → temp file dance → atomic rename) into a single
+# cycle so the lint inner call runs at most once per debounce window.
+notify = { workspace = true }
+notify-debouncer-full = { workspace = true }
 
 [dev-dependencies]
 assert_cmd = { workspace = true }
