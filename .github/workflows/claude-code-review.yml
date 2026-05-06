@@ -25,7 +25,19 @@ concurrency:
 jobs:
   review:
     name: Claude review
-    if: github.event.pull_request.draft == false
+    # Skip on dependabot / renovate PRs. Bot PRs run with reduced
+    # GITHUB_TOKEN scopes, so the action's GitHub App token request
+    # fails with "Internal error: directory mismatch ... fd 4" before
+    # any review can happen. Anthropic's security docs explicitly
+    # recommend filtering bot actors:
+    # https://github.com/anthropics/claude-code-action/blob/main/docs/security.md
+    # The dependency / CI bumps already get full coverage from
+    # determinism, MSRV, three-OS test matrix, cargo-deny, coverage,
+    # and the readiness matrix.
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.actor != 'dependabot[bot]' &&
+      github.actor != 'renovate[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
