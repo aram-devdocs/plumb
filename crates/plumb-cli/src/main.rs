@@ -245,6 +245,11 @@ enum Command {
         /// Pin the device-pixel ratio used by the driver.
         #[arg(long, value_name = "FACTOR")]
         dpr: Option<f64>,
+        /// Mirror of `lint --auto-fetch-chromium`. Off by default —
+        /// auto-fetch downloads and executes a third-party binary, so
+        /// passing this flag is the explicit acknowledgement of trust.
+        #[arg(long = "auto-fetch-chromium", default_value_t = false)]
+        auto_fetch_chromium: bool,
         /// Directory to watch. Repeatable. Defaults to the current
         /// working directory when absent.
         #[arg(long = "path", value_name = "PATH", action = ArgAction::Append)]
@@ -357,6 +362,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 disable_animations,
                 hide_scrollbars,
                 dpr,
+                auto_fetch_chromium,
                 watch_paths,
                 once,
             } => {
@@ -378,6 +384,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
                         disable_animations,
                         hide_scrollbars,
                         dpr,
+                        auto_fetch_chromium,
                     },
                     watch_paths,
                     once,
