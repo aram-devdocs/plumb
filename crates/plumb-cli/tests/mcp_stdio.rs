@@ -130,6 +130,7 @@ fn assert_config_resource(resource: &Value) {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn mcp_initialize_and_tools_list() {
     let tools_list = json!({
         "jsonrpc": "2.0",
@@ -159,9 +160,35 @@ fn mcp_initialize_and_tools_list() {
     let names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
     assert!(names.contains(&"echo"));
     assert!(names.contains(&"lint_url"));
+    assert!(names.contains(&"lint_page_html"));
     assert!(names.contains(&"explain_rule"));
     assert!(names.contains(&"list_rules"));
     assert!(names.contains(&"get_config"));
+
+    let lint_page_html = tools
+        .iter()
+        .find(|tool| tool["name"] == "lint_page_html")
+        .unwrap_or_else(|| panic!("lint_page_html tool missing: got {tools:?}"));
+    assert_eq!(
+        lint_page_html["inputSchema"]["properties"]["html"]["type"],
+        "string"
+    );
+    assert_eq!(
+        lint_page_html["inputSchema"]["properties"]["base_url"]["type"],
+        "string"
+    );
+    let mut required: Vec<String> = lint_page_html["inputSchema"]["required"]
+        .as_array()
+        .expect("lint_page_html must declare required fields")
+        .iter()
+        .map(|v| v.as_str().expect("required field name").to_owned())
+        .collect();
+    required.sort();
+    assert_eq!(
+        required,
+        vec!["base_url".to_owned(), "html".to_owned()],
+        "lint_page_html must require both `html` and `base_url`: {lint_page_html:?}"
+    );
 
     let echo = tools
         .iter()

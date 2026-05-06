@@ -62,6 +62,7 @@ bind address, not the token value.
 |------|-------------|
 | `echo` | Smoke-test the transport. Echoes the `message` arg back. |
 | `lint_url` | Lint a URL. Args: `{ "url": "...", "detail": "compact" | "full" }`, where `detail` is optional and defaults to `compact`. Accepts `http(s)://` URLs (driven by the bundled Chromium driver) and `plumb-fake://hello` (canned snapshot for tests). On a Chromium launch failure the response is returned with `isError: true` and a single text block carrying the typed driver error. |
+| `lint_page_html` | Lint a static HTML string without launching Chromium. Args: `{ "html": "...", "base_url": "https://example.com/" }`. Returns the same compact MCP response shape as `lint_url`. Hard-capped at 1 MiB of input and 10 000 elements; oversized inputs surface as JSON-RPC `invalid_params` (-32602). No JavaScript execution, no resource fetching — `computed_styles` is empty and `rect` is `None`, so this path catches structural rules but not rendering-dependent ones. |
 | `explain_rule` | Return canonical documentation and metadata for a Plumb rule by id. Args: `{ "rule_id": "<category>/<id>" }`. |
 | `list_rules` | List every built-in Plumb rule with id, default severity, and one-line summary. No args. |
 | `get_config` | Return resolved `plumb.toml` for a working directory as JSON. Memoized per `(path, mtime)`. |
