@@ -341,9 +341,8 @@ impl PlumbServer {
             ));
         }
 
-        let snapshot = snapshot_from_html(&args.html, &args.base_url).map_err(|err| {
-            ErrorData::invalid_params(format!("snapshot_from_html: {err}"), None)
-        })?;
+        let snapshot = snapshot_from_html(&args.html, &args.base_url)
+            .map_err(|err| ErrorData::invalid_params(format!("snapshot_from_html: {err}"), None))?;
         let config = Config::default();
         let violations = run(&snapshot, &config);
         build_lint_url_result(&violations, LintUrlDetail::Compact)
