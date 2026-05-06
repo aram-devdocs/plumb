@@ -507,6 +507,20 @@ impl StorageState {
     /// Returns [`CdpError::InvalidPath`] when the path fails the safe-path
     /// check, or [`CdpError::MalformedStorageState`] when the file cannot
     /// be read or parsed.
+    ///
+    /// # Security boundary
+    ///
+    /// The safe-path check via [`canonicalize_safe_path`] is
+    /// **best-effort** only — see that function's docs. The
+    /// canonicalize-then-open sequence has an inherent TOCTOU window
+    /// where a co-located attacker with write access to a parent
+    /// directory could swap the resolved file for a symlink between
+    /// the check and the read. Plumb's storage-state loader is
+    /// intended for files the invoking user controls (typically a
+    /// Playwright export checked into the project). It MUST NOT be
+    /// treated as a sandbox against hostile local users. The full
+    /// mitigation (`cap_std::Dir::open`) is out of scope for the wave
+    /// that introduced this loader.
     pub fn load_from_path(path: &Path) -> Result<Self, CdpError> {
         let canonical = canonicalize_safe_path(path)?;
         let bytes =
@@ -546,6 +560,23 @@ impl StorageState {
 /// content. The check refuses paths that:
 /// - cannot be canonicalized (file does not exist / no permission),
 /// - resolve to a different prefix than the current working directory.
+///
+/// # Security boundary
+///
+/// This is a **best-effort** guard against accidental path issues
+/// (typos, copy-pasted absolute paths, runs from the wrong CWD). It is
+/// **not** a security boundary against a co-located attacker who can
+/// race the file system — the canonicalize step and the subsequent
+/// `std::fs::read_to_string` are two separate `open(2)` syscalls, and
+/// an attacker with write access to a parent directory of `path` can
+/// swap the canonicalized target for a symlink between the check and
+/// the read (TOCTOU). A full mitigation would use `cap_std::Dir::open`
+/// to keep the canonicalization and the read inside a single
+/// directory handle; that change is out of scope for the wave that
+/// added this helper.
+///
+/// Future maintainers MUST NOT assume this function defends against a
+/// hostile local user. Treat it as a usability check, not a sandbox.
 fn canonicalize_safe_path(path: &Path) -> Result<PathBuf, CdpError> {
     let canonical = path.canonicalize().map_err(|err| CdpError::InvalidPath {
         path: path.to_path_buf(),
@@ -1166,6 +1197,19 @@ async fn inject_scrollbar_killer(page: &Page) -> Result<(), CdpError> {
     add_script_to_evaluate_on_new_document(page, source).await
 }
 
+/// Read `path` (validated as a `.js` file under the CWD) and register
+/// it as `Page.addScriptToEvaluateOnNewDocument` so it runs before any
+/// page script.
+///
+/// # Security boundary
+///
+/// The safe-path check via [`canonicalize_safe_path`] is best-effort
+/// only — see that function's docs. Treat the resulting file content
+/// as user-trusted: the CLI hands us a path supplied either by the
+/// invoking user or by an `auth-script` already in the project, never
+/// by a remote source. The TOCTOU window between canonicalization and
+/// `std::fs::read_to_string` is acknowledged but not yet closed; the
+/// full fix requires `cap_std`.
 async fn inject_auth_script(page: &Page, path: &Path) -> Result<(), CdpError> {
     let canonical = canonicalize_safe_path(path)?;
     if canonical.extension().and_then(|s| s.to_str()) != Some("js") {
