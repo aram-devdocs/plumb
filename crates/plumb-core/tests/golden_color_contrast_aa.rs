@@ -9,6 +9,28 @@
 //! - bold 19px text that counts as large,
 //! - bold 18.6px text that still counts as normal under the precise 14pt cutoff,
 //! - text inside a dark section whose nearest ancestor background is not white.
+//!
+//! ## Fixture node map
+//!
+//! The selector each text node uses is the CSS `:nth-child(N)` index of
+//! its position under `body`. The selector index is independent of the
+//! node's `dom_order` — `dom_order` reflects insertion order in the
+//! snapshot vector, which the engine sorts violations by. The table
+//! below pairs each `nth-child(N)` selector with the `dom_order` and
+//! WCAG-relevant style values used in `fixture_snapshot()` so an
+//! agent reading the snapshot can map selector → expected behavior
+//! without re-deriving it from the fixture body.
+//!
+//! | nth-child | dom_order | font-size | font-weight | foreground         | parent bg          | classification | expected verdict |
+//! | --------- | --------- | --------- | ----------- | ------------------ | ------------------ | -------------- | ---------------- |
+//! | 1         | 2         | 16px      | (default)   | rgb(0, 0, 0)       | rgb(255, 255, 255) | normal         | pass             |
+//! | 2         | 3         | 16px      | (default)   | rgb(119, 119, 119) | rgb(255, 255, 255) | normal         | fail (< 4.5:1)   |
+//! | 3         | 4         | 24px      | (default)   | rgb(148, 148, 148) | rgb(255, 255, 255) | large          | pass (>= 3.0:1)  |
+//! | 4         | 5         | 18px      | 700 (bold)  | rgb(148, 148, 148) | rgb(255, 255, 255) | normal         | fail (< 4.5:1)   |
+//! | 5         | 6         | 19px      | 700 (bold)  | rgb(148, 148, 148) | rgb(255, 255, 255) | large          | pass (>= 3.0:1)  |
+//! | 6         | 9         | 18.6px    | 700 (bold)  | rgb(148, 148, 148) | rgb(255, 255, 255) | normal         | fail (< 4.5:1)   |
+//! | section p | 8         | 16px      | (default)   | rgb(120, 120, 120) | rgb(34, 34, 34)    | normal         | pass             |
+//! | 7         | 10        | 16px      | (default)   | rgb(110, 110, 110) | rgb(255, 255, 255) | normal         | pass at 4.5:1, fails at 7.0:1 |
 
 use indexmap::IndexMap;
 use plumb_core::report::Rect;

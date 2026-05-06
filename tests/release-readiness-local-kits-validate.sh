@@ -12,8 +12,11 @@ CI_WORKFLOW="$REPO_ROOT/.github/workflows/ci.yml"
 
 failures=0
 
+# `pass`/`fail` track the total number of FAIL lines so the final
+# summary reflects how many distinct checks failed instead of
+# clamping to a boolean.
 pass() { echo "  PASS: $1"; }
-fail() { echo "  FAIL: $1" >&2; failures=1; }
+fail() { echo "  FAIL: $1" >&2; failures=$((failures + 1)); }
 
 echo "=== Release-readiness local kit validation ==="
 echo ""
@@ -59,7 +62,7 @@ fi
 
 echo ""
 if [ "$failures" -ne 0 ]; then
-    echo "FAILED: one or more checks failed."
+    echo "FAILED: $failures check(s) failed."
     exit 1
 else
     echo "PASSED: all checks passed."

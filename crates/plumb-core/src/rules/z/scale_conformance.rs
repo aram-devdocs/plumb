@@ -50,7 +50,13 @@ impl Rule for ScaleConformance {
                 continue;
             }
 
-            let nearest = nearest_z(value, scale);
+            // The early `scale.is_empty()` guard above ensures
+            // `nearest_z` always returns `Some`. The `?` keeps the
+            // rule total even if a future refactor relaxes the outer
+            // guard.
+            let Some(nearest) = nearest_z(value, scale) else {
+                continue;
+            };
 
             let mut metadata: IndexMap<String, serde_json::Value> = IndexMap::new();
             metadata.insert("z_index".to_owned(), serde_json::Value::from(value));
@@ -88,20 +94,57 @@ impl Rule for ScaleConformance {
 /// Find the nearest z-index in the scale.
 ///
 /// Ties: toward lower absolute value, then toward the value closer to zero.
-fn nearest_z(value: i32, scale: &[i32]) -> i32 {
-    let mut best = scale[0];
-    let mut best_delta = value.abs_diff(best);
-    for &candidate in &scale[1..] {
-        let delta = value.abs_diff(candidate);
-        if delta < best_delta
-            || (delta == best_delta && candidate.unsigned_abs() < best.unsigned_abs())
-            || (delta == best_delta
-                && candidate.unsigned_abs() == best.unsigned_abs()
-                && candidate > best)
-        {
-            best = candidate;
-            best_delta = delta;
+///
+/// Returns `None` only when `scale` is empty. Encoding the empty-scale
+/// case in the return type keeps the helper total: callers do not
+/// have to repeat an `is_empty()` precondition to avoid a panic, and
+/// the rule stays sound if a future caller forgets the outer guard.
+fn nearest_z(value: i32, scale: &[i32]) -> Option<i32> {
+    scale.iter().copied().fold(None, |best, candidate| {
+        let candidate_delta = value.abs_diff(candidate);
+        match best {
+            None => Some(candidate),
+            Some(current) => {
+                let current_delta = value.abs_diff(current);
+                if candidate_delta < current_delta
+                    || (candidate_delta == current_delta
+                        && candidate.unsigned_abs() < current.unsigned_abs())
+                    || (candidate_delta == current_delta
+                        && candidate.unsigned_abs() == current.unsigned_abs()
+                        && candidate > current)
+                {
+                    Some(candidate)
+                } else {
+                    Some(current)
+                }
+            }
         }
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::nearest_z;
+
+    #[test]
+    fn empty_scale_returns_none() {
+        assert_eq!(nearest_z(5, &[]), None);
     }
-    best
+
+    #[test]
+    fn picks_closest_z_in_scale() {
+        let scale = [0, 10, 100];
+        assert_eq!(nearest_z(7, &scale), Some(10));
+        assert_eq!(nearest_z(3, &scale), Some(0));
+        assert_eq!(nearest_z(60, &scale), Some(100));
+    }
+
+    #[test]
+    fn breaks_ties_toward_higher_signed_value_for_equal_abs() {
+        let scale = [-10, 10];
+        // 0 is equidistant from -10 and 10. With equal absolute value,
+        // the tie-break picks the higher signed value (10), matching
+        // the existing rule contract.
+        assert_eq!(nearest_z(0, &scale), Some(10));
+    }
 }

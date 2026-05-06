@@ -52,7 +52,13 @@ impl Rule for ScaleConformance {
                 continue;
             }
 
-            let nearest = nearest_opacity(value, scale);
+            // The early `scale.is_empty()` guard above ensures
+            // `nearest_opacity` always returns `Some`. The `?` keeps
+            // the rule total even if a future refactor relaxes the
+            // outer guard.
+            let Some(nearest) = nearest_opacity(value, scale) else {
+                continue;
+            };
 
             let mut metadata: IndexMap<String, serde_json::Value> = IndexMap::new();
             metadata.insert("opacity".to_owned(), serde_json::Value::from(value));
@@ -92,16 +98,48 @@ impl Rule for ScaleConformance {
 }
 
 /// Find the nearest opacity in the scale. Ties: lower value wins.
+///
+/// Returns `None` only when `scale` is empty. Encoding the empty-scale
+/// case in the return type keeps the helper total: callers do not
+/// have to repeat an `is_empty()` precondition to avoid a panic, and
+/// the rule stays sound if a future caller forgets the outer guard.
 #[allow(clippy::float_cmp)]
-fn nearest_opacity(value: f64, scale: &[f32]) -> f32 {
-    let mut best = scale[0];
-    let mut best_delta = (value - f64::from(best)).abs();
-    for &candidate in &scale[1..] {
-        let delta = (value - f64::from(candidate)).abs();
-        if delta < best_delta || (delta == best_delta && candidate < best) {
-            best = candidate;
-            best_delta = delta;
+fn nearest_opacity(value: f64, scale: &[f32]) -> Option<f32> {
+    scale.iter().copied().fold(None, |best, candidate| {
+        let candidate_delta = (value - f64::from(candidate)).abs();
+        match best {
+            None => Some(candidate),
+            Some(current) => {
+                let current_delta = (value - f64::from(current)).abs();
+                // Equality on `f64` deltas is intentional: each delta
+                // is computed the same way for every candidate, so a
+                // true tie is exactly representable in `f64`.
+                if candidate_delta < current_delta
+                    || (candidate_delta == current_delta && candidate < current)
+                {
+                    Some(candidate)
+                } else {
+                    Some(current)
+                }
+            }
         }
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::nearest_opacity;
+
+    #[test]
+    fn empty_scale_returns_none() {
+        assert_eq!(nearest_opacity(0.5, &[]), None);
     }
-    best
+
+    #[test]
+    fn picks_closest_opacity_in_scale() {
+        let scale: [f32; 3] = [0.0, 0.5, 1.0];
+        assert_eq!(nearest_opacity(0.4, &scale), Some(0.5));
+        assert_eq!(nearest_opacity(0.1, &scale), Some(0.0));
+        assert_eq!(nearest_opacity(0.9, &scale), Some(1.0));
+    }
 }

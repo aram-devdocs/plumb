@@ -59,6 +59,15 @@ impl Rule for ContrastAa {
 
     fn check(&self, ctx: &SnapshotCtx<'_>, config: &Config, sink: &mut ViolationSink<'_>) {
         let snapshot = ctx.snapshot();
+        // `parent_index` and `nodes_by_dom_order` walk every node in
+        // the snapshot. Both are rebuilt once per `check` call (i.e.
+        // once per rule invocation per snapshot), which is O(N) — the
+        // same order as the per-node scan that follows. If a future
+        // benchmark shows these dominate rule cost on large pages,
+        // hoist them into `SnapshotCtx` so the rule engine builds them
+        // once per snapshot and shares across rules. Until profiling
+        // says otherwise, keep them local to keep `SnapshotCtx`
+        // unspecialized.
         let parents = parent_index(snapshot);
         let nodes_by_dom_order = nodes_by_dom_order(snapshot);
 
@@ -99,6 +108,13 @@ fn violation_for_node(
     let is_large = classify_large_text(font_size_px, font_weight);
     let required_ratio = required_ratio(config, is_large);
     let background = resolve_background(parents, nodes_by_dom_order, node);
+    // `foreground.a` is parsed from CSS into an `f32` via
+    // `parse_alpha`, which clamps the value to `[0.0, 1.0]`. An
+    // exactly-opaque CSS color (`a = 1` or `1.0`) round-trips to the
+    // f32 literal `1.0`, so `(a - 1.0).abs() < f32::EPSILON` is the
+    // correct opacity test under that origin. A wider tolerance would
+    // skip the alpha composite for slightly-translucent colors and
+    // overstate contrast.
     let effective_foreground = if (foreground.a - 1.0).abs() < f32::EPSILON {
         foreground
     } else {
