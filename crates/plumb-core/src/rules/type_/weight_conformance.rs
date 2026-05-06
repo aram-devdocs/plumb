@@ -46,7 +46,13 @@ impl Rule for WeightConformance {
                 continue;
             }
 
-            let nearest = nearest_weight(value, weights);
+            // The early `weights.is_empty()` guard above ensures
+            // `nearest_weight` always returns `Some`. The `?` keeps
+            // the rule total even if a future refactor relaxes the
+            // outer guard.
+            let Some(nearest) = nearest_weight(value, weights) else {
+                continue;
+            };
 
             let mut metadata: IndexMap<String, serde_json::Value> = IndexMap::new();
             metadata.insert("font_weight".to_owned(), serde_json::Value::from(value));
@@ -82,15 +88,51 @@ impl Rule for WeightConformance {
 }
 
 /// Find the nearest weight in the scale. Ties: lower wins.
-fn nearest_weight(value: u16, scale: &[u16]) -> u16 {
-    let mut best = scale[0];
-    let mut best_delta = value.abs_diff(best);
-    for &candidate in &scale[1..] {
-        let delta = value.abs_diff(candidate);
-        if delta < best_delta || (delta == best_delta && candidate < best) {
-            best = candidate;
-            best_delta = delta;
+///
+/// Returns `None` only when `scale` is empty. Encoding the empty-scale
+/// case in the return type keeps the helper total: callers do not
+/// have to repeat an `is_empty()` precondition to avoid a panic, and
+/// the rule stays sound if a future caller forgets the outer guard.
+fn nearest_weight(value: u16, scale: &[u16]) -> Option<u16> {
+    scale.iter().copied().fold(None, |best, candidate| {
+        let candidate_delta = value.abs_diff(candidate);
+        match best {
+            None => Some(candidate),
+            Some(current) => {
+                let current_delta = value.abs_diff(current);
+                if candidate_delta < current_delta
+                    || (candidate_delta == current_delta && candidate < current)
+                {
+                    Some(candidate)
+                } else {
+                    Some(current)
+                }
+            }
         }
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::nearest_weight;
+
+    #[test]
+    fn empty_scale_returns_none() {
+        assert_eq!(nearest_weight(500, &[]), None);
     }
-    best
+
+    #[test]
+    fn picks_closest_weight_in_scale() {
+        let scale = [400, 500, 700];
+        assert_eq!(nearest_weight(450, &scale), Some(400));
+        assert_eq!(nearest_weight(600, &scale), Some(500));
+        assert_eq!(nearest_weight(800, &scale), Some(700));
+    }
+
+    #[test]
+    fn breaks_ties_toward_lower_value() {
+        let scale = [400, 600];
+        // Equidistant: 500 - 400 == 600 - 500. Lower wins.
+        assert_eq!(nearest_weight(500, &scale), Some(400));
+    }
 }

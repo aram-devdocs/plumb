@@ -12,8 +12,11 @@ RELEASE_PREP_DOC="$REPO_ROOT/docs/src/ci/release-prep.md"
 
 failures=0
 
+# `pass`/`fail` track the total number of FAIL lines so the final
+# summary reflects how many distinct checks failed instead of
+# clamping to a boolean.
 pass() { echo "  PASS: $1"; }
-fail() { echo "  FAIL: $1" >&2; failures=1; }
+fail() { echo "  FAIL: $1" >&2; failures=$((failures + 1)); }
 
 echo "=== Install-smoke gate validation ==="
 echo ""
@@ -99,6 +102,20 @@ fi
 # Current repo contract: cargo/curl run automatically on all supported
 # platforms; brew/npm stay documented as prep-only until external setup
 # exists.
+#
+# Expected matrix counts (one entry per OS leg, see
+# `.github/workflows/install-smoke.yml`):
+#
+#   cargo_count = 3  → ubuntu + macos + windows (non-manual)
+#   curl_count  = 3  → ubuntu + macos + windows (non-manual; windows
+#                       leg uses PowerShell installer)
+#   brew_count  = 2  → ubuntu + macos only (homebrew has no Windows
+#                       support; gated until a tap publish path exists)
+#   npm_count   = 3  → ubuntu + macos + windows (gated; npm runs
+#                       cross-platform once a publish path exists)
+#
+# Adjust both the counts and the corresponding pass/fail messages
+# together when the matrix changes — they document the contract.
 cargo_count=$(grep -c 'channel: cargo' "$WORKFLOW" || true)
 curl_count=$(grep -c 'channel: curl' "$WORKFLOW" || true)
 brew_count=$(grep -c 'channel: brew' "$WORKFLOW" || true)
@@ -117,15 +134,15 @@ else
 fi
 
 if [ "$brew_count" -eq 2 ]; then
-    pass "brew channel stays limited to supported gated OS legs"
+    pass "brew channel covers ubuntu and macos as gated OS legs (no Windows; homebrew has no Windows support)"
 else
-    fail "brew channel count is $brew_count (expected 2 gated OS legs)"
+    fail "brew channel count is $brew_count (expected 2 gated OS legs: ubuntu + macos)"
 fi
 
 if [ "$npm_count" -eq 3 ]; then
-    pass "npm channel stays limited to supported gated OS legs"
+    pass "npm channel covers all three OSes as gated OS legs"
 else
-    fail "npm channel count is $npm_count (expected 3 gated OS legs)"
+    fail "npm channel count is $npm_count (expected 3 gated OS legs: ubuntu + macos + windows)"
 fi
 
 # ── 5. Verification steps ──────────────────────────────────────────
@@ -297,7 +314,7 @@ fi
 
 echo ""
 if [ "$failures" -ne 0 ]; then
-    echo "FAILED: one or more checks failed."
+    echo "FAILED: $failures check(s) failed."
     exit 1
 else
     echo "PASSED: all checks passed."
