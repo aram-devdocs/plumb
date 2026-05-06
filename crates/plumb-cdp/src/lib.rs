@@ -596,7 +596,7 @@ impl StorageState {
     ///
     /// # Security boundary
     ///
-    /// The safe-path check via [`canonicalize_safe_path`] is
+    /// The safe-path check via `canonicalize_safe_path` is
     /// **best-effort** only — see that function's docs. The
     /// canonicalize-then-open sequence has an inherent TOCTOU window
     /// where a co-located attacker with write access to a parent
@@ -628,7 +628,7 @@ impl StorageState {
     }
 }
 
-/// Public CLI-facing wrapper around [`canonicalize_safe_path`].
+/// Public CLI-facing wrapper around `canonicalize_safe_path`.
 ///
 /// `plumb-cli` validates `--auth-script` / `--storage-state` paths up
 /// front (before driver dispatch) so the FakeDriver path also rejects
@@ -645,7 +645,7 @@ impl StorageState {
 ///
 /// # Security boundary
 ///
-/// Same caveats as [`canonicalize_safe_path`]: this is a best-effort
+/// Same caveats as `canonicalize_safe_path`: this is a best-effort
 /// usability guard, **not** a sandbox. See that function's docs for
 /// the full TOCTOU discussion.
 pub fn validate_safe_path(path: &Path) -> Result<PathBuf, CdpError> {
@@ -1314,7 +1314,7 @@ async fn inject_scrollbar_killer(page: &Page) -> Result<(), CdpError> {
 ///
 /// # Security boundary
 ///
-/// The safe-path check via [`canonicalize_safe_path`] is best-effort
+/// The safe-path check via `canonicalize_safe_path` is best-effort
 /// only — see that function's docs. Treat the resulting file content
 /// as user-trusted: the CLI hands us a path supplied either by the
 /// invoking user or by an `auth-script` already in the project, never
