@@ -6,7 +6,7 @@ use std::process::Command;
 use indexmap::IndexMap;
 
 use crate::HarnessError;
-use crate::expected::Expected;
+use crate::expected::{Expected, WaitFor};
 use crate::server::StaticServer;
 
 /// Runtime configuration for a harness invocation.
@@ -95,7 +95,7 @@ pub fn run_site(name: &str, config: &HarnessConfig) -> Result<RunReport, Harness
     // Run the lint determinism_runs times and assert byte-equality.
     let mut outputs = Vec::with_capacity(config.determinism_runs);
     for run_idx in 0..config.determinism_runs {
-        let stdout = run_lint(name, &url, config)?;
+        let stdout = run_lint(name, &url, config, expected.wait_for.as_ref())?;
         tracing::debug!(
             site = %name,
             run = run_idx,
@@ -166,7 +166,12 @@ fn run_build(name: &str, site_dir: &Path) -> Result<(), HarnessError> {
     Ok(())
 }
 
-fn run_lint(name: &str, url: &str, config: &HarnessConfig) -> Result<Vec<u8>, HarnessError> {
+fn run_lint(
+    name: &str,
+    url: &str,
+    config: &HarnessConfig,
+    wait_for: Option<&WaitFor>,
+) -> Result<Vec<u8>, HarnessError> {
     let plumb_config = config.workspace_root.join("e2e-sites").join("plumb.toml");
     let mut cmd = Command::new(&config.plumb_bin);
     cmd.arg("lint")
@@ -177,6 +182,10 @@ fn run_lint(name: &str, url: &str, config: &HarnessConfig) -> Result<Vec<u8>, Ha
         .arg("json");
     if let Some(path) = &config.chrome_path {
         cmd.arg("--executable-path").arg(path);
+    }
+    if let Some(gate) = wait_for {
+        cmd.arg("--wait-for").arg(&gate.selector);
+        cmd.arg("--wait-ms").arg(gate.timeout_ms.to_string());
     }
     let output = cmd.output().map_err(|err| HarnessError::Lint {
         site: name.to_owned(),

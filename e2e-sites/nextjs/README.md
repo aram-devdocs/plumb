@@ -36,3 +36,13 @@ just clean
 ship a Next.js App Router site without a runtime Node server. The
 exported `out/` directory is renamed to `dist/` so the harness layout
 matches the rest of the matrix.
+
+## Readiness sentinel
+
+`expected.json` sets a `wait_for` block that the harness threads onto
+`plumb lint --wait-for <selector> --wait-ms <ms>`. The selector is
+`html[data-plumb-ready="true"]`; the marker is set from a `useEffect`
+in `app/plumb-ready.tsx`, so it appears only after React has hydrated
+the tree on the client. Without it Chromium occasionally captures a
+half-hydrated DOM under CI load — that flake was the reason the leg
+ran with `continue-on-error: true` in `e2e-sites.yml`.

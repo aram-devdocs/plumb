@@ -33,7 +33,7 @@ pub mod server;
 pub mod sites;
 pub mod workspace;
 
-pub use expected::Expected;
+pub use expected::{Expected, WaitFor};
 pub use runner::{HarnessConfig, RunReport, run_site};
 pub use server::StaticServer;
 pub use sites::{SITES, SiteMeta};

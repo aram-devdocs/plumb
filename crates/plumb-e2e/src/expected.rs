@@ -35,6 +35,40 @@ pub struct Expected {
     /// Sum of all target-rule violations. MUST equal the sum of
     /// `by_rule_id` values.
     pub total_target_violations: usize,
+    /// Optional readiness gate passed through to `plumb lint --wait-for
+    /// <selector> --wait-ms <ms>`. Fixtures whose first paint races
+    /// Chromium's network-idle event (Next.js, hydrating SPAs) can set
+    /// a sentinel selector their page writes after first paint.
+    #[serde(default)]
+    pub wait_for: Option<WaitFor>,
+}
+
+/// A readiness gate the harness waits on before capturing the snapshot.
+///
+/// Maps directly onto `plumb lint --wait-for <selector> --wait-ms <ms>`.
+/// `selector` is the CSS selector that MUST appear in the rendered DOM
+/// before the lint pass — the CDP driver polls `find_element` with a
+/// 50 ms backoff, capped by an internal 10 s budget. `timeout_ms` is the
+/// belt-and-suspenders sleep applied AFTER the selector match (mapping
+/// to `--wait-ms`); it gives hydration-heavy frameworks an extra grace
+/// window before the snapshot fires.
+///
+/// The default `timeout_ms` of 30 000 ms is intentionally generous —
+/// fixtures that don't need hydration tolerance should omit `wait_for`
+/// entirely rather than configure a fast timeout.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WaitFor {
+    /// CSS selector the page MUST surface before the snapshot is taken.
+    pub selector: String,
+    /// Additional sleep applied after `selector` matches. Mapped onto
+    /// `plumb lint --wait-ms`. Defaults to 30 000 ms.
+    #[serde(default = "default_wait_ms")]
+    pub timeout_ms: u64,
+}
+
+const fn default_wait_ms() -> u64 {
+    30_000
 }
 
 impl Expected {
@@ -135,5 +169,58 @@ mod tests {
         }"#;
         let parsed = parse(payload).expect("comment ok");
         assert_eq!(parsed.comment.as_deref(), Some("free-form text"));
+    }
+
+    #[test]
+    fn wait_for_is_optional() {
+        let payload = r#"{
+            "target_rules": [],
+            "by_rule_id": {},
+            "total_target_violations": 0
+        }"#;
+        let parsed = parse(payload).expect("no wait_for is fine");
+        assert!(parsed.wait_for.is_none());
+    }
+
+    #[test]
+    fn wait_for_default_timeout_is_30s() {
+        let payload = r#"{
+            "target_rules": [],
+            "by_rule_id": {},
+            "total_target_violations": 0,
+            "wait_for": { "selector": "html[data-plumb-ready=\"true\"]" }
+        }"#;
+        let parsed = parse(payload).expect("wait_for parses");
+        let wait_for = parsed.wait_for.expect("wait_for is set");
+        assert_eq!(wait_for.selector, "html[data-plumb-ready=\"true\"]");
+        assert_eq!(wait_for.timeout_ms, 30_000);
+    }
+
+    #[test]
+    fn wait_for_explicit_timeout_is_honored() {
+        let payload = r##"{
+            "target_rules": [],
+            "by_rule_id": {},
+            "total_target_violations": 0,
+            "wait_for": { "selector": "#ready", "timeout_ms": 5000 }
+        }"##;
+        let parsed = parse(payload).expect("wait_for parses");
+        let wait_for = parsed.wait_for.expect("wait_for is set");
+        assert_eq!(wait_for.timeout_ms, 5_000);
+    }
+
+    #[test]
+    fn wait_for_rejects_unknown_fields() {
+        let payload = r##"{
+            "target_rules": [],
+            "by_rule_id": {},
+            "total_target_violations": 0,
+            "wait_for": { "selector": "#ready", "rogue": 1 }
+        }"##;
+        let err = parse(payload).expect_err("unknown field must error");
+        assert!(
+            err.to_string().contains("rogue") || err.to_string().contains("unknown field"),
+            "expected unknown-field error, got: {err}",
+        );
     }
 }
