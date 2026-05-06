@@ -1237,11 +1237,12 @@ async fn apply_storage_state_local_storage(
         for entry in &origin_entry.local_storage {
             // Build a JSON.stringify-style argument so the values are
             // safe regardless of contained quotes.
-            let key =
-                serde_json::to_string(&entry.name).map_err(|err| CdpError::MalformedStorageState {
+            let key = serde_json::to_string(&entry.name).map_err(|err| {
+                CdpError::MalformedStorageState {
                     path: PathBuf::new(),
                     reason: format!("could not serialize key: {err}"),
-                })?;
+                }
+            })?;
             let value = serde_json::to_string(&entry.value).map_err(|err| {
                 CdpError::MalformedStorageState {
                     path: PathBuf::new(),
@@ -2591,7 +2592,10 @@ mod tests {
             \"expires\":-1,\"httpOnly\":false,\"secure\":false,\"sameSite\":\"Lax\"}],\
             \"origins\":[]}";
         let err = StorageState::parse_str(json).unwrap_err();
-        assert!(matches!(err, CdpError::InvalidCookie { field: "value", .. }));
+        assert!(matches!(
+            err,
+            CdpError::InvalidCookie { field: "value", .. }
+        ));
     }
 
     #[test]
