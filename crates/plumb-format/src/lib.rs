@@ -46,6 +46,20 @@ const PLUMB_VERSION: &str = env!("CARGO_PKG_VERSION");
 /// No ANSI escapes — coloring is a CLI concern, not a library concern.
 #[must_use]
 pub fn pretty(violations: &[Violation]) -> String {
+    pretty_with_ignored(violations, 0)
+}
+
+/// Like [`pretty`] but appends a `N violation(s) suppressed by config`
+/// footer line when `ignored_count > 0`.
+///
+/// Used by `plumb lint` when the loaded `plumb.toml` has `[[ignore]]`
+/// entries that filtered some violations out of the reported set. The
+/// footer documents that the loaded config silenced violations rather
+/// than the lint pass missing them.
+///
+/// `ignored_count == 0` produces the same output as [`pretty`].
+#[must_use]
+pub fn pretty_with_ignored(violations: &[Violation], ignored_count: usize) -> String {
     let sorted = pretty_sorted(violations);
     let run_id = match run_id_for_sorted(&sorted) {
         Ok(run_id) => run_id,
@@ -101,6 +115,13 @@ pub fn pretty(violations: &[Violation]) -> String {
     }
 
     append_pretty_stats(&mut out, violations, &run_id);
+    if ignored_count > 0 {
+        let _ = writeln!(
+            out,
+            "  {ignored_count} violation{plural} suppressed by config",
+            plural = if ignored_count == 1 { "" } else { "s" }
+        );
+    }
     out
 }
 
@@ -147,6 +168,23 @@ pub fn pretty(violations: &[Violation]) -> String {
 /// happens when a `Violation::metadata` contains a non-JSON-representable
 /// value.
 pub fn json(violations: &[Violation]) -> Result<String, serde_json::Error> {
+    json_with_ignored(violations, 0)
+}
+
+/// Like [`json()`] but extends the envelope with `"ignored": N`
+/// counting violations suppressed by `[[ignore]]` config entries.
+///
+/// `ignored_count == 0` produces the same output as [`json()`] —
+/// existing consumers parse the envelope by key and the new key is
+/// always present.
+///
+/// # Errors
+///
+/// Returns an error if serialization fails.
+pub fn json_with_ignored(
+    violations: &[Violation],
+    ignored_count: usize,
+) -> Result<String, serde_json::Error> {
     let sorted = canonical_sorted(violations);
 
     let run_id = run_id_for_sorted(&sorted)?;
@@ -156,6 +194,10 @@ pub fn json(violations: &[Violation]) -> Result<String, serde_json::Error> {
     // output is stable regardless of `serde_json`'s `preserve_order`
     // feature being enabled in the workspace.
     let mut envelope = serde_json::Map::new();
+    envelope.insert(
+        "ignored".to_owned(),
+        Value::Number(serde_json::Number::from(ignored_count)),
+    );
     envelope.insert(
         "plumb_version".to_owned(),
         Value::String(PLUMB_VERSION.to_owned()),
@@ -192,7 +234,19 @@ pub fn suggested_ignores(violations: &[Violation]) -> Vec<(String, String)> {
 /// footer reads `(no violations)` and lists no entries.
 #[must_use]
 pub fn pretty_with_suggested_ignores(violations: &[Violation]) -> String {
-    let mut out = pretty(violations);
+    pretty_with_suggested_ignores_and_ignored(violations, 0)
+}
+
+/// Combines [`pretty_with_suggested_ignores`] with the
+/// `N violation(s) suppressed by config` footer from
+/// [`pretty_with_ignored`]. The "suppressed by config" line goes inside
+/// the stats block; the suggested-ignores list comes after.
+#[must_use]
+pub fn pretty_with_suggested_ignores_and_ignored(
+    violations: &[Violation],
+    ignored_count: usize,
+) -> String {
+    let mut out = pretty_with_ignored(violations, ignored_count);
     append_suggested_ignores_block(&mut out, violations);
     out
 }
@@ -205,6 +259,21 @@ pub fn pretty_with_suggested_ignores(violations: &[Violation]) -> String {
 ///
 /// Returns an error if serialization fails.
 pub fn json_with_suggested_ignores(violations: &[Violation]) -> Result<String, serde_json::Error> {
+    json_with_suggested_ignores_and_ignored(violations, 0)
+}
+
+/// Combines [`json_with_suggested_ignores`] (the `suggested_ignores`
+/// array) with [`json_with_ignored`] (the `ignored` count) so callers
+/// that pass both `--suggest-ignores` and a config with `[[ignore]]`
+/// entries get both pieces in the envelope.
+///
+/// # Errors
+///
+/// Returns an error if serialization fails.
+pub fn json_with_suggested_ignores_and_ignored(
+    violations: &[Violation],
+    ignored_count: usize,
+) -> Result<String, serde_json::Error> {
     let sorted = canonical_sorted(violations);
 
     let run_id = run_id_for_sorted(&sorted)?;
@@ -212,6 +281,10 @@ pub fn json_with_suggested_ignores(violations: &[Violation]) -> Result<String, s
     let suggestions = suggested_ignores_json(violations);
 
     let mut envelope = serde_json::Map::new();
+    envelope.insert(
+        "ignored".to_owned(),
+        Value::Number(serde_json::Number::from(ignored_count)),
+    );
     envelope.insert(
         "plumb_version".to_owned(),
         Value::String(PLUMB_VERSION.to_owned()),
@@ -596,7 +669,12 @@ fn append_pretty_stats(out: &mut String, violations: &[Violation], run_id: &str)
 
 #[cfg(test)]
 mod tests {
-    use super::{json_with_suggested_ignores, pretty_with_suggested_ignores, suggested_ignores};
+    use super::{
+        json, json_with_ignored, json_with_suggested_ignores,
+        json_with_suggested_ignores_and_ignored, pretty, pretty_with_ignored,
+        pretty_with_suggested_ignores, pretty_with_suggested_ignores_and_ignored,
+        suggested_ignores,
+    };
     use indexmap::IndexMap;
     use plumb_core::{Severity, ViewportKey, Violation};
 
@@ -702,5 +780,70 @@ mod tests {
         let a = json_with_suggested_ignores(&v).expect("serialize a");
         let b = json_with_suggested_ignores(&v).expect("serialize b");
         assert_eq!(a, b);
+    }
+
+    #[test]
+    fn pretty_with_ignored_zero_matches_pretty() {
+        let v = vec![violation("spacing/grid-conformance", "body", "desktop", 1)];
+        assert_eq!(pretty(&v), pretty_with_ignored(&v, 0));
+    }
+
+    #[test]
+    fn pretty_with_ignored_appends_singular_footer() {
+        let v = vec![violation("spacing/grid-conformance", "body", "desktop", 1)];
+        let out = pretty_with_ignored(&v, 1);
+        assert!(
+            out.contains("1 violation suppressed by config"),
+            "footer: {out}"
+        );
+    }
+
+    #[test]
+    fn pretty_with_ignored_appends_plural_footer() {
+        let v = vec![violation("spacing/grid-conformance", "body", "desktop", 1)];
+        let out = pretty_with_ignored(&v, 7);
+        assert!(
+            out.contains("7 violations suppressed by config"),
+            "footer: {out}"
+        );
+    }
+
+    #[test]
+    fn json_with_ignored_zero_matches_json() {
+        let v = vec![violation("spacing/grid-conformance", "body", "desktop", 1)];
+        let a = json(&v).expect("serialize");
+        let b = json_with_ignored(&v, 0).expect("serialize with zero");
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn json_with_ignored_emits_count() {
+        let v = vec![violation("spacing/grid-conformance", "body", "desktop", 1)];
+        let raw = json_with_ignored(&v, 5).expect("serialize");
+        let parsed: serde_json::Value = serde_json::from_str(&raw).expect("envelope");
+        assert_eq!(
+            parsed.get("ignored").and_then(serde_json::Value::as_u64),
+            Some(5)
+        );
+    }
+
+    #[test]
+    fn pretty_with_suggested_ignores_and_ignored_includes_both_blocks() {
+        let v = vec![violation("spacing/grid-conformance", "body", "desktop", 1)];
+        let out = pretty_with_suggested_ignores_and_ignored(&v, 3);
+        assert!(out.contains("3 violations suppressed by config"));
+        assert!(out.contains("Suggested .plumbignore"));
+    }
+
+    #[test]
+    fn json_with_suggested_ignores_and_ignored_includes_both_keys() {
+        let v = vec![violation("spacing/grid-conformance", "body", "desktop", 1)];
+        let raw = json_with_suggested_ignores_and_ignored(&v, 3).expect("serialize");
+        let parsed: serde_json::Value = serde_json::from_str(&raw).expect("envelope");
+        assert_eq!(
+            parsed.get("ignored").and_then(serde_json::Value::as_u64),
+            Some(3)
+        );
+        assert!(parsed.get("suggested_ignores").is_some());
     }
 }

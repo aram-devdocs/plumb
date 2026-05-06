@@ -4,11 +4,52 @@
 //! and returns a sorted, deduplicated `Vec<Violation>`. The sort key is
 //! `(rule_id, viewport, selector, dom_order)` — see `docs/local/prd.md` §9.
 
-use crate::config::Config;
+use crate::config::{Config, IgnoreRule};
 use crate::report::{ViewportKey, Violation, ViolationSink};
 use crate::rules::{Rule, register_builtin};
 use crate::snapshot::{PlumbSnapshot, SnapshotCtx};
 use rayon::prelude::*;
+
+/// A partitioned engine result: reported and ignored violations split
+/// according to the active `[[ignore]]` config entries.
+///
+/// Both vectors are sorted by [`Violation::sort_key`] in ascending
+/// order. `ignored` is empty when the config has no `[[ignore]]`
+/// entries or none of the active entries match the snapshot's
+/// violations.
+///
+/// This is what the CLI and MCP server consume when they need to
+/// display "N violations suppressed by config" alongside the rendered
+/// list.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RunReport {
+    /// Violations that survived the ignore filter and SHOULD be
+    /// reported to the user. Sorted by [`Violation::sort_key`].
+    pub reported: Vec<Violation>,
+    /// Violations that an `[[ignore]]` entry matched. Sorted by
+    /// [`Violation::sort_key`]. Excluded from the standard output;
+    /// surfaced only in the count footer / JSON envelope so users can
+    /// audit what their config silenced.
+    pub ignored: Vec<Violation>,
+}
+
+impl RunReport {
+    /// Empty report — no violations reported, no violations ignored.
+    #[must_use]
+    pub fn empty() -> Self {
+        Self {
+            reported: Vec::new(),
+            ignored: Vec::new(),
+        }
+    }
+
+    /// Total raw violation count (reported + ignored). Useful for
+    /// the "N violations, M suppressed" status line.
+    #[must_use]
+    pub fn total(&self) -> usize {
+        self.reported.len() + self.ignored.len()
+    }
+}
 
 /// Run every built-in rule against the snapshot. Output is sorted and
 /// deduplicated before return.
@@ -36,8 +77,30 @@ pub fn run(snapshot: &PlumbSnapshot, config: &Config) -> Vec<Violation> {
 /// `mobile`-first config yield
 /// the same `Vec<Violation>`. Like [`run`], this function performs no
 /// I/O, no RNG, and no clock reads.
+///
+/// `[[ignore]]` entries in `config` partition the post-rule output;
+/// the returned `Vec` is the reported subset only. Use
+/// [`run_report`] when the caller needs the ignored count or the
+/// ignored violation list.
 #[must_use]
 pub fn run_many<'a, I>(snapshots: I, config: &Config) -> Vec<Violation>
+where
+    I: IntoIterator<Item = &'a PlumbSnapshot>,
+{
+    run_report(snapshots, config).reported
+}
+
+/// Like [`run_many`] but returns a [`RunReport`] partitioning the
+/// violation set into reported vs. ignored according to
+/// `config.ignore`.
+///
+/// # Determinism
+///
+/// Same invariants as [`run_many`]. Both vectors in the returned
+/// report are sorted by [`Violation::sort_key`]; iteration over
+/// `config.ignore` is in declaration order (it's a `Vec`).
+#[must_use]
+pub fn run_report<'a, I>(snapshots: I, config: &Config) -> RunReport
 where
     I: IntoIterator<Item = &'a PlumbSnapshot>,
 {
@@ -52,7 +115,60 @@ where
     buffer.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
     buffer.dedup();
 
-    buffer
+    apply_ignores(buffer, &config.ignore)
+}
+
+/// Partition `violations` into `(reported, ignored)` according to
+/// `ignores`.
+///
+/// Matching is exact-string on `Violation::selector`. When an entry's
+/// `rule_id` is `Some(id)`, the violation must also have
+/// `Violation::rule_id == id`. When `rule_id` is `None`, every rule's
+/// violation at the selector is suppressed.
+///
+/// Iteration over `ignores` follows declaration order; matching is
+/// short-circuited on the first hit per violation. Both the reported
+/// and ignored vectors preserve their input ordering, which is the
+/// caller's pre-sorted [`Violation::sort_key`] order.
+#[must_use]
+pub fn apply_ignores(violations: Vec<Violation>, rules: &[IgnoreRule]) -> RunReport {
+    if rules.is_empty() {
+        return RunReport {
+            reported: violations,
+            ignored: Vec::new(),
+        };
+    }
+
+    let mut reported = Vec::with_capacity(violations.len());
+    let mut suppressed = Vec::new();
+
+    for violation in violations {
+        if ignore_matches(&violation, rules) {
+            suppressed.push(violation);
+        } else {
+            reported.push(violation);
+        }
+    }
+
+    RunReport {
+        reported,
+        ignored: suppressed,
+    }
+}
+
+/// `true` when any entry in `rules` matches `violation`. Selector
+/// equality is exact-string; `rule_id` is matched only when the entry
+/// declares one.
+fn ignore_matches(violation: &Violation, rules: &[IgnoreRule]) -> bool {
+    rules.iter().any(|rule| {
+        if rule.selector != violation.selector {
+            return false;
+        }
+        match &rule.rule_id {
+            Some(id) => id == &violation.rule_id,
+            None => true,
+        }
+    })
 }
 
 fn run_rules(snapshot: &PlumbSnapshot, config: &Config, rules: &[Box<dyn Rule>]) -> Vec<Violation> {
@@ -92,13 +208,13 @@ fn run_rules(snapshot: &PlumbSnapshot, config: &Config, rules: &[Box<dyn Rule>])
 
 #[cfg(test)]
 mod tests {
-    use crate::config::Config;
+    use crate::config::{Config, IgnoreRule};
     use crate::report::{Severity, ViewportKey, Violation, ViolationSink};
     use crate::rules::Rule;
     use crate::snapshot::{PlumbSnapshot, SnapshotCtx};
     use indexmap::IndexMap;
 
-    use super::run_rules;
+    use super::{apply_ignores, run_report, run_rules};
 
     #[derive(Debug, Clone, Copy)]
     struct Emission {
@@ -206,5 +322,123 @@ mod tests {
                 ("z/rule", "desktop", "html > body", 2),
             ],
         );
+    }
+
+    fn fixture_violation(rule_id: &str, selector: &str, dom_order: u64) -> Violation {
+        Violation {
+            rule_id: rule_id.to_owned(),
+            severity: Severity::Warning,
+            message: "test".to_owned(),
+            selector: selector.to_owned(),
+            viewport: ViewportKey::new("desktop"),
+            rect: None,
+            dom_order,
+            fix: None,
+            doc_url: format!(
+                "https://plumb.aramhammoudeh.com/rules/{}",
+                rule_id.replace('/', "-")
+            ),
+            metadata: IndexMap::new(),
+        }
+    }
+
+    #[test]
+    fn apply_ignores_passthrough_when_empty() {
+        let v = vec![
+            fixture_violation("spacing/grid-conformance", "html > body", 2),
+            fixture_violation("color/palette-conformance", "main", 5),
+        ];
+        let report = apply_ignores(v.clone(), &[]);
+        assert_eq!(report.reported, v);
+        assert!(report.ignored.is_empty());
+    }
+
+    #[test]
+    fn apply_ignores_selector_only_match_suppresses_all_rules() {
+        let v = vec![
+            fixture_violation("spacing/grid-conformance", "html > body", 2),
+            fixture_violation("color/palette-conformance", "html > body", 2),
+            fixture_violation("spacing/grid-conformance", "main", 5),
+        ];
+        let ignores = vec![IgnoreRule {
+            selector: "html > body".to_owned(),
+            rule_id: None,
+            reason: "test".to_owned(),
+        }];
+        let report = apply_ignores(v, &ignores);
+        assert_eq!(report.reported.len(), 1);
+        assert_eq!(report.reported[0].selector, "main");
+        assert_eq!(report.ignored.len(), 2);
+    }
+
+    #[test]
+    fn apply_ignores_selector_plus_rule_id_filters_one_rule_only() {
+        let v = vec![
+            fixture_violation("spacing/grid-conformance", "html > body", 2),
+            fixture_violation("color/palette-conformance", "html > body", 2),
+        ];
+        let ignores = vec![IgnoreRule {
+            selector: "html > body".to_owned(),
+            rule_id: Some("spacing/grid-conformance".to_owned()),
+            reason: "test".to_owned(),
+        }];
+        let report = apply_ignores(v, &ignores);
+        assert_eq!(report.reported.len(), 1);
+        assert_eq!(report.reported[0].rule_id, "color/palette-conformance");
+        assert_eq!(report.ignored.len(), 1);
+        assert_eq!(report.ignored[0].rule_id, "spacing/grid-conformance");
+    }
+
+    #[test]
+    fn apply_ignores_selector_mismatch_does_not_filter() {
+        let v = vec![fixture_violation(
+            "spacing/grid-conformance",
+            "html > body",
+            2,
+        )];
+        let ignores = vec![IgnoreRule {
+            selector: "html > body > div".to_owned(),
+            rule_id: None,
+            reason: "test".to_owned(),
+        }];
+        let report = apply_ignores(v.clone(), &ignores);
+        assert_eq!(report.reported, v);
+        assert!(report.ignored.is_empty());
+    }
+
+    #[test]
+    fn apply_ignores_is_deterministic_across_runs() {
+        let v = vec![
+            fixture_violation("a/rule", "html > body", 1),
+            fixture_violation("a/rule", "html > body", 2),
+            fixture_violation("b/rule", "main", 3),
+        ];
+        let ignores = vec![IgnoreRule {
+            selector: "html > body".to_owned(),
+            rule_id: None,
+            reason: "x".to_owned(),
+        }];
+        let first = apply_ignores(v.clone(), &ignores);
+        let second = apply_ignores(v, &ignores);
+        assert_eq!(first, second);
+    }
+
+    #[test]
+    fn run_report_applies_ignores_against_real_engine_output() {
+        let snapshot = PlumbSnapshot::canned();
+        // The canned snapshot has one violation: spacing/grid-conformance
+        // on `html > body` (padding-top: 13px is off-grid against base
+        // unit 4).
+        let mut config = Config::default();
+        config.ignore.push(IgnoreRule {
+            selector: "html > body".to_owned(),
+            rule_id: Some("spacing/grid-conformance".to_owned()),
+            reason: "canned snapshot exemption".to_owned(),
+        });
+        let report = run_report([&snapshot], &config);
+        assert!(report.reported.is_empty());
+        assert_eq!(report.ignored.len(), 1);
+        assert_eq!(report.ignored[0].rule_id, "spacing/grid-conformance");
+        assert_eq!(report.ignored[0].selector, "html > body");
     }
 }

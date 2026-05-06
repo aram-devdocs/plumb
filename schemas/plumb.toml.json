@@ -103,6 +103,13 @@
         "$ref": "#/$defs/RuleOverride"
       },
       "default": {}
+    },
+    "ignore": {
+      "description": "Selector-scoped runtime suppressions.\n\nEach entry suppresses every violation whose `selector` field\nmatches `selector` exactly (no CSS-engine match — exact string\nequality only). When `rule_id` is set, the suppression is\nfurther constrained to that single rule; when `rule_id` is\nabsent, every rule fired at that selector is suppressed.\n\nThe list MUST be applied **after** rule evaluation: the\nmatched violations are partitioned out of the reported set and\ncounted under `ignored`, never silently dropped.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/IgnoreRule"
+      }
     }
   },
   "additionalProperties": false,
@@ -450,6 +457,33 @@
           "type": "string",
           "const": "error"
         }
+      ]
+    },
+    "IgnoreRule": {
+      "description": "A single selector-scoped suppression entry.\n\nMirrors the shape `plumb lint --suggest-ignores` emits, so a user\ncan pipe the suggestion list back into `plumb.toml` and converge on\na clean dogfood run without further editing.",
+      "type": "object",
+      "properties": {
+        "selector": {
+          "description": "Exact CSS-selector path (`SnapshotNode::selector`) to suppress.\nString equality only; this is **not** a CSS engine match.",
+          "type": "string"
+        },
+        "rule_id": {
+          "description": "Optional rule identifier (e.g. `spacing/grid-conformance`). When\n`Some`, the suppression only applies to that rule. When `None`,\nevery rule's violation at `selector` is suppressed.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "reason": {
+          "description": "Required human-readable justification. Documents why the\nselector is exempt so the next reviewer understands the intent.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "selector",
+        "reason"
       ]
     }
   }

@@ -66,6 +66,41 @@ pub struct Config {
     /// Per-rule overrides — severity bumps, enable/disable.
     #[serde(default)]
     pub rules: IndexMap<String, RuleOverride>,
+
+    /// Selector-scoped runtime suppressions.
+    ///
+    /// Each entry suppresses every violation whose `selector` field
+    /// matches `selector` exactly (no CSS-engine match — exact string
+    /// equality only). When `rule_id` is set, the suppression is
+    /// further constrained to that single rule; when `rule_id` is
+    /// absent, every rule fired at that selector is suppressed.
+    ///
+    /// The list MUST be applied **after** rule evaluation: the
+    /// matched violations are partitioned out of the reported set and
+    /// counted under `ignored`, never silently dropped.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ignore: Vec<IgnoreRule>,
+}
+
+/// A single selector-scoped suppression entry.
+///
+/// Mirrors the shape `plumb lint --suggest-ignores` emits, so a user
+/// can pipe the suggestion list back into `plumb.toml` and converge on
+/// a clean dogfood run without further editing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct IgnoreRule {
+    /// Exact CSS-selector path (`SnapshotNode::selector`) to suppress.
+    /// String equality only; this is **not** a CSS engine match.
+    pub selector: String,
+    /// Optional rule identifier (e.g. `spacing/grid-conformance`). When
+    /// `Some`, the suppression only applies to that rule. When `None`,
+    /// every rule's violation at `selector` is suppressed.
+    #[serde(default)]
+    pub rule_id: Option<String>,
+    /// Required human-readable justification. Documents why the
+    /// selector is exempt so the next reviewer understands the intent.
+    pub reason: String,
 }
 
 /// Specification of a single named viewport.
@@ -323,5 +358,79 @@ impl Default for RuleOverride {
             enabled: true,
             severity: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Config, IgnoreRule};
+
+    #[test]
+    fn ignore_rule_round_trips_minimal_shape() {
+        let json = r#"{ "selector": "html > body", "reason": "mdBook chrome" }"#;
+        let parsed: IgnoreRule = serde_json::from_str(json).expect("parse minimal IgnoreRule");
+        assert_eq!(parsed.selector, "html > body");
+        assert_eq!(parsed.rule_id, None);
+        assert_eq!(parsed.reason, "mdBook chrome");
+    }
+
+    #[test]
+    fn ignore_rule_round_trips_with_rule_id() {
+        let json = r#"{
+            "selector": "main > article",
+            "rule_id": "spacing/grid-conformance",
+            "reason": "code blocks padded by mdBook theme"
+        }"#;
+        let parsed: IgnoreRule = serde_json::from_str(json).expect("parse rule_id IgnoreRule");
+        assert_eq!(parsed.rule_id.as_deref(), Some("spacing/grid-conformance"));
+    }
+
+    #[test]
+    fn ignore_rule_rejects_unknown_field() {
+        let json = r#"{ "selector": "html", "reason": "x", "extra": "nope" }"#;
+        let err = serde_json::from_str::<IgnoreRule>(json)
+            .expect_err("unknown field must fail under deny_unknown_fields");
+        let msg = err.to_string();
+        assert!(msg.contains("extra"), "error mentions field: {msg}");
+    }
+
+    #[test]
+    fn ignore_rule_requires_selector() {
+        let json = r#"{ "reason": "x" }"#;
+        serde_json::from_str::<IgnoreRule>(json).expect_err("selector is required");
+    }
+
+    #[test]
+    fn ignore_rule_requires_reason() {
+        let json = r#"{ "selector": "html" }"#;
+        serde_json::from_str::<IgnoreRule>(json).expect_err("reason is required");
+    }
+
+    #[test]
+    fn config_accepts_ignore_array() {
+        let json = r#"{
+            "ignore": [
+                { "selector": "html > body", "reason": "mdBook root padding" },
+                {
+                    "selector": "main",
+                    "rule_id": "spacing/scale-conformance",
+                    "reason": "main column gutter"
+                }
+            ]
+        }"#;
+        let cfg: Config = serde_json::from_str(json).expect("parse Config with ignores");
+        assert_eq!(cfg.ignore.len(), 2);
+        assert_eq!(cfg.ignore[0].selector, "html > body");
+        assert_eq!(cfg.ignore[0].rule_id, None);
+        assert_eq!(
+            cfg.ignore[1].rule_id.as_deref(),
+            Some("spacing/scale-conformance")
+        );
+    }
+
+    #[test]
+    fn config_default_has_empty_ignore() {
+        let cfg = Config::default();
+        assert!(cfg.ignore.is_empty());
     }
 }
