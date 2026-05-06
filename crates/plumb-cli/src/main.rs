@@ -140,6 +140,15 @@ enum Command {
         /// for stress-testing rules against hidpi rendering.
         #[arg(long, value_name = "FACTOR")]
         dpr: Option<f64>,
+        /// After the normal lint output, append a suggested
+        /// `.plumbignore` block listing one entry per
+        /// `(rule_id, selector)` tuple that would suppress every
+        /// current violation. Helps adopt Plumb gradually on existing
+        /// codebases. Pretty format appends a footer; JSON format adds
+        /// a `suggested_ignores` array to the envelope; SARIF format is
+        /// unchanged.
+        #[arg(long, default_value_t = false)]
+        suggest_ignores: bool,
     },
     /// Write a starter `plumb.toml` to the current directory.
     Init {
@@ -228,6 +237,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 disable_animations,
                 hide_scrollbars,
                 dpr,
+                suggest_ignores,
             } => {
                 commands::lint::run(commands::lint::LintArgs {
                     url,
@@ -246,6 +256,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
                     disable_animations,
                     hide_scrollbars,
                     dpr,
+                    suggest_ignores,
                 })
                 .await
             }
