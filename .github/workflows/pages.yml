@@ -18,20 +18,47 @@ jobs:
   deploy:
     name: Build & deploy
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 25
     environment:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v6
+
       - uses: peaceiris/actions-mdbook@v2
         with:
           mdbook-version: "latest"
+
       - name: mdbook build
         run: mdbook build
+
+      - uses: extractions/setup-just@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Build every fixture's `dist/` and copy it under
+      # `book/test-sites/<framework>/`. mdbook already wrote `book/`,
+      # so the single Pages artifact ships docs + fixtures together
+      # rooted at `https://plumb.aramhammoudeh.com/`.
+      - name: Build e2e-sites fixtures
+        run: |
+          set -euo pipefail
+          mkdir -p book/test-sites
+          for site in html-css tailwind-html react-vite vue angular nextjs; do
+            echo "::group::build $site"
+            (cd "e2e-sites/$site" && just build)
+            cp -R "e2e-sites/$site/dist" "book/test-sites/$site"
+            echo "::endgroup::"
+          done
+
       - uses: actions/configure-pages@v6
+
       - uses: actions/upload-pages-artifact@v5
         with:
           path: book/
+
       - id: deploy
         uses: actions/deploy-pages@v5

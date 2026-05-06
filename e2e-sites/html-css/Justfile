@@ -1,0 +1,21 @@
+# html-css fixture build recipes.
+#
+# Vanilla HTML + CSS — the build is a copy. Kept as a `just` recipe so
+# every fixture has the same `build` / `clean` contract.
+
+set shell := ["bash", "-euo", "pipefail", "-c"]
+
+# Default — list available recipes.
+default:
+    @just --list --unsorted
+
+# Produce `dist/` containing the static site the harness serves.
+build:
+    rm -rf dist
+    mkdir -p dist
+    cp index.html dist/index.html
+    cp style.css dist/style.css
+
+# Remove build output.
+clean:
+    rm -rf dist

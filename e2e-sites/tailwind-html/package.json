@@ -1,0 +1,14 @@
+{
+  "name": "plumb-e2e-tailwind-html",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Plumb e2e fixture: static HTML built with Tailwind v4 CLI.",
+  "scripts": {
+    "build": "npx @tailwindcss/cli@4 -i ./src/input.css -o ./dist/output.css --minify"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "4.1.4",
+    "tailwindcss": "4.1.4"
+  }
+}

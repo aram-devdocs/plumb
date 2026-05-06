@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Plumb e2e — html-css fixture</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main class="page">
+      <!--
+        Control card: every value lands on the configured palette and
+        spacing-grid tokens. Should produce no violations.
+      -->
+      <section class="card" aria-labelledby="card-title">
+        <h1 id="card-title" class="card-title">Plumb e2e — html-css</h1>
+        <p class="card-body">
+          A minimal vanilla HTML + CSS fixture. The card you are reading
+          is the control element; every value uses a clean design-system
+          token.
+        </p>
+      </section>
+
+      <!--
+        Off-grid violation source. `padding: 13px` resolves to four
+        non-multiple-of-4 longhands, which trips
+        spacing/grid-conformance and spacing/scale-conformance once per
+        physical-longhand (4 + 4 = 8 violations).
+      -->
+      <section class="hero">
+        <h2 class="hero-title">Off-grid hero</h2>
+        <p class="hero-body">
+          This region uses an intentionally off-grid padding so the
+          spacing rules report violations.
+        </p>
+      </section>
+
+      <!--
+        Off-palette violation source. `color: #2e7d2e` is a saturated
+        green that is far enough from every palette token to trip
+        color/palette-conformance once.
+      -->
+      <p class="alert">Off-palette alert text.</p>
+    </main>
+  </body>
+</html>

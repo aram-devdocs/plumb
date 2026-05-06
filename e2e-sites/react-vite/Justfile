@@ -1,0 +1,23 @@
+# react-vite fixture build recipes.
+#
+# Vite bundles `src/main.tsx` + the Tailwind v4 plugin output into
+# `dist/`. Lockfile (`package-lock.json`) pins every dep so CI legs
+# build deterministically.
+
+set shell := ["bash", "-euo", "pipefail", "-c"]
+
+# Default — list available recipes.
+default:
+    @just --list --unsorted
+
+# Install npm deps from the lockfile.
+install:
+    npm ci --silent
+
+# Vite build — produces dist/index.html + bundled assets.
+build: install
+    npx vite build
+
+# Remove build output.
+clean:
+    rm -rf dist node_modules

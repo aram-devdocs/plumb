@@ -1,0 +1,42 @@
+[package]
+name = "plumb-e2e"
+description = "End-to-end test harness — drives the plumb binary against the e2e-sites/ fixture matrix."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords.workspace = true
+categories.workspace = true
+publish = false
+exclude = ["AGENTS.md", "CLAUDE.md"]
+
+[lib]
+name = "plumb_e2e"
+path = "src/lib.rs"
+
+[[bin]]
+name = "plumb-e2e"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true }
+indexmap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tiny_http = "0.12"
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[dev-dependencies]
+assert_cmd = { workspace = true }
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

@@ -1,0 +1,14 @@
+{
+  "$comment": "Tailwind v4 fixture. Same intentional violations as html-css; the JIT generates `p-[13px]` and `text-[#2e7d2e]` arbitrary-value utilities.",
+  "target_rules": [
+    "color/palette-conformance",
+    "spacing/grid-conformance",
+    "spacing/scale-conformance"
+  ],
+  "by_rule_id": {
+    "color/palette-conformance": 1,
+    "spacing/grid-conformance": 4,
+    "spacing/scale-conformance": 4
+  },
+  "total_target_violations": 9
+}

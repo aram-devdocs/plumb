@@ -1,0 +1,22 @@
+# nextjs fixture build recipes.
+#
+# Next.js with `output: 'export'` writes a self-contained `out/`
+# directory. We rename it to `dist/` so the harness's static server
+# (and Pages publish) can serve it from the conventional location.
+
+set shell := ["bash", "-euo", "pipefail", "-c"]
+
+# Default — list available recipes.
+default:
+    @just --list --unsorted
+
+install:
+    npm ci --silent
+
+build: install
+    rm -rf out dist
+    npx next build
+    mv out dist
+
+clean:
+    rm -rf out dist node_modules .next

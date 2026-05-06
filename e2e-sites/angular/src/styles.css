@@ -1,0 +1,17 @@
+/* Angular's bundle entry stylesheet. Tailwind utilities are compiled
+ * separately by the standalone `@tailwindcss/cli` and dropped into
+ * `dist/tailwind.css`; the compiled utility CSS is injected into
+ * index.html post-build by the Justfile. This file scopes the per-app
+ * base styles. */
+
+@layer base {
+  html,
+  body {
+    font-family: Inter, system-ui;
+    font-size: 16px;
+    font-weight: 400;
+    line-height: 24px;
+    color: #0b0b0b;
+    background-color: #ffffff;
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "name": "plumb-e2e-nextjs",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Plumb e2e fixture: Next.js 14 App Router static export + Tailwind v4.",
+  "scripts": {
+    "build": "next build"
+  },
+  "dependencies": {
+    "next": "14.2.18",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "4.1.4",
+    "@types/node": "20.16.13",
+    "@types/react": "18.3.12",
+    "@types/react-dom": "18.3.1",
+    "postcss": "8.4.47",
+    "tailwindcss": "4.1.4",
+    "typescript": "5.6.3"
+  }
+}

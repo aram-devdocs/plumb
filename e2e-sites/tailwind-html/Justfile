@@ -1,0 +1,27 @@
+# tailwind-html fixture build recipes.
+#
+# Tailwind v4 CLI compiles `src/input.css` (which scans `src/index.html`
+# for utility classes) into `dist/output.css`. The HTML is copied
+# verbatim. Lockfile (`package-lock.json`) is committed so the JIT
+# version is reproducible across CI legs.
+
+set shell := ["bash", "-euo", "pipefail", "-c"]
+
+# Default — list available recipes.
+default:
+    @just --list --unsorted
+
+# Install npm deps (idempotent — `npm ci` rebuilds from the lockfile).
+install:
+    npm ci --silent
+
+# Produce `dist/index.html` + `dist/output.css`.
+build: install
+    rm -rf dist
+    mkdir -p dist
+    cp src/index.html dist/index.html
+    npx @tailwindcss/cli@4 -i ./src/input.css -o ./dist/output.css --minify
+
+# Remove build output.
+clean:
+    rm -rf dist node_modules

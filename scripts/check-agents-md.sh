@@ -23,6 +23,7 @@ declare -a SCOPES=(
     "crates/plumb-config/AGENTS.md:40"
     "crates/plumb-mcp/AGENTS.md:60"
     "crates/plumb-cli/AGENTS.md:60"
+    "crates/plumb-e2e/AGENTS.md:50"
     "xtask/AGENTS.md:40"
     "docs/AGENTS.md:50"
     "docs/src/rules/AGENTS.md:40"
