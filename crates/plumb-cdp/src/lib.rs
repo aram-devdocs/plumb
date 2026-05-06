@@ -282,6 +282,29 @@ pub enum CdpError {
         /// What went wrong.
         reason: String,
     },
+    /// HTML input passed to [`snapshot_from_html`] exceeded the
+    /// hard-coded byte cap. The cap exists so a misbehaving caller cannot
+    /// pin the parser on a pathological document.
+    #[error(
+        "HTML input is {actual_bytes} bytes, exceeds {limit_bytes}-byte cap for snapshot_from_html"
+    )]
+    HtmlInputTooLarge {
+        /// Size of the offending input, in bytes.
+        actual_bytes: usize,
+        /// Hard cap enforced by [`snapshot_from_html`].
+        limit_bytes: usize,
+    },
+    /// HTML input parsed past the element-count cap enforced by
+    /// [`snapshot_from_html`]. Like [`Self::HtmlInputTooLarge`], the cap
+    /// is a guardrail against pathological documents that pass the byte
+    /// limit but explode in element count.
+    #[error(
+        "HTML input has more than {limit_elements} elements; snapshot_from_html refuses to materialize"
+    )]
+    HtmlElementLimitExceeded {
+        /// Hard cap enforced by [`snapshot_from_html`].
+        limit_elements: usize,
+    },
     /// Any other driver-level failure, carried as a boxed [`std::error::Error`].
     #[error("driver failure: {0}")]
     Driver(#[source] Box<dyn std::error::Error + Send + Sync>),
@@ -1509,6 +1532,160 @@ pub fn is_fake_url(url: &str) -> bool {
     url.starts_with("plumb-fake://")
 }
 
+/// Hard byte cap on HTML input accepted by [`snapshot_from_html`]
+/// (1 MiB). Anything larger is refused before parsing.
+pub const SNAPSHOT_FROM_HTML_INPUT_BYTE_CAP: usize = 1024 * 1024;
+
+/// Hard cap on element count produced by [`snapshot_from_html`] (10000).
+/// The function refuses to return a snapshot with more elements than the
+/// cap; the failure surfaces during the document-order walk before any
+/// allocation proportional to the node count.
+pub const SNAPSHOT_FROM_HTML_ELEMENT_CAP: usize = 10_000;
+
+/// Build a [`PlumbSnapshot`] from a static HTML string, without
+/// launching Chromium.
+///
+/// This is a pure parser pass — no JavaScript execution, no network
+/// fetches, no resource loading. The resulting snapshot mirrors the
+/// shape of [`PlumbSnapshot::canned`] but is populated from the parsed
+/// DOM tree rather than from a hard-coded fixture:
+///
+/// - `url` is set to `base_url` (the caller chooses; the function does
+///   not validate the URL).
+/// - `viewport` defaults to `desktop` (1280×800, DPR 1.0). The function
+///   never reads the wall clock or the environment.
+/// - Element nodes are walked in document order; each receives a
+///   gap-free `dom_order` starting at 0.
+/// - `selector` is the lowercase tag chain joined by ` > ` (matches the
+///   real CDP driver's selector output for the canned shape).
+/// - `attrs` preserves parse order via [`IndexMap`].
+/// - `computed_styles` is empty — there is no rendering pass available
+///   from a static HTML string.
+/// - `rect` is `None` for the same reason.
+/// - `text_boxes` is always empty.
+///
+/// # Errors
+///
+/// - [`CdpError::HtmlInputTooLarge`] if `html.len()` exceeds
+///   [`SNAPSHOT_FROM_HTML_INPUT_BYTE_CAP`] (1 MiB).
+/// - [`CdpError::HtmlElementLimitExceeded`] if the parsed document
+///   contains more than [`SNAPSHOT_FROM_HTML_ELEMENT_CAP`] elements
+///   (10 000).
+///
+/// # Determinism
+///
+/// `snapshot_from_html` is a pure function of `(html, base_url)`. The
+/// `scraper` parser is built with the `deterministic` feature, so two
+/// calls with byte-identical inputs return byte-identical
+/// [`PlumbSnapshot`] outputs.
+pub fn snapshot_from_html(html: &str, base_url: &str) -> Result<PlumbSnapshot, CdpError> {
+    if html.len() > SNAPSHOT_FROM_HTML_INPUT_BYTE_CAP {
+        return Err(CdpError::HtmlInputTooLarge {
+            actual_bytes: html.len(),
+            limit_bytes: SNAPSHOT_FROM_HTML_INPUT_BYTE_CAP,
+        });
+    }
+
+    let document = scraper::Html::parse_document(html);
+
+    // Pass 1: assign each element a gap-free `dom_order` in document
+    // order, refusing past the cap before any allocation proportional
+    // to the node count.
+    let mut dom_orders: IndexMap<ego_tree::NodeId, u64> = IndexMap::new();
+    let mut element_count: usize = 0;
+    for node in document.tree.nodes() {
+        if node.value().is_element() {
+            if element_count >= SNAPSHOT_FROM_HTML_ELEMENT_CAP {
+                return Err(CdpError::HtmlElementLimitExceeded {
+                    limit_elements: SNAPSHOT_FROM_HTML_ELEMENT_CAP,
+                });
+            }
+            // `element_count` is bounded by `SNAPSHOT_FROM_HTML_ELEMENT_CAP`
+            // (10 000) at this point, so the conversion is total. The
+            // `try_from` keeps this honest if the cap ever grows beyond
+            // `u64::MAX` on a future 128-bit target.
+            let dom_order = u64::try_from(element_count).map_err(|_| {
+                CdpError::HtmlElementLimitExceeded {
+                    limit_elements: SNAPSHOT_FROM_HTML_ELEMENT_CAP,
+                }
+            })?;
+            dom_orders.insert(node.id(), dom_order);
+            element_count += 1;
+        }
+    }
+
+    // Pass 2: build the SnapshotNode list, recording tags and parents
+    // so `build_selector` can assemble the tag chain and so per-node
+    // children lists fall out of a single sweep.
+    let mut nodes: Vec<SnapshotNode> = Vec::with_capacity(dom_orders.len());
+    let mut tags: IndexMap<u64, String> = IndexMap::new();
+    let mut parents: IndexMap<u64, Option<u64>> = IndexMap::new();
+    let mut children_index: IndexMap<u64, Vec<u64>> = IndexMap::new();
+
+    for node in document.tree.nodes() {
+        let Some(&dom_order) = dom_orders.get(&node.id()) else {
+            continue;
+        };
+        let Some(element) = node.value().as_element() else {
+            continue;
+        };
+
+        let tag = element.name().to_lowercase();
+
+        let mut attrs: IndexMap<String, String> = IndexMap::new();
+        for (name, value) in element.attrs() {
+            attrs
+                .entry(name.to_owned())
+                .or_insert_with(|| value.to_owned());
+        }
+
+        let parent_dom_order = node
+            .parent()
+            .and_then(|parent| dom_orders.get(&parent.id()).copied());
+
+        if let Some(parent) = parent_dom_order {
+            children_index.entry(parent).or_default().push(dom_order);
+        }
+
+        tags.insert(dom_order, tag.clone());
+        parents.insert(dom_order, parent_dom_order);
+
+        nodes.push(SnapshotNode {
+            dom_order,
+            selector: String::new(),
+            tag,
+            attrs,
+            computed_styles: IndexMap::new(),
+            rect: None,
+            parent: parent_dom_order,
+            children: Vec::new(),
+        });
+    }
+
+    // The walk above is in document order; sort by dom_order anyway to
+    // match the real CDP driver's invariant.
+    nodes.sort_by_key(|n| n.dom_order);
+
+    for kids in children_index.values_mut() {
+        kids.sort_unstable();
+    }
+    for node in &mut nodes {
+        if let Some(kids) = children_index.swap_remove(&node.dom_order) {
+            node.children = kids;
+        }
+        node.selector = build_selector(node.dom_order, &tags, &parents);
+    }
+
+    Ok(PlumbSnapshot {
+        url: base_url.to_owned(),
+        viewport: ViewportKey::new("desktop"),
+        viewport_width: 1280,
+        viewport_height: 800,
+        nodes,
+        text_boxes: Vec::new(),
+    })
+}
+
 fn ensure_executable_path(path: &Path) -> Result<(), CdpError> {
     if path.is_file() {
         Ok(())
@@ -2666,5 +2843,93 @@ mod tests {
         // `data:` and `file:` URLs have opaque origins and cannot match
         // a Playwright-recorded site origin.
         assert_eq!(super::origin_of("data:text/plain,hello").as_deref(), None);
+    }
+
+    #[test]
+    fn snapshot_from_html_canonical_shape_matches_html_head_body() {
+        let snap = super::snapshot_from_html(
+            "<!doctype html><html lang=\"en\"><head></head><body class=\"x\"></body></html>",
+            "https://example.com/",
+        )
+        .expect("snapshot_from_html must succeed for a minimal document");
+
+        assert_eq!(snap.url, "https://example.com/");
+        assert_eq!(snap.viewport_width, 1280);
+        assert_eq!(snap.viewport_height, 800);
+        assert_eq!(snap.viewport.as_str(), "desktop");
+        assert!(snap.text_boxes.is_empty());
+
+        // html scraper inserts <html>, <head>, <body> regardless of input
+        // gaps; the canonical layout is exactly three element nodes.
+        let tags: Vec<&str> = snap.nodes.iter().map(|n| n.tag.as_str()).collect();
+        assert_eq!(tags, vec!["html", "head", "body"]);
+        assert_eq!(snap.nodes[0].dom_order, 0);
+        assert_eq!(snap.nodes[0].selector, "html");
+        assert_eq!(snap.nodes[1].selector, "html > head");
+        assert_eq!(snap.nodes[2].selector, "html > body");
+        assert_eq!(snap.nodes[2].parent, Some(0));
+        assert_eq!(snap.nodes[0].children, vec![1, 2]);
+
+        assert_eq!(
+            snap.nodes[2].attrs.get("class").map(String::as_str),
+            Some("x")
+        );
+        assert_eq!(
+            snap.nodes[0].attrs.get("lang").map(String::as_str),
+            Some("en")
+        );
+    }
+
+    #[test]
+    fn snapshot_from_html_is_byte_deterministic() {
+        let html =
+            "<!doctype html><html><body><main><p>hi</p><p>there</p></main></body></html>";
+        let a =
+            super::snapshot_from_html(html, "https://example.com/").expect("snapshot a");
+        let b =
+            super::snapshot_from_html(html, "https://example.com/").expect("snapshot b");
+        let ja = serde_json::to_string(&a).expect("serialize a");
+        let jb = serde_json::to_string(&b).expect("serialize b");
+        assert_eq!(ja, jb, "two calls with identical input must match byte-for-byte");
+    }
+
+    #[test]
+    fn snapshot_from_html_refuses_input_above_byte_cap() {
+        let oversize = "x".repeat(super::SNAPSHOT_FROM_HTML_INPUT_BYTE_CAP + 1);
+        let err = super::snapshot_from_html(&oversize, "https://example.com/")
+            .expect_err("must refuse > 1 MiB input");
+        match err {
+            super::CdpError::HtmlInputTooLarge {
+                actual_bytes,
+                limit_bytes,
+            } => {
+                assert_eq!(actual_bytes, super::SNAPSHOT_FROM_HTML_INPUT_BYTE_CAP + 1);
+                assert_eq!(limit_bytes, super::SNAPSHOT_FROM_HTML_INPUT_BYTE_CAP);
+            }
+            other => panic!("expected HtmlInputTooLarge, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn snapshot_from_html_refuses_input_above_element_cap() {
+        // Build a document whose element count exceeds the cap. Each
+        // `<i></i>` adds one element; the wrapping <html><body> add two
+        // more. The doc is well under the byte cap.
+        let elements_needed = super::SNAPSHOT_FROM_HTML_ELEMENT_CAP + 1;
+        let mut html = String::with_capacity(elements_needed * 8 + 64);
+        html.push_str("<!doctype html><html><body>");
+        for _ in 0..elements_needed {
+            html.push_str("<i></i>");
+        }
+        html.push_str("</body></html>");
+
+        let err = super::snapshot_from_html(&html, "https://example.com/")
+            .expect_err("must refuse > 10000 elements");
+        match err {
+            super::CdpError::HtmlElementLimitExceeded { limit_elements } => {
+                assert_eq!(limit_elements, super::SNAPSHOT_FROM_HTML_ELEMENT_CAP);
+            }
+            other => panic!("expected HtmlElementLimitExceeded, got {other:?}"),
+        }
     }
 }

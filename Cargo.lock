@@ -1831,9 +1831,11 @@ version = "0.0.1"
 dependencies = [
  "chromiumoxide",
  "criterion",
+ "ego-tree",
  "futures-util",
  "indexmap",
  "plumb-core",
+ "scraper",
  "serde",
  "serde_json",
  "tempfile",
