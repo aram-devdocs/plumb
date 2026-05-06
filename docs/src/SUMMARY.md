@@ -19,6 +19,7 @@
   - [Claude Code](./mcp/claude.md)
   - [Cursor](./mcp/cursor.md)
   - [Codex](./mcp/codex.md)
+  - [`compare_viewports`](./mcp/compare-viewports.md)
 - [Configuration](./configuration.md)
 - [FAQ and troubleshooting](./faq.md)
 
