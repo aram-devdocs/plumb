@@ -46,6 +46,8 @@
 #![deny(missing_docs)]
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 
+pub mod fetcher;
+
 use indexmap::IndexMap;
 use plumb_core::report::Rect;
 use plumb_core::snapshot::{SnapshotNode, TextBox};
@@ -285,6 +287,40 @@ pub enum CdpError {
     /// Any other driver-level failure, carried as a boxed [`std::error::Error`].
     #[error("driver failure: {0}")]
     Driver(#[source] Box<dyn std::error::Error + Send + Sync>),
+    /// Auto-fetch (`--auto-fetch-chromium`) failed to download or
+    /// install Chromium. Wraps the upstream chromiumoxide fetcher
+    /// failure in a typed Plumb error so the CLI can surface a single
+    /// "auto-fetch could not produce a working binary" message.
+    #[error("Chromium auto-fetch failed: {reason}")]
+    AutoFetchFailed {
+        /// Human-readable reason (download / unzip / options error).
+        reason: String,
+    },
+    /// A cached Chromium binary's SHA-256 disagrees with the recorded
+    /// `.plumb-sha256` sidecar. Plumb refuses to launch the binary so
+    /// a tampered cache cannot silently be promoted into an
+    /// arbitrary-code-execution path.
+    #[error(
+        "Chromium binary `{}` failed hash verification: expected {expected}, found {found}",
+        path.display()
+    )]
+    HashMismatch {
+        /// Path of the offending binary.
+        path: PathBuf,
+        /// Hex SHA-256 from the sidecar (the value Plumb originally
+        /// trusted).
+        expected: String,
+        /// Hex SHA-256 of the binary as it currently exists.
+        found: String,
+    },
+    /// Auto-fetch needs a platform cache directory, but the host
+    /// environment did not provide enough information to resolve one
+    /// (no `HOME` / `LOCALAPPDATA` / `XDG_CACHE_HOME`).
+    #[error("could not resolve a Plumb cache directory: {reason}")]
+    CacheDirUnavailable {
+        /// Human-readable reason (which env var was missing).
+        reason: String,
+    },
 }
 
 /// A cookie to install before navigation.
@@ -761,6 +797,17 @@ pub struct ChromiumOptions {
     /// preserved as a parsed [`StorageState`] for downstream evaluation
     /// after navigation when the origin matches.
     pub storage_state: Option<PathBuf>,
+    /// Opt-in: when no [`Self::executable_path`] is set and no system
+    /// Chromium is detected, download Chrome-for-Testing pinned at
+    /// [`MIN_SUPPORTED_CHROMIUM_MAJOR`] into a Plumb-managed cache
+    /// directory and verify its SHA-256 before launch. Defaults to
+    /// `false`. See [`fetcher`] for the security trade-offs.
+    pub auto_fetch_chromium: bool,
+    /// Override the auto-fetch cache directory. When `None`, Plumb
+    /// resolves the platform default via [`fetcher::resolve_cache_dir`].
+    /// Useful for tests that want a tempdir-scoped cache and for
+    /// callers that ship Chromium alongside their app.
+    pub auto_fetch_cache_dir: Option<PathBuf>,
 }
 
 /// Real Chromium-backed driver.
@@ -776,7 +823,11 @@ impl ChromiumDriver {
         Self { options }
     }
 
-    fn browser_config(&self, target: &Target) -> Result<BrowserConfig, CdpError> {
+    fn browser_config(
+        &self,
+        target: &Target,
+        resolved_executable: Option<&Path>,
+    ) -> Result<BrowserConfig, CdpError> {
         // PRD §16: pinning launch args removes a class of nondeterminism
         // (scrollbar overlay differences across DPRs, OS-level scaling).
         let scale_factor_arg = format!("--force-device-scale-factor={}", target.device_pixel_ratio);
@@ -789,7 +840,14 @@ impl ChromiumDriver {
             .arg("--hide-scrollbars")
             .arg(scale_factor_arg);
 
-        let builder = if let Some(path) = &self.options.executable_path {
+        // Precedence:
+        //   1. caller-resolved path (auto-fetch produced one),
+        //   2. user-supplied `executable_path`,
+        //   3. chromiumoxide auto-detect (no `chrome_executable` call).
+        let builder = if let Some(path) = resolved_executable {
+            ensure_executable_path(path)?;
+            builder.chrome_executable(path)
+        } else if let Some(path) = &self.options.executable_path {
             ensure_executable_path(path)?;
             builder.chrome_executable(path)
         } else {
@@ -831,7 +889,8 @@ impl BrowserDriver for ChromiumDriver {
         // `capture_target`, which overrides the launch-time scale
         // factor for every page after the first.
         let first = &targets[0];
-        let config = self.browser_config(first)?;
+        let resolved_executable = resolve_auto_fetch(&self.options).await?;
+        let config = self.browser_config(first, resolved_executable.as_deref())?;
         let mut session = ChromiumSession::launch(config).await?;
 
         let result: Result<Vec<PlumbSnapshot>, CdpError> = async {
@@ -951,7 +1010,8 @@ impl PersistentBrowser {
     /// detected Chromium reports a major version outside the supported
     /// range, or [`CdpError::Driver`] for any other launch failure.
     pub async fn launch(options: ChromiumOptions) -> Result<Self, CdpError> {
-        let config = persistent_browser_config(&options)?;
+        let resolved_executable = resolve_auto_fetch(&options).await?;
+        let config = persistent_browser_config(&options, resolved_executable.as_deref())?;
         let (browser, handler) = Browser::launch(config).await.map_err(map_launch_error)?;
         let handler_task = poll_handler(handler);
 
@@ -1093,7 +1153,10 @@ impl BrowserDriver for PersistentBrowser {
     }
 }
 
-fn persistent_browser_config(options: &ChromiumOptions) -> Result<BrowserConfig, CdpError> {
+fn persistent_browser_config(
+    options: &ChromiumOptions,
+    resolved_executable: Option<&Path>,
+) -> Result<BrowserConfig, CdpError> {
     // PRD §16: pinning launch args removes a class of nondeterminism
     // (scrollbar overlay differences across DPRs, OS-level scaling).
     // `PersistentBrowser` does not fix a launch-time DPR — every
@@ -1107,7 +1170,11 @@ fn persistent_browser_config(options: &ChromiumOptions) -> Result<BrowserConfig,
         .window_size(1280, 800)
         .arg("--hide-scrollbars");
 
-    let builder = if let Some(path) = &options.executable_path {
+    // Same precedence rule as `ChromiumDriver::browser_config`.
+    let builder = if let Some(path) = resolved_executable {
+        ensure_executable_path(path)?;
+        builder.chrome_executable(path)
+    } else if let Some(path) = &options.executable_path {
         ensure_executable_path(path)?;
         builder.chrome_executable(path)
     } else {
@@ -1121,6 +1188,28 @@ fn persistent_browser_config(options: &ChromiumOptions) -> Result<BrowserConfig,
     };
 
     builder.build().map_err(|_| chromium_not_found())
+}
+
+/// When auto-fetch is enabled and the user didn't pin an
+/// `executable_path`, resolve the cache directory and ensure a fetched
+/// Chromium binary lives there. Returns the executable path the
+/// `BrowserConfig` should pin; `None` means "fall through to whatever
+/// the user supplied or to chromiumoxide's auto-detect."
+///
+/// Pure precedence rule: an explicit `executable_path` always wins
+/// over auto-fetch. The two are not allowed to collide — if both are
+/// set, the user's path is used and the fetcher is skipped.
+async fn resolve_auto_fetch(options: &ChromiumOptions) -> Result<Option<PathBuf>, CdpError> {
+    if !options.auto_fetch_chromium || options.executable_path.is_some() {
+        return Ok(None);
+    }
+    let cache_dir = if let Some(dir) = options.auto_fetch_cache_dir.clone() {
+        dir
+    } else {
+        fetcher::resolve_cache_dir()?
+    };
+    let path = fetcher::ensure_chromium(&cache_dir).await?;
+    Ok(Some(path))
 }
 
 async fn apply_viewport(page: &Page, target: &Target) -> Result<(), CdpError> {
