@@ -296,19 +296,16 @@ pub async fn ensure_chromium(cache_dir: &Path) -> Result<PathBuf, CdpError> {
 
     std::fs::create_dir_all(cache_dir).map_err(io_error)?;
 
-    // chromiumoxide_fetcher 0.8 does not re-export `Milestone` at its
-    // top level (only `BrowserVersion`, `Channel`, `Revision`,
-    // `Version`, `VersionError` are public), so we cannot pin a
-    // milestone via the typed `BrowserVersion::Milestone(...)`
-    // variant. The stable channel is the next-best behavior — it
-    // gives us the current stable Chrome-for-Testing build, which
-    // chromiumoxide's CDP shipping target tracks. Plumb's
-    // [`crate::validate_browser_version`] check fires at launch and
-    // refuses to proceed if the fetched binary's major version falls
-    // outside `MIN_SUPPORTED_CHROMIUM_MAJOR..=MAX_SUPPORTED_CHROMIUM_MAJOR`,
-    // so a stable-channel drift outside the supported range surfaces
-    // as a typed [`CdpError::UnsupportedChromium`] rather than a
-    // mysterious launch failure.
+    // chromiumoxide_fetcher 0.9 re-exports `Milestone`, but Plumb still
+    // pins to the stable channel — it gives us the current stable
+    // Chrome-for-Testing build, which chromiumoxide's CDP shipping
+    // target tracks. Plumb's [`crate::validate_browser_version`] check
+    // fires at launch and refuses to proceed if the fetched binary's
+    // major version falls outside
+    // `MIN_SUPPORTED_CHROMIUM_MAJOR..=MAX_SUPPORTED_CHROMIUM_MAJOR`, so
+    // a stable-channel drift outside the supported range surfaces as a
+    // typed [`CdpError::UnsupportedChromium`] rather than a mysterious
+    // launch failure.
     let options = BrowserFetcherOptions::builder()
         .with_path(cache_dir)
         .with_kind(BrowserKind::Chrome)

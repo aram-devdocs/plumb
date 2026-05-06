@@ -44,7 +44,7 @@ plumb-codegen = { path = "crates/plumb-codegen", version = "0.0.1" }
 plumb-mcp = { path = "crates/plumb-mcp", version = "0.0.1" }
 
 # CDP driver.
-chromiumoxide = { version = "0.8", default-features = false, features = ["tokio-runtime"] }
+chromiumoxide = { version = "0.9", default-features = false }
 
 # MCP SDK.
 rmcp = { version = "1.6", default-features = false, features = ["base64", "macros", "server", "transport-io", "transport-streamable-http-server", "schemars"] }
