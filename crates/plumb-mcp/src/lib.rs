@@ -10,6 +10,9 @@
 //!   shape from `docs/local/prd.md` §14.2. Accepts `http(s)://` URLs
 //!   (driven by `plumb_cdp::ChromiumDriver`) and `plumb-fake://` URLs
 //!   (served from the canned snapshot).
+//! - `lint_page_html` — lints a static HTML string without launching
+//!   Chromium. Same response shape as `lint_url` (compact). Capped at
+//!   1 MiB of input and 10 000 elements.
 //! - `explain_rule` — returns the canonical markdown documentation and
 //!   metadata for a built-in rule by id.
 //! - `list_rules` — enumerates every built-in rule with id, default
@@ -45,7 +48,7 @@ use axum::{
     middleware::{self, Next},
     response::{IntoResponse, Response},
 };
-use plumb_cdp::{ChromiumOptions, PersistentBrowser, Target, is_fake_url};
+use plumb_cdp::{ChromiumOptions, PersistentBrowser, Target, is_fake_url, snapshot_from_html};
 use plumb_config::ConfigError;
 use plumb_core::{Config, PlumbSnapshot, ViewportKey, Violation, register_builtin, run};
 use plumb_format::{json as full_json, mcp_compact};
@@ -130,6 +133,26 @@ pub enum LintUrlDetail {
     Compact,
     /// Canonical full JSON envelope with complete per-violation fields.
     Full,
+}
+
+/// Arguments to the `lint_page_html` tool.
+///
+/// `lint_page_html` lints a static HTML string with Plumb without
+/// launching Chromium. The agent supplies the document and a base URL;
+/// the server parses with [`plumb_cdp::snapshot_from_html`], runs the
+/// rule engine, and returns the same MCP-compact shape as
+/// [`LintUrlArgs`]. There is no `detail` knob — the static-HTML path
+/// has no rendered styles or geometry, so the full JSON envelope adds
+/// no useful information beyond the compact one.
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct LintPageHtmlArgs {
+    /// Raw HTML source for the page. Hard-capped at 1 MiB and 10 000
+    /// elements; oversized inputs return a JSON-RPC error.
+    pub html: String,
+    /// Base URL recorded as the snapshot's `url`. The function does not
+    /// fetch this URL or validate it — callers pass whatever URL the
+    /// downstream report should attribute the document to.
+    pub base_url: String,
 }
 
 /// Arguments to the `explain_rule` tool.
@@ -248,6 +271,50 @@ impl PlumbServer {
         let config = Config::default();
         let violations = run(&snapshot, &config);
         build_lint_url_result(&violations, args.detail)
+    }
+
+    /// Lint a static HTML string without launching Chromium.
+    ///
+    /// The HTML is parsed with [`plumb_cdp::snapshot_from_html`] (a pure
+    /// parser pass — no JavaScript execution, no resource fetching) and
+    /// the resulting [`PlumbSnapshot`] flows through the same rule
+    /// engine that powers [`Self::lint_url`]. The response uses the
+    /// MCP-compact shape ([`mcp_compact`]) and is bounded by the same
+    /// ~10 KB structured-content budget.
+    ///
+    /// The tool's input cap is enforced by `snapshot_from_html`: 1 MiB
+    /// of HTML and 10 000 elements. Oversized inputs map to a JSON-RPC
+    /// `invalid_params` error so the agent can react without parsing
+    /// the underlying `CdpError`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorData::invalid_params`] (JSON-RPC `-32602`) when
+    /// `args.html` is empty, when `args.base_url` is empty, or when
+    /// `snapshot_from_html` refuses the input as oversized.
+    pub async fn lint_page_html(
+        &self,
+        args: LintPageHtmlArgs,
+    ) -> Result<CallToolResult, ErrorData> {
+        if args.html.is_empty() {
+            return Err(ErrorData::invalid_params(
+                "html must not be empty".to_string(),
+                None,
+            ));
+        }
+        if args.base_url.is_empty() {
+            return Err(ErrorData::invalid_params(
+                "base_url must not be empty".to_string(),
+                None,
+            ));
+        }
+
+        let snapshot = snapshot_from_html(&args.html, &args.base_url).map_err(|err| {
+            ErrorData::invalid_params(format!("snapshot_from_html: {err}"), None)
+        })?;
+        let config = Config::default();
+        let violations = run(&snapshot, &config);
+        build_lint_url_result(&violations, LintUrlDetail::Compact)
     }
 
     /// Gracefully shut down the persistent browser, if any.
@@ -541,6 +608,7 @@ impl ServerHandler for PlumbServer {
         info.server_info = Implementation::new("plumb", env!("CARGO_PKG_VERSION"));
         info.instructions = Some(
             "Deterministic design-system linter. Call `lint_url` with a URL to get violations; \
+             use `lint_page_html` to lint a static HTML string without launching Chromium; \
              use `explain_rule` for canonical rule documentation; use `list_rules` to enumerate \
              every built-in rule; use `get_config` to fetch the resolved `plumb.toml` for a \
              working directory; read `plumb://config` to fetch the resolved config for the \
@@ -559,6 +627,7 @@ impl ServerHandler for PlumbServer {
         match request.name.as_ref() {
             "echo" => self.echo(parse_tool_args(arguments)?).await,
             "lint_url" => self.lint_url(parse_tool_args(arguments)?).await,
+            "lint_page_html" => self.lint_page_html(parse_tool_args(arguments)?).await,
             "explain_rule" => self.explain_rule(parse_tool_args(arguments)?).await,
             "list_rules" => self.list_rules(parse_tool_args(arguments)?).await,
             "get_config" => self.get_config(parse_tool_args(arguments)?).await,
@@ -579,6 +648,10 @@ impl ServerHandler for PlumbServer {
             tool_descriptor::<LintUrlArgs>(
                 "lint_url",
                 "Lint a URL with Plumb. Accepts http(s):// and plumb-fake:// URLs.",
+            ),
+            tool_descriptor::<LintPageHtmlArgs>(
+                "lint_page_html",
+                "Lint a static HTML string with Plumb without launching Chromium. Token budget: \u{2264} 10 KB structuredContent. Capped at 1 MiB input and 10000 elements.",
             ),
             tool_descriptor::<ExplainRuleArgs>(
                 "explain_rule",
