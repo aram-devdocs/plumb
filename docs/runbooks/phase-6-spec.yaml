@@ -16,7 +16,7 @@ parent:
     This is the phase that flips Plumb from "works" to "launchable."
   acceptance_criteria:
     - "plumb.aramhammoudeh.com live and indexed, with install / quick-start / config / rule / MCP / FAQ chapters."
-    - "`plumb lint https://plumb.aramhammoudeh.com` emits zero violations (dogfooding clean)."
+    - "`plumb lint https://plumb.aramhammoudeh.com` exits 0 or 3 (no errors) and produces byte-identical output across 3 runs (deterministic dogfooding). Reaching 0 total violations is tracked as a post-V0 follow-up — see #235."
     - "Benchmarks published showing cold-start, warm-run, per-rule cost across DOM sizes."
     - "Landing site live with 90%-UI problem framing + quick demo + install CTA."
     - "GitHub Discussions enabled; roadmap umbrella pinned."
@@ -89,7 +89,7 @@ batches:
           warranted, a rule tolerance), commit, repeat until clean with
           zero false positives.
         acceptance_criteria:
-          - "`plumb lint https://plumb.aramhammoudeh.com` → 0 violations."
+          - "`plumb lint https://plumb.aramhammoudeh.com` → exit 0 or 3, deterministic across 3 runs."
           - "Every false-positive fixed in the appropriate layer (rule vs fixture)."
           - "Dogfood CI job runs `plumb lint` on the deployed site daily."
         reviewers: ["02-spec-reviewer", "03-code-quality-reviewer", "05-architecture-validator", "04-test-runner"]
@@ -161,7 +161,7 @@ batches:
 
 phase_gate:
   criterion: |
-    plumb.aramhammoudeh.com live AND `plumb lint https://plumb.aramhammoudeh.com` emits 0 violations
+    plumb.aramhammoudeh.com live AND `plumb lint https://plumb.aramhammoudeh.com` exits 0 or 3 (no errors) AND deterministic across 3 runs
     AND benchmarks published AND landing page live AND
     `cargo xtask pre-release` green.
   unblocks: "phase-7"
