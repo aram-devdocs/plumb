@@ -321,6 +321,53 @@ async fn lint_page_html_empty_html_returns_invalid_params() {
     assert_eq!(err.code, ErrorCode::INVALID_PARAMS);
 }
 
+/// `lint_page_html` flags an inline off-grid padding value as a
+/// `spacing/grid-conformance` violation. This is the end-to-end
+/// proof that inline `style="…"` attributes flow through
+/// `snapshot_from_html` into `computed_styles` and on into the rule
+/// engine — without warming Chromium.
+#[tokio::test]
+async fn lint_page_html_flags_inline_padding() {
+    let server = server();
+    let result = server
+        .lint_page_html(LintPageHtmlArgs {
+            html: r#"<!doctype html><html><body><div style="padding: 13px">x</div></body></html>"#
+                .to_owned(),
+            base_url: "https://example.com/".to_owned(),
+        })
+        .await
+        .expect("lint_page_html must succeed for the off-grid fixture");
+
+    assert!(
+        !result.is_error.unwrap_or(false),
+        "lint_page_html must not surface a driver error for valid HTML"
+    );
+
+    let structured = result
+        .structured_content
+        .expect("response must include structured_content");
+    let violations = structured
+        .get("violations")
+        .and_then(serde_json::Value::as_array)
+        .expect("structuredContent.violations must be an array");
+    assert!(
+        !violations.is_empty(),
+        "expected at least one violation for `padding: 13px`, got {violations:?}",
+    );
+    let has_grid = violations
+        .iter()
+        .any(|v| v.get("rule_id").and_then(|r| r.as_str()) == Some("spacing/grid-conformance"));
+    assert!(
+        has_grid,
+        "expected a `spacing/grid-conformance` violation in {violations:?}",
+    );
+
+    server
+        .shutdown()
+        .await
+        .expect("shutdown must remain a no-op for static-HTML calls");
+}
+
 /// `lint_page_html` rejects oversized HTML at the parser cap (1 MiB).
 /// The cap surfaces as `invalid_params` so a chatty agent can react
 /// without parsing the underlying `CdpError` variant.
