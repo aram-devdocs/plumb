@@ -42,6 +42,11 @@ struct Cli {
     command: Command,
 }
 
+// `Lint` carries 16 inline fields (#74-#77 PRD §15 capture knobs).
+// Boxing them would force clap field bindings to thread through `Box<T>`,
+// breaking the macro ergonomics, and the enum is constructed exactly once
+// per process (in `Cli::parse`). Allow the size disparity here.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Subcommand)]
 enum Command {
     /// Lint a URL against your design-system spec.
@@ -73,6 +78,68 @@ enum Command {
         /// before rule dispatch.
         #[arg(long, value_name = "CSS_SELECTOR")]
         selector: Option<String>,
+        /// Wait for a CSS selector to appear in the page before
+        /// capturing the snapshot. Useful for SPAs whose first paint
+        /// arrives after the initial network idle event. Compatible
+        /// with `--wait-ms`; the selector wait runs first, then the
+        /// additional sleep.
+        #[arg(long, value_name = "CSS_SELECTOR")]
+        wait_for: Option<String>,
+        /// Sleep N milliseconds after navigation (and after
+        /// `--wait-for`, if both are passed) before capturing the
+        /// snapshot. Belt-and-suspenders for SPAs whose deferred
+        /// rendering does not finish in the same tick.
+        #[arg(long, value_name = "MS")]
+        wait_ms: Option<u64>,
+        /// Pre-set a cookie before navigation, in `name=value` form.
+        /// Repeatable.
+        #[arg(long = "cookie", value_name = "NAME=VALUE", action = ArgAction::Append)]
+        cookies: Vec<String>,
+        /// Add an extra HTTP header to every outgoing request, in
+        /// `name: value` form. Repeatable.
+        #[arg(long = "header", value_name = "NAME:VALUE", action = ArgAction::Append)]
+        headers: Vec<String>,
+        /// Path to a JavaScript file evaluated on every new document
+        /// before navigation (CDP `Page.addScriptToEvaluateOnNewDocument`).
+        /// Used for setting `window.localStorage` or attaching
+        /// `Authorization` headers via `fetch` interception. Refused
+        /// when the path resolves outside the current working directory.
+        #[arg(long, value_name = "PATH")]
+        auth_script: Option<PathBuf>,
+        /// Path to a Playwright `storage-state.json`. Cookies in the
+        /// file are installed before navigation; localStorage entries
+        /// for the matching origin are written via `evaluate` after
+        /// navigation.
+        #[arg(long, value_name = "PATH")]
+        storage_state: Option<PathBuf>,
+        /// Disable CSS animations and transitions before navigation
+        /// for byte-stable snapshots. The driver already does this by
+        /// default; pass `--disable-animations false` to opt out.
+        #[arg(
+            long = "disable-animations",
+            default_value_t = true,
+            action = ArgAction::Set,
+            num_args = 0..=1,
+            default_missing_value = "true"
+        )]
+        disable_animations: bool,
+        /// Inject CSS that hides scrollbars before navigation. The
+        /// driver already does this by default; pass
+        /// `--hide-scrollbars false` to opt out.
+        #[arg(
+            long = "hide-scrollbars",
+            default_value_t = true,
+            action = ArgAction::Set,
+            num_args = 0..=1,
+            default_missing_value = "true"
+        )]
+        hide_scrollbars: bool,
+        /// Pin the device-pixel ratio used by
+        /// `Emulation.setDeviceMetricsOverride`. When unset, the
+        /// configured viewport's `device_pixel_ratio` is used. Useful
+        /// for stress-testing rules against hidpi rendering.
+        #[arg(long, value_name = "FACTOR")]
+        dpr: Option<f64>,
     },
     /// Write a starter `plumb.toml` to the current directory.
     Init {
@@ -146,16 +213,34 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 output,
                 viewports,
                 selector,
+                wait_for,
+                wait_ms,
+                cookies,
+                headers,
+                auth_script,
+                storage_state,
+                disable_animations,
+                hide_scrollbars,
+                dpr,
             } => {
-                commands::lint::run(
+                commands::lint::run(commands::lint::LintArgs {
                     url,
-                    config,
+                    config_path: config,
                     executable_path,
-                    format.into(),
-                    output,
+                    format: format.into(),
+                    output_path: output,
                     viewports,
                     selector,
-                )
+                    wait_for,
+                    wait_ms,
+                    cookies,
+                    headers,
+                    auth_script,
+                    storage_state,
+                    disable_animations,
+                    hide_scrollbars,
+                    dpr,
+                })
                 .await
             }
             Command::Init { force } => commands::init::run(force),

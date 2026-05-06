@@ -60,6 +60,9 @@ use chromiumoxide::cdp::browser_protocol::dom_snapshot::{
     CaptureSnapshotParams, CaptureSnapshotReturns, DocumentSnapshot,
 };
 use chromiumoxide::cdp::browser_protocol::emulation::SetDeviceMetricsOverrideParams;
+use chromiumoxide::cdp::browser_protocol::network::{
+    CookieParam, Headers, SetCookiesParams, SetExtraHttpHeadersParams,
+};
 use chromiumoxide::cdp::browser_protocol::page::AddScriptToEvaluateOnNewDocumentParams;
 use chromiumoxide::cdp::browser_protocol::target::{
     CreateBrowserContextParams, CreateTargetParams,
@@ -67,6 +70,7 @@ use chromiumoxide::cdp::browser_protocol::target::{
 use chromiumoxide::detection::DetectionOptions;
 use chromiumoxide::{Browser, BrowserConfig, Handler};
 use futures_util::StreamExt;
+use serde::Deserialize;
 use tokio::task::JoinHandle;
 
 /// Lowest Chromium major version Plumb has validated against. Booting
@@ -126,7 +130,14 @@ pub const COMPUTED_STYLE_WHITELIST: &[&str; 36] = &[
     "height",
 ];
 
-/// A snapshot target: URL + viewport.
+/// A snapshot target: URL + viewport + per-target capture knobs.
+///
+/// The capture knobs (`wait_for_selector`, `wait_ms`,
+/// `disable_animations`, `hide_scrollbars`, `pin_dpr`) are documented
+/// in PRD §15. They control browser-side behavior between navigation
+/// and `DOMSnapshot.captureSnapshot` and never flow into snapshot
+/// content — they only affect *when* the snapshot is captured and what
+/// CSS state the page is in at that moment.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Target {
     /// URL to navigate to. The `plumb-fake://` scheme is reserved for
@@ -140,6 +151,58 @@ pub struct Target {
     pub height: u32,
     /// Device pixel ratio.
     pub device_pixel_ratio: f32,
+    /// Optional CSS selector to wait for before capturing the snapshot.
+    /// When set, the driver polls the page until at least one matching
+    /// element exists. Compatible with [`Self::wait_ms`] — both fire,
+    /// in order: selector first, then the additional sleep.
+    pub wait_for_selector: Option<String>,
+    /// Optional additional milliseconds to sleep before capturing the
+    /// snapshot, after navigation (and after [`Self::wait_for_selector`]).
+    pub wait_ms: Option<u64>,
+    /// Inject CSS that disables animations and transitions before the
+    /// page renders. Defaults to `true` — the historical Plumb behavior
+    /// (PRD §16) — and the CLI exposes a flag that flips this value.
+    pub disable_animations: bool,
+    /// Inject CSS that hides page-level scrollbars. Defaults to `true`
+    /// to match the Chromium launch arg `--hide-scrollbars`. The CSS
+    /// belt-and-suspenders covers cases where the launch arg alone is
+    /// not honored (e.g. older Chromium majors on certain platforms).
+    pub hide_scrollbars: bool,
+    /// Optional explicit device-pixel ratio override applied via
+    /// `Emulation.setDeviceMetricsOverride.deviceScaleFactor` instead of
+    /// using [`Self::device_pixel_ratio`]. When `None`, the existing
+    /// `device_pixel_ratio` is used. The CLI exposes this as `--dpr`.
+    pub pin_dpr: Option<f64>,
+}
+
+impl Target {
+    /// Effective device-scale factor for `Emulation.setDeviceMetricsOverride`.
+    ///
+    /// Prefers [`Self::pin_dpr`] when set, otherwise falls back to
+    /// [`Self::device_pixel_ratio`]. Centralizing the choice keeps the
+    /// "pin overrides default" rule in one place.
+    #[must_use]
+    pub fn effective_dpr(&self) -> f64 {
+        self.pin_dpr
+            .unwrap_or_else(|| f64::from(self.device_pixel_ratio))
+    }
+}
+
+impl Default for Target {
+    fn default() -> Self {
+        Self {
+            url: String::new(),
+            viewport: ViewportKey::new("desktop"),
+            width: 1280,
+            height: 800,
+            device_pixel_ratio: 1.0,
+            wait_for_selector: None,
+            wait_ms: None,
+            disable_animations: true,
+            hide_scrollbars: true,
+            pin_dpr: None,
+        }
+    }
 }
 
 /// Errors returned by drivers.
@@ -178,9 +241,332 @@ pub enum CdpError {
         /// What was wrong with the response.
         reason: String,
     },
+    /// A user-supplied cookie name/value contained illegal characters
+    /// (header injection guard — newlines are refused before reaching
+    /// the browser).
+    #[error("invalid cookie {field} `{input}`: {reason}")]
+    InvalidCookie {
+        /// Which cookie field failed validation (`name` or `value`).
+        field: &'static str,
+        /// The offending input.
+        input: String,
+        /// Reason the input was rejected.
+        reason: &'static str,
+    },
+    /// A user-supplied HTTP header name/value contained illegal
+    /// characters (header injection guard — newlines and `:` in names
+    /// are refused before reaching the browser).
+    #[error("invalid header {field} `{input}`: {reason}")]
+    InvalidHeader {
+        /// Which header field failed validation (`name` or `value`).
+        field: &'static str,
+        /// The offending input.
+        input: String,
+        /// Reason the input was rejected.
+        reason: &'static str,
+    },
+    /// A user-supplied path (auth-script or storage-state) failed the
+    /// safe-path check.
+    #[error("invalid path `{path}`: {reason}")]
+    InvalidPath {
+        /// The offending path.
+        path: PathBuf,
+        /// Reason the path was rejected.
+        reason: String,
+    },
+    /// Failed to parse a Playwright storage-state JSON file.
+    #[error("malformed storage-state file `{path}`: {reason}")]
+    MalformedStorageState {
+        /// The file the driver was reading.
+        path: PathBuf,
+        /// What went wrong.
+        reason: String,
+    },
     /// Any other driver-level failure, carried as a boxed [`std::error::Error`].
     #[error("driver failure: {0}")]
     Driver(#[source] Box<dyn std::error::Error + Send + Sync>),
+}
+
+/// A cookie to install before navigation.
+///
+/// User-supplied cookies are validated for header-injection-style
+/// payloads (newlines, NULs) before flowing into a CDP `Network.setCookies`
+/// request. A `None` `url` means the cookie is bound to whatever URL the
+/// target ends up navigating to.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Cookie {
+    /// Cookie name.
+    pub name: String,
+    /// Cookie value.
+    pub value: String,
+    /// Optional explicit URL the cookie is associated with. When `None`,
+    /// the cookie is associated with the target URL on injection.
+    pub url: Option<String>,
+    /// Optional cookie domain.
+    pub domain: Option<String>,
+    /// Optional cookie path (defaults to `/`).
+    pub path: Option<String>,
+    /// Optional `Secure` flag.
+    pub secure: Option<bool>,
+    /// Optional `HttpOnly` flag.
+    pub http_only: Option<bool>,
+}
+
+impl Cookie {
+    /// Construct a cookie from a `name=value` token. The pre-navigation
+    /// helper attaches the target URL on injection.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CdpError::InvalidCookie`] when:
+    /// - The token has no `=` separator.
+    /// - The name is empty.
+    /// - The name or value contains a CR, LF, or NUL byte (header
+    ///   injection).
+    pub fn parse_kv(token: &str) -> Result<Self, CdpError> {
+        let (name, value) = token
+            .split_once('=')
+            .ok_or_else(|| CdpError::InvalidCookie {
+                field: "name",
+                input: token.to_owned(),
+                reason: "expected `name=value`",
+            })?;
+        let name = name.trim().to_owned();
+        let value = value.to_owned();
+        if name.is_empty() {
+            return Err(CdpError::InvalidCookie {
+                field: "name",
+                input: token.to_owned(),
+                reason: "name must not be empty",
+            });
+        }
+        validate_no_ctl(&name, "name", "cookie")?;
+        validate_no_ctl(&value, "value", "cookie")?;
+        Ok(Self {
+            name,
+            value,
+            ..Self::default()
+        })
+    }
+
+    fn into_cdp_param(self, default_url: Option<&str>) -> CookieParam {
+        let mut param = CookieParam::new(self.name, self.value);
+        param.url = self.url.or_else(|| default_url.map(str::to_owned));
+        param.domain = self.domain;
+        param.path = self.path;
+        param.secure = self.secure;
+        param.http_only = self.http_only;
+        param
+    }
+}
+
+fn validate_no_ctl(input: &str, field: &'static str, kind: &'static str) -> Result<(), CdpError> {
+    if input.bytes().any(|b| b == b'\r' || b == b'\n' || b == 0) {
+        return match kind {
+            "cookie" => Err(CdpError::InvalidCookie {
+                field,
+                input: input.to_owned(),
+                reason: "control characters (CR/LF/NUL) are not allowed",
+            }),
+            _ => Err(CdpError::InvalidHeader {
+                field,
+                input: input.to_owned(),
+                reason: "control characters (CR/LF/NUL) are not allowed",
+            }),
+        };
+    }
+    Ok(())
+}
+
+/// Parse and validate an HTTP header `name: value` token.
+///
+/// # Errors
+///
+/// Returns [`CdpError::InvalidHeader`] when:
+/// - The token has no `:` separator.
+/// - The name is empty or contains whitespace / `:` / control bytes.
+/// - The value contains CR, LF, or NUL bytes (header injection).
+pub fn parse_header_kv(token: &str) -> Result<(String, String), CdpError> {
+    let (name, value) = token
+        .split_once(':')
+        .ok_or_else(|| CdpError::InvalidHeader {
+            field: "name",
+            input: token.to_owned(),
+            reason: "expected `name: value`",
+        })?;
+    let name = name.trim().to_owned();
+    let value = value.trim_start().to_owned();
+    if name.is_empty() {
+        return Err(CdpError::InvalidHeader {
+            field: "name",
+            input: token.to_owned(),
+            reason: "name must not be empty",
+        });
+    }
+    if name
+        .bytes()
+        .any(|b| b == b':' || b == b' ' || b == b'\t' || b == b'\r' || b == b'\n' || b == 0)
+    {
+        return Err(CdpError::InvalidHeader {
+            field: "name",
+            input: name,
+            reason: "name must not contain whitespace, `:`, or control bytes",
+        });
+    }
+    validate_no_ctl(&value, "value", "header")?;
+    Ok((name, value))
+}
+
+/// Playwright `storage-state.json` representation.
+///
+/// Matches the format Playwright writes via
+/// [`browserContext.storageState()`](https://playwright.dev/docs/api/class-browsercontext#browser-context-storage-state)
+/// — a `cookies` array plus an `origins` array of `{ origin,
+/// localStorage }`. Deserialized with `deny_unknown_fields` so a
+/// future Playwright addition fails loudly rather than being silently
+/// ignored.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StorageState {
+    /// Cookies preserved across the session.
+    #[serde(default)]
+    pub cookies: Vec<StorageStateCookie>,
+    /// Per-origin localStorage entries.
+    #[serde(default)]
+    pub origins: Vec<StorageStateOrigin>,
+}
+
+/// One cookie entry in a Playwright `storage-state.json`.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StorageStateCookie {
+    /// Cookie name.
+    pub name: String,
+    /// Cookie value.
+    pub value: String,
+    /// Cookie domain.
+    pub domain: String,
+    /// Cookie path.
+    pub path: String,
+    /// Cookie expiration as a Unix timestamp; Playwright uses `-1` for
+    /// session cookies.
+    #[serde(default)]
+    pub expires: f64,
+    /// `HttpOnly` flag.
+    #[serde(default, rename = "httpOnly")]
+    pub http_only: bool,
+    /// `Secure` flag.
+    #[serde(default)]
+    pub secure: bool,
+    /// `SameSite` attribute (typically `"Strict" | "Lax" | "None"`).
+    #[serde(default, rename = "sameSite")]
+    pub same_site: Option<String>,
+}
+
+/// One `origins[]` entry in a Playwright `storage-state.json`.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StorageStateOrigin {
+    /// The origin URL (e.g. `https://example.com`).
+    pub origin: String,
+    /// `localStorage` entries for the origin.
+    #[serde(default, rename = "localStorage")]
+    pub local_storage: Vec<StorageStateLocalStorageEntry>,
+}
+
+/// One `localStorage[]` entry in a Playwright `storage-state.json`.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StorageStateLocalStorageEntry {
+    /// localStorage key.
+    pub name: String,
+    /// localStorage value.
+    pub value: String,
+}
+
+impl StorageState {
+    /// Parse a Playwright `storage-state.json` from a string.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CdpError::MalformedStorageState`] with `path = ""` when
+    /// the JSON cannot be parsed. Callers that have a real path on hand
+    /// should use [`Self::load_from_path`] instead so the error carries
+    /// the source filename.
+    pub fn parse_str(json: &str) -> Result<Self, CdpError> {
+        serde_json::from_str(json).map_err(|err| CdpError::MalformedStorageState {
+            path: PathBuf::new(),
+            reason: err.to_string(),
+        })
+    }
+
+    /// Read and parse a storage-state file from disk.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CdpError::InvalidPath`] when the path fails the safe-path
+    /// check, or [`CdpError::MalformedStorageState`] when the file cannot
+    /// be read or parsed.
+    pub fn load_from_path(path: &Path) -> Result<Self, CdpError> {
+        let canonical = canonicalize_safe_path(path)?;
+        let bytes =
+            std::fs::read_to_string(&canonical).map_err(|err| CdpError::MalformedStorageState {
+                path: canonical.clone(),
+                reason: err.to_string(),
+            })?;
+        let mut state: Self =
+            serde_json::from_str(&bytes).map_err(|err| CdpError::MalformedStorageState {
+                path: canonical.clone(),
+                reason: err.to_string(),
+            })?;
+        // Validate every cookie name/value for header-injection style
+        // payloads — Playwright files are typically machine-written but
+        // Plumb cannot trust their provenance.
+        for cookie in &state.cookies {
+            validate_no_ctl(&cookie.name, "name", "cookie")?;
+            validate_no_ctl(&cookie.value, "value", "cookie")?;
+        }
+        // Sort cookies and origins for deterministic injection order.
+        state.cookies.sort_by(|a, b| {
+            (a.domain.as_str(), a.name.as_str()).cmp(&(b.domain.as_str(), b.name.as_str()))
+        });
+        state.origins.sort_by(|a, b| a.origin.cmp(&b.origin));
+        for origin in &mut state.origins {
+            origin.local_storage.sort_by(|a, b| a.name.cmp(&b.name));
+        }
+        Ok(state)
+    }
+}
+
+/// Canonicalize `path` and reject symlinks pointing outside the current
+/// working directory.
+///
+/// `--auth-script` and `--storage-state` accept arbitrary file paths,
+/// so the caller-side check is the last guard before we read user
+/// content. The check refuses paths that:
+/// - cannot be canonicalized (file does not exist / no permission),
+/// - resolve to a different prefix than the current working directory.
+fn canonicalize_safe_path(path: &Path) -> Result<PathBuf, CdpError> {
+    let canonical = path.canonicalize().map_err(|err| CdpError::InvalidPath {
+        path: path.to_path_buf(),
+        reason: format!("could not canonicalize: {err}"),
+    })?;
+    let cwd = std::env::current_dir().map_err(|err| CdpError::InvalidPath {
+        path: path.to_path_buf(),
+        reason: format!("could not read CWD: {err}"),
+    })?;
+    let cwd_canonical = cwd.canonicalize().unwrap_or(cwd);
+    if !canonical.starts_with(&cwd_canonical) {
+        return Err(CdpError::InvalidPath {
+            path: path.to_path_buf(),
+            reason: format!(
+                "path resolves to `{}`, which is outside the current working directory `{}`",
+                canonical.display(),
+                cwd_canonical.display()
+            ),
+        });
+    }
+    Ok(canonical)
 }
 
 /// Async trait for browser drivers. Implementations are expected to be
@@ -228,6 +614,22 @@ pub struct ChromiumOptions {
     /// Profile contents do not flow into [`PlumbSnapshot`] output, so
     /// varying this path does not violate the determinism invariant.
     pub user_data_dir: Option<PathBuf>,
+    /// Cookies to install before navigation (PRD §15 — `--cookie`).
+    /// Iterated in `(name, value)` order for deterministic CDP traffic.
+    pub cookies: Vec<Cookie>,
+    /// Extra HTTP headers to attach to every request (PRD §15 —
+    /// `--header`). Sorted by name on injection so CDP traffic is
+    /// stable across runs.
+    pub headers: Vec<(String, String)>,
+    /// Path to a JavaScript file evaluated on every new document via
+    /// `Page.addScriptToEvaluateOnNewDocument` before navigation
+    /// (PRD §15 — `--auth-script`).
+    pub auth_script: Option<PathBuf>,
+    /// Path to a Playwright `storage-state.json` file. Cookies in the
+    /// file are installed before navigation; localStorage entries are
+    /// preserved as a parsed [`StorageState`] for downstream evaluation
+    /// after navigation when the origin matches.
+    pub storage_state: Option<PathBuf>,
 }
 
 /// Real Chromium-backed driver.
@@ -305,7 +707,7 @@ impl BrowserDriver for ChromiumDriver {
             validate_browser_version(&session.browser).await?;
             let mut snapshots = Vec::with_capacity(targets.len());
             for target in &targets {
-                let snap = capture_target(&session.browser, target).await?;
+                let snap = capture_target(&session.browser, target, &self.options).await?;
                 snapshots.push(snap);
             }
             Ok(snapshots)
@@ -323,26 +725,41 @@ impl BrowserDriver for ChromiumDriver {
     }
 }
 
-async fn capture_target(browser: &Browser, target: &Target) -> Result<PlumbSnapshot, CdpError> {
+async fn capture_target(
+    browser: &Browser,
+    target: &Target,
+    options: &ChromiumOptions,
+) -> Result<PlumbSnapshot, CdpError> {
     let page = browser
         .new_page("about:blank")
         .await
         .map_err(driver_error)?;
 
-    capture_on_page(&page, target).await
+    capture_on_page(&page, target, options).await
 }
 
-/// Apply viewport / animation hooks, navigate, capture a DOM snapshot.
+/// Apply viewport / animation hooks, install cookies and headers,
+/// navigate, capture a DOM snapshot.
 ///
 /// Shared between `ChromiumDriver::capture_target` and
 /// [`PersistentBrowser::snapshot`] so that the per-target work is
-/// expressed in exactly one place.
-async fn capture_on_page(page: &Page, target: &Target) -> Result<PlumbSnapshot, CdpError> {
+/// expressed in exactly one place. The function is split into discrete
+/// stages — `apply_viewport` (DPR + dimensions), `pre_navigate`
+/// (cookies, headers, auth-script, storage-state, animation killer,
+/// scrollbar killer), `goto` + waits, then capture.
+async fn capture_on_page(
+    page: &Page,
+    target: &Target,
+    options: &ChromiumOptions,
+) -> Result<PlumbSnapshot, CdpError> {
     apply_viewport(page, target).await?;
-    inject_animation_killer(page).await?;
+    pre_navigate(page, target, options).await?;
 
     page.goto(target.url.as_str()).await.map_err(driver_error)?;
     page.wait_for_navigation().await.map_err(driver_error)?;
+
+    apply_post_navigate_waits(page, target).await?;
+    apply_storage_state_local_storage(page, target, options).await?;
 
     let params = CaptureSnapshotParams {
         computed_styles: COMPUTED_STYLE_WHITELIST
@@ -380,6 +797,7 @@ pub struct PersistentBrowser {
 struct PersistentBrowserInner {
     browser: Browser,
     handler_task: Mutex<Option<JoinHandle<()>>>,
+    options: ChromiumOptions,
 }
 
 impl PersistentBrowser {
@@ -414,6 +832,7 @@ impl PersistentBrowser {
             inner: Arc::new(PersistentBrowserInner {
                 browser,
                 handler_task: Mutex::new(Some(handler_task)),
+                options,
             }),
         })
     }
@@ -455,7 +874,7 @@ impl PersistentBrowser {
                 .new_page(create_params)
                 .await
                 .map_err(driver_error)?;
-            capture_on_page(&page, &target).await
+            capture_on_page(&page, &target, &self.inner.options).await
         }
         .await;
 
@@ -569,10 +988,13 @@ fn persistent_browser_config(options: &ChromiumOptions) -> Result<BrowserConfig,
 }
 
 async fn apply_viewport(page: &Page, target: &Target) -> Result<(), CdpError> {
+    // `pin_dpr` (PRD §15 — `--dpr`) wins over `device_pixel_ratio` so
+    // that callers can stress determinism by pinning a hidpi factor
+    // independent of the viewport's logical DPR.
     let params = SetDeviceMetricsOverrideParams {
         width: i64::from(target.width),
         height: i64::from(target.height),
-        device_scale_factor: f64::from(target.device_pixel_ratio),
+        device_scale_factor: target.effective_dpr(),
         mobile: false,
         scale: None,
         screen_width: None,
@@ -585,6 +1007,111 @@ async fn apply_viewport(page: &Page, target: &Target) -> Result<(), CdpError> {
     };
     page.execute(params).await.map_err(driver_error)?;
     Ok(())
+}
+
+/// All work that must happen on a fresh page before navigation.
+///
+/// Runs in this fixed order so behavior matches what users expect:
+/// 1. Animation/scrollbar CSS killers — PRD §16 determinism.
+/// 2. Auth script — runs before any page script, so the page-side
+///    bootstrap can set window globals before the SPA boots.
+/// 3. Cookies and HTTP headers — set on the network layer before the
+///    very first request leaves Chromium.
+/// 4. Storage-state cookies — same network layer; localStorage entries
+///    in the storage-state are deferred to [`apply_storage_state_local_storage`]
+///    after the origin loads, since localStorage is origin-scoped.
+async fn pre_navigate(
+    page: &Page,
+    target: &Target,
+    options: &ChromiumOptions,
+) -> Result<(), CdpError> {
+    if target.disable_animations {
+        inject_animation_killer(page).await?;
+    }
+    if target.hide_scrollbars {
+        inject_scrollbar_killer(page).await?;
+    }
+    if let Some(script_path) = options.auth_script.as_deref() {
+        inject_auth_script(page, script_path).await?;
+    }
+    if !options.headers.is_empty() {
+        install_extra_headers(page, &options.headers).await?;
+    }
+    if !options.cookies.is_empty() {
+        install_cookies(page, &options.cookies, target.url.as_str()).await?;
+    }
+    if let Some(state_path) = options.storage_state.as_deref() {
+        install_storage_state_cookies(page, state_path).await?;
+    }
+    Ok(())
+}
+
+/// Wait stages that must run *after* navigation. PRD §15 — `--wait-for`
+/// and `--wait-ms`.
+///
+/// Selector wait fires first (so users can synchronize on a
+/// known-rendered element); the additional `--wait-ms` then runs as a
+/// belt-and-suspenders sleep for SPAs whose post-render work doesn't
+/// finish in the same tick.
+async fn apply_post_navigate_waits(page: &Page, target: &Target) -> Result<(), CdpError> {
+    if let Some(selector) = target.wait_for_selector.as_deref() {
+        wait_for_selector(page, selector).await?;
+    }
+    if let Some(ms) = target.wait_ms {
+        tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
+    }
+    Ok(())
+}
+
+/// Install localStorage entries from a Playwright storage-state file.
+///
+/// Runs *after* navigation because `localStorage` is origin-scoped and
+/// the only way to write to it from the driver is to evaluate a script
+/// in the page context. Entries whose `origin` does not match the
+/// navigated URL's origin are skipped (same isolation Playwright applies).
+async fn apply_storage_state_local_storage(
+    page: &Page,
+    target: &Target,
+    options: &ChromiumOptions,
+) -> Result<(), CdpError> {
+    let Some(state_path) = options.storage_state.as_deref() else {
+        return Ok(());
+    };
+    let state = StorageState::load_from_path(state_path)?;
+    let target_origin = origin_of(target.url.as_str()).unwrap_or_default();
+    for origin_entry in &state.origins {
+        if origin_entry.origin != target_origin {
+            continue;
+        }
+        for entry in &origin_entry.local_storage {
+            // Build a JSON.stringify-style argument so the values are
+            // safe regardless of contained quotes.
+            let key = serde_json::to_string(&entry.name).map_err(|err| {
+                CdpError::MalformedStorageState {
+                    path: state_path.to_path_buf(),
+                    reason: format!("could not serialize key: {err}"),
+                }
+            })?;
+            let value = serde_json::to_string(&entry.value).map_err(|err| {
+                CdpError::MalformedStorageState {
+                    path: state_path.to_path_buf(),
+                    reason: format!("could not serialize value: {err}"),
+                }
+            })?;
+            let script = format!("window.localStorage.setItem({key}, {value});");
+            page.evaluate(script.as_str()).await.map_err(driver_error)?;
+        }
+    }
+    Ok(())
+}
+
+fn origin_of(url: &str) -> Option<String> {
+    // Minimal origin extractor — `<scheme>://<host>[:<port>]`. Avoids a
+    // url-parser dep; storage-state matching is a string compare against
+    // Playwright's own origin format.
+    let (scheme, rest) = url.split_once("://")?;
+    let host = rest.split('/').next()?;
+    Some(format!("{scheme}://{host}"))
 }
 
 async fn inject_animation_killer(page: &Page) -> Result<(), CdpError> {
@@ -602,14 +1129,142 @@ async fn inject_animation_killer(page: &Page) -> Result<(), CdpError> {
         }'; \
         (document.head || document.documentElement).appendChild(style); \
     })();";
+    add_script_to_evaluate_on_new_document(page, source).await
+}
+
+async fn inject_scrollbar_killer(page: &Page) -> Result<(), CdpError> {
+    // PRD §16 determinism mitigation: scrollbar overlay differs across
+    // platforms / DPRs. The `--hide-scrollbars` Chromium launch arg is a
+    // first line of defense; this CSS injection covers the cases where
+    // the launch arg alone is not honored (Linux non-overlay scrollbars,
+    // CSS-painted scrollbars in some apps).
+    let source = "(() => { \
+        const style = document.createElement('style'); \
+        style.textContent = 'html { overflow: hidden !important; } \
+            ::-webkit-scrollbar { display: none !important; }'; \
+        (document.head || document.documentElement).appendChild(style); \
+    })();";
+    add_script_to_evaluate_on_new_document(page, source).await
+}
+
+async fn inject_auth_script(page: &Page, path: &Path) -> Result<(), CdpError> {
+    let canonical = canonicalize_safe_path(path)?;
+    if canonical.extension().and_then(|s| s.to_str()) != Some("js") {
+        return Err(CdpError::InvalidPath {
+            path: path.to_path_buf(),
+            reason: "auth script must have a `.js` extension".to_owned(),
+        });
+    }
+    let source = std::fs::read_to_string(&canonical).map_err(|err| CdpError::InvalidPath {
+        path: canonical.clone(),
+        reason: format!("could not read: {err}"),
+    })?;
+    add_script_to_evaluate_on_new_document(page, &source).await
+}
+
+async fn add_script_to_evaluate_on_new_document(page: &Page, source: &str) -> Result<(), CdpError> {
     let params = AddScriptToEvaluateOnNewDocumentParams {
-        source: source.to_string(),
+        source: source.to_owned(),
         world_name: None,
         include_command_line_api: None,
         run_immediately: Some(true),
     };
     page.execute(params).await.map_err(driver_error)?;
     Ok(())
+}
+
+async fn install_extra_headers(page: &Page, headers: &[(String, String)]) -> Result<(), CdpError> {
+    // Sort by name for deterministic CDP traffic. Plumb's invariant is
+    // byte-identical *output*, but stable network-layer requests make
+    // diffing tcpdumps across runs viable too.
+    let mut entries: Vec<(String, String)> = headers.to_vec();
+    entries.sort_by(|a, b| a.0.cmp(&b.0));
+    let mut object = serde_json::Map::with_capacity(entries.len());
+    for (name, value) in entries {
+        validate_no_ctl(&name, "name", "header")?;
+        validate_no_ctl(&value, "value", "header")?;
+        object.insert(name, serde_json::Value::String(value));
+    }
+    let params = SetExtraHttpHeadersParams::new(Headers::new(serde_json::Value::Object(object)));
+    page.execute(params).await.map_err(driver_error)?;
+    Ok(())
+}
+
+async fn install_cookies(
+    page: &Page,
+    cookies: &[Cookie],
+    default_url: &str,
+) -> Result<(), CdpError> {
+    // Sort by `(name, value)` so the network-layer call is stable across
+    // runs even when the caller supplied cookies in a different order.
+    let mut sorted: Vec<Cookie> = cookies.to_vec();
+    sorted.sort_by(|a, b| {
+        (a.name.as_str(), a.value.as_str()).cmp(&(b.name.as_str(), b.value.as_str()))
+    });
+    let url_for_cookies = if default_url.starts_with("http") {
+        Some(default_url)
+    } else {
+        None
+    };
+    let params = SetCookiesParams::new(
+        sorted
+            .into_iter()
+            .map(|c| c.into_cdp_param(url_for_cookies))
+            .collect(),
+    );
+    page.execute(params).await.map_err(driver_error)?;
+    Ok(())
+}
+
+async fn install_storage_state_cookies(page: &Page, path: &Path) -> Result<(), CdpError> {
+    let state = StorageState::load_from_path(path)?;
+    if state.cookies.is_empty() {
+        return Ok(());
+    }
+    let mut params: Vec<CookieParam> = Vec::with_capacity(state.cookies.len());
+    for cookie in state.cookies {
+        let mut p = CookieParam::new(cookie.name, cookie.value);
+        p.domain = Some(cookie.domain);
+        p.path = Some(cookie.path);
+        p.secure = Some(cookie.secure);
+        p.http_only = Some(cookie.http_only);
+        params.push(p);
+    }
+    page.execute(SetCookiesParams::new(params))
+        .await
+        .map_err(driver_error)?;
+    Ok(())
+}
+
+async fn wait_for_selector(page: &Page, selector: &str) -> Result<(), CdpError> {
+    // Poll `find_element` with a 50ms backoff up to 10 seconds total
+    // (PRD §15 default). The selector is the users contract for "the
+    // page is rendered enough for me" — burning the full 10 seconds is
+    // intentional when the selector never matches; we surface that as a
+    // driver error so CI fails loudly rather than capturing a half-baked
+    // snapshot.
+    //
+    // Wall-clock-free implementation: an outer `tokio::time::timeout`
+    // bounds the whole loop. Tokios timer infrastructure does its own
+    // monotonic time tracking internally and is allowed in `plumb-cdp`
+    // because it doesnt leak into the snapshot (PRD §9 isolates the
+    // "no wall-clock" rule to the rule engine and observable output).
+    let attempt = async {
+        loop {
+            match page.find_element(selector.to_owned()).await {
+                Ok(_) => return Ok::<(), CdpError>(()),
+                Err(_) => {
+                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                }
+            }
+        }
+    };
+    match tokio::time::timeout(std::time::Duration::from_secs(10), attempt).await {
+        Ok(result) => result,
+        Err(_) => Err(CdpError::Driver(Box::new(io::Error::other(format!(
+            "wait_for_selector `{selector}` exhausted 10s budget"
+        ))))),
+    }
 }
 
 /// Deterministic fake driver. Recognizes `plumb-fake://hello` and returns
@@ -1546,5 +2201,130 @@ mod tests {
             matches!(err, CdpError::MalformedSnapshot { ref reason } if reason.contains("out of range")),
             "expected MalformedSnapshot for OOB index, got {err:?}"
         );
+    }
+
+    use super::{Cookie, StorageState, parse_header_kv};
+
+    #[test]
+    fn cookie_parse_kv_accepts_simple_pair() {
+        let c = Cookie::parse_kv("session=abc123").unwrap();
+        assert_eq!(c.name, "session");
+        assert_eq!(c.value, "abc123");
+        assert!(c.url.is_none());
+    }
+
+    #[test]
+    fn cookie_parse_kv_rejects_missing_separator() {
+        let err = Cookie::parse_kv("nosep").unwrap_err();
+        assert!(matches!(err, CdpError::InvalidCookie { .. }));
+    }
+
+    #[test]
+    fn cookie_parse_kv_rejects_empty_name() {
+        let err = Cookie::parse_kv("=value").unwrap_err();
+        assert!(matches!(err, CdpError::InvalidCookie { .. }));
+    }
+
+    #[test]
+    fn cookie_parse_kv_rejects_crlf_in_value() {
+        let err = Cookie::parse_kv("name=hello\r\nSet-Cookie: pwn=1").unwrap_err();
+        match err {
+            CdpError::InvalidCookie { field, reason, .. } => {
+                assert_eq!(field, "value");
+                assert!(reason.contains("control characters"));
+            }
+            other => panic!("expected InvalidCookie, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn header_parse_kv_accepts_pair() {
+        let (n, v) = parse_header_kv("X-Trace-Id: 12345").unwrap();
+        assert_eq!(n, "X-Trace-Id");
+        assert_eq!(v, "12345");
+    }
+
+    #[test]
+    fn header_parse_kv_rejects_missing_colon() {
+        let err = parse_header_kv("nope").unwrap_err();
+        assert!(matches!(err, CdpError::InvalidHeader { .. }));
+    }
+
+    #[test]
+    fn header_parse_kv_rejects_lf_in_value() {
+        let err = parse_header_kv("X-Pwn: hi\nInjected: 1").unwrap_err();
+        assert!(matches!(err, CdpError::InvalidHeader { .. }));
+    }
+
+    #[test]
+    fn header_parse_kv_rejects_space_in_name() {
+        let err = parse_header_kv("X Header: 1").unwrap_err();
+        assert!(matches!(err, CdpError::InvalidHeader { .. }));
+    }
+
+    #[test]
+    fn storage_state_parses_minimal_payload() {
+        let json = r#"{
+            "cookies": [
+                {"name":"a","value":"1","domain":".example.com","path":"/","expires":-1,"httpOnly":false,"secure":false,"sameSite":"Lax"}
+            ],
+            "origins": [
+                {"origin":"https://example.com","localStorage":[{"name":"k","value":"v"}]}
+            ]
+        }"#;
+        let state = StorageState::parse_str(json).unwrap();
+        assert_eq!(state.cookies.len(), 1);
+        assert_eq!(state.cookies[0].name, "a");
+        assert_eq!(state.origins.len(), 1);
+        assert_eq!(state.origins[0].origin, "https://example.com");
+        assert_eq!(state.origins[0].local_storage[0].name, "k");
+    }
+
+    #[test]
+    fn storage_state_parses_empty_payload() {
+        let state = StorageState::parse_str(r#"{"cookies":[],"origins":[]}"#).unwrap();
+        assert!(state.cookies.is_empty());
+        assert!(state.origins.is_empty());
+    }
+
+    #[test]
+    fn storage_state_rejects_unknown_fields() {
+        let json = r#"{"cookies":[],"origins":[],"unexpected":42}"#;
+        let err = StorageState::parse_str(json).unwrap_err();
+        assert!(matches!(err, CdpError::MalformedStorageState { .. }));
+    }
+
+    #[test]
+    fn target_default_sets_capture_knobs() {
+        let t = super::Target::default();
+        assert!(t.disable_animations);
+        assert!(t.hide_scrollbars);
+        assert!(t.wait_for_selector.is_none());
+        assert!(t.wait_ms.is_none());
+        assert!(t.pin_dpr.is_none());
+    }
+
+    #[test]
+    fn target_effective_dpr_prefers_pin_over_default() {
+        let mut t = super::Target {
+            device_pixel_ratio: 1.0,
+            ..super::Target::default()
+        };
+        assert!((t.effective_dpr() - 1.0).abs() < f64::EPSILON);
+        t.pin_dpr = Some(3.0);
+        assert!((t.effective_dpr() - 3.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn origin_of_handles_https_url() {
+        assert_eq!(
+            super::origin_of("https://example.com/path?q=1").as_deref(),
+            Some("https://example.com")
+        );
+        assert_eq!(
+            super::origin_of("http://example.com:8080/").as_deref(),
+            Some("http://example.com:8080")
+        );
+        assert_eq!(super::origin_of("notaurl").as_deref(), None);
     }
 }

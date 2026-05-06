@@ -12,6 +12,7 @@ fn target(url: &str) -> Target {
         width: 1280,
         height: 800,
         device_pixel_ratio: 1.0,
+        ..Target::default()
     }
 }
 
@@ -136,6 +137,7 @@ fn isolated_driver() -> std::io::Result<(ChromiumDriver, tempfile::TempDir)> {
     let driver = ChromiumDriver::new(ChromiumOptions {
         executable_path: None,
         user_data_dir: Some(dir.path().to_path_buf()),
+        ..ChromiumOptions::default()
     });
     Ok((driver, dir))
 }

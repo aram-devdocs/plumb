@@ -477,3 +477,147 @@ fn lint_fake_url_json_rect_matches_requested_viewport() -> Result<(), Box<dyn st
         .stdout(contains("\"height\": 800").not());
     Ok(())
 }
+
+// ============================================================
+// Driver-ergonomics wave (#74 #75 #76 #77)
+//
+// FakeDriver short-circuits before any browser-side wiring runs, so
+// these tests focus on:
+//   - Argument parsing accepts every flag without error.
+//   - Validation errors surface as exit code 2 with the expected message.
+//   - Successful cases still produce the canned snapshot's violation.
+// Real Chromium-driven coverage lives behind the `e2e-chromium`
+// feature in `crates/plumb-cdp/tests/`.
+
+#[test]
+fn lint_accepts_wait_for_and_wait_ms_against_fake_driver() -> Result<(), Box<dyn std::error::Error>>
+{
+    Command::cargo_bin("plumb")?
+        .args([
+            "lint",
+            "plumb-fake://hello",
+            "--wait-for",
+            "body",
+            "--wait-ms",
+            "10",
+        ])
+        .assert()
+        .code(3)
+        .stdout(contains("spacing/grid-conformance"));
+    Ok(())
+}
+
+#[test]
+fn lint_accepts_repeated_cookies_against_fake_driver() -> Result<(), Box<dyn std::error::Error>> {
+    Command::cargo_bin("plumb")?
+        .args([
+            "lint",
+            "plumb-fake://hello",
+            "--cookie",
+            "session=abc123",
+            "--cookie",
+            "lang=en",
+        ])
+        .assert()
+        .code(3)
+        .stdout(contains("spacing/grid-conformance"));
+    Ok(())
+}
+
+#[test]
+fn lint_rejects_malformed_cookie_with_input_error() -> Result<(), Box<dyn std::error::Error>> {
+    Command::cargo_bin("plumb")?
+        .args(["lint", "plumb-fake://hello", "--cookie", "no-equals"])
+        .assert()
+        .code(2)
+        .stderr(contains("invalid cookie"));
+    Ok(())
+}
+
+#[test]
+fn lint_rejects_cookie_with_crlf() -> Result<(), Box<dyn std::error::Error>> {
+    Command::cargo_bin("plumb")?
+        .args([
+            "lint",
+            "plumb-fake://hello",
+            "--cookie",
+            "name=value\r\nSet-Cookie: pwn=1",
+        ])
+        .assert()
+        .code(2)
+        .stderr(contains("control characters"));
+    Ok(())
+}
+
+#[test]
+fn lint_accepts_repeated_headers_against_fake_driver() -> Result<(), Box<dyn std::error::Error>> {
+    Command::cargo_bin("plumb")?
+        .args([
+            "lint",
+            "plumb-fake://hello",
+            "--header",
+            "X-Trace-Id: 12345",
+            "--header",
+            "Authorization: Bearer xyz",
+        ])
+        .assert()
+        .code(3)
+        .stdout(contains("spacing/grid-conformance"));
+    Ok(())
+}
+
+#[test]
+fn lint_rejects_header_with_lf_injection() -> Result<(), Box<dyn std::error::Error>> {
+    Command::cargo_bin("plumb")?
+        .args([
+            "lint",
+            "plumb-fake://hello",
+            "--header",
+            "X-Pwn: hello\nInjected: 1",
+        ])
+        .assert()
+        .code(2)
+        .stderr(contains("control characters"));
+    Ok(())
+}
+
+#[test]
+fn lint_accepts_storage_state_path_against_fake_driver() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = TempDir::new()?;
+    let path = dir.path().join("storage-state.json");
+    fs::write(&path, r#"{"cookies":[],"origins":[]}"#)?;
+    // Run from inside the tempdir so the safe-path canonicalize check
+    // passes (the path resolves under CWD).
+    Command::cargo_bin("plumb")?
+        .args([
+            "lint",
+            "plumb-fake://hello",
+            "--storage-state",
+            "storage-state.json",
+        ])
+        .current_dir(dir.path())
+        .assert()
+        .code(3)
+        .stdout(contains("spacing/grid-conformance"));
+    Ok(())
+}
+
+#[test]
+fn lint_accepts_disable_animations_and_hide_scrollbars_and_dpr()
+-> Result<(), Box<dyn std::error::Error>> {
+    Command::cargo_bin("plumb")?
+        .args([
+            "lint",
+            "plumb-fake://hello",
+            "--disable-animations",
+            "true",
+            "--hide-scrollbars",
+            "false",
+            "--dpr",
+            "2.0",
+        ])
+        .assert()
+        .code(3)
+        .stdout(contains("spacing/grid-conformance"));
+    Ok(())
+}
