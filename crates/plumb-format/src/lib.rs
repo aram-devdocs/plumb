@@ -197,7 +197,7 @@ pub fn pretty_with_suggested_ignores(violations: &[Violation]) -> String {
     out
 }
 
-/// Same as [`json`] but extends the envelope with a
+/// Same as [`json()`] but extends the envelope with a
 /// `suggested_ignores` array. Each element is `{ "rule_id": …,
 /// "selector": … }`, sorted by `(rule_id, selector)`.
 ///
