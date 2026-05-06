@@ -1212,13 +1212,23 @@ async fn apply_storage_state_local_storage(
     Ok(())
 }
 
-fn origin_of(url: &str) -> Option<String> {
-    // Minimal origin extractor — `<scheme>://<host>[:<port>]`. Avoids a
-    // url-parser dep; storage-state matching is a string compare against
-    // Playwright's own origin format.
-    let (scheme, rest) = url.split_once("://")?;
-    let host = rest.split('/').next()?;
-    Some(format!("{scheme}://{host}"))
+fn origin_of(input: &str) -> Option<String> {
+    // WHATWG-compliant origin: `Url::origin().ascii_serialization()`
+    // handles default-port elision (`:443` for `https`, `:80` for
+    // `http`), scheme case-folding, IDNA host normalization, and
+    // strips userinfo / path / query / fragment. Matches Playwright's
+    // stored `origin` shape so storage-state origin compares are not
+    // tripped up by `https://example.com:443/foo` vs
+    // `https://example.com`.
+    let parsed = url::Url::parse(input).ok()?;
+    let origin = parsed.origin();
+    if origin.is_tuple() {
+        Some(origin.ascii_serialization())
+    } else {
+        // Opaque origins (e.g. `data:`, `file:`) cannot match a
+        // Playwright-recorded site origin — bail out.
+        None
+    }
 }
 
 async fn inject_animation_killer(page: &Page) -> Result<(), CdpError> {
@@ -2526,5 +2536,41 @@ mod tests {
             Some("http://example.com:8080")
         );
         assert_eq!(super::origin_of("notaurl").as_deref(), None);
+    }
+
+    #[test]
+    fn origin_of_strips_default_ports() {
+        // WHATWG origin: default ports are elided.
+        assert_eq!(
+            super::origin_of("https://example.com:443/").as_deref(),
+            Some("https://example.com")
+        );
+        assert_eq!(
+            super::origin_of("http://example.com:80/").as_deref(),
+            Some("http://example.com")
+        );
+    }
+
+    #[test]
+    fn origin_of_normalizes_scheme_and_host_case() {
+        assert_eq!(
+            super::origin_of("HTTPS://Example.COM/path").as_deref(),
+            Some("https://example.com")
+        );
+    }
+
+    #[test]
+    fn origin_of_strips_userinfo_query_fragment() {
+        assert_eq!(
+            super::origin_of("https://user:pw@example.com/p?q=1#frag").as_deref(),
+            Some("https://example.com")
+        );
+    }
+
+    #[test]
+    fn origin_of_returns_none_for_opaque_origins() {
+        // `data:` and `file:` URLs have opaque origins and cannot match
+        // a Playwright-recorded site origin.
+        assert_eq!(super::origin_of("data:text/plain,hello").as_deref(), None);
     }
 }

@@ -93,6 +93,10 @@ dunce = "1"
 # Color distance (CIEDE2000, D65).
 palette = { version = "0.7", default-features = false, features = ["std"] }
 
+# WHATWG URL parsing — used in plumb-cdp to compute storage-state
+# origins (default-port elision, IDNA, scheme case-folding).
+url = "2"
+
 # Parallelism (used only where deterministic: sorted inputs with deterministic folds).
 rayon = "1"
 
