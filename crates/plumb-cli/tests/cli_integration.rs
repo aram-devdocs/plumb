@@ -805,3 +805,134 @@ fn watch_help_lists_the_subcommand() -> Result<(), Box<dyn std::error::Error>> {
         .stdout(contains("watch").or(contains("Watch")));
     Ok(())
 }
+
+// ============================================================
+// `[[ignore]]` runtime suppression — the canned `plumb-fake://hello`
+// snapshot fires `spacing/grid-conformance` on `html > body`. With a
+// `plumb.toml` that lists the same selector, the violation is
+// partitioned into the ignored bucket: pretty output gains the
+// "1 violation suppressed by config" footer, the JSON envelope grows
+// `"ignored": 1`, and the binary exits 0 (no reported warnings/errors).
+
+#[test]
+fn lint_with_ignore_config_filters_violations() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = TempDir::new()?;
+    fs::write(
+        dir.path().join("plumb.toml"),
+        r#"
+[[ignore]]
+selector = "html > body"
+rule_id = "spacing/grid-conformance"
+reason = "canned-snapshot exemption used by integration tests"
+"#,
+    )?;
+    Command::cargo_bin("plumb")?
+        .args(["lint", "plumb-fake://hello"])
+        .current_dir(dir.path())
+        .assert()
+        .success()
+        .stdout(contains("1 violation suppressed by config"))
+        .stdout(contains("spacing/grid-conformance").not());
+    Ok(())
+}
+
+#[test]
+fn lint_with_selector_only_ignore_filters_every_rule_at_selector()
+-> Result<(), Box<dyn std::error::Error>> {
+    let dir = TempDir::new()?;
+    // Selector-only ignore — no `rule_id`. Every rule at `html > body`
+    // is suppressed, including `spacing/grid-conformance`.
+    fs::write(
+        dir.path().join("plumb.toml"),
+        r#"
+[[ignore]]
+selector = "html > body"
+reason = "wildcard selector exemption"
+"#,
+    )?;
+    Command::cargo_bin("plumb")?
+        .args(["lint", "plumb-fake://hello"])
+        .current_dir(dir.path())
+        .assert()
+        .success()
+        .stdout(contains("1 violation suppressed by config"));
+    Ok(())
+}
+
+#[test]
+fn lint_with_non_matching_ignore_does_not_suppress() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = TempDir::new()?;
+    fs::write(
+        dir.path().join("plumb.toml"),
+        r#"
+[[ignore]]
+selector = "html > body > does-not-exist"
+reason = "selector that does not match anything in the canned snapshot"
+"#,
+    )?;
+    Command::cargo_bin("plumb")?
+        .args(["lint", "plumb-fake://hello"])
+        .current_dir(dir.path())
+        .assert()
+        .code(3)
+        .stdout(contains("spacing/grid-conformance"))
+        .stdout(contains("suppressed by config").not());
+    Ok(())
+}
+
+#[test]
+fn lint_json_with_ignore_config_emits_ignored_count() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = TempDir::new()?;
+    fs::write(
+        dir.path().join("plumb.toml"),
+        r#"
+[[ignore]]
+selector = "html > body"
+rule_id = "spacing/grid-conformance"
+reason = "canned-snapshot exemption used by integration tests"
+"#,
+    )?;
+    Command::cargo_bin("plumb")?
+        .args(["lint", "plumb-fake://hello", "--format", "json"])
+        .current_dir(dir.path())
+        .assert()
+        .success()
+        .stdout(contains("\"ignored\": 1"))
+        .stdout(contains("spacing/grid-conformance").not());
+    Ok(())
+}
+
+#[test]
+fn lint_json_without_ignore_config_emits_zero_ignored_count()
+-> Result<(), Box<dyn std::error::Error>> {
+    Command::cargo_bin("plumb")?
+        .args(["lint", "plumb-fake://hello", "--format", "json"])
+        .assert()
+        .code(3)
+        .stdout(contains("\"ignored\": 0"));
+    Ok(())
+}
+
+#[test]
+fn lint_rejects_ignore_with_unknown_field() -> Result<(), Box<dyn std::error::Error>> {
+    // `deny_unknown_fields` on `IgnoreRule` MUST refuse extra keys
+    // — typos in `plumb.toml` are surfaced as parse errors, not
+    // silently dropped.
+    let dir = TempDir::new()?;
+    fs::write(
+        dir.path().join("plumb.toml"),
+        r#"
+[[ignore]]
+selector = "html > body"
+reason = "test"
+note = "this field does not exist on IgnoreRule"
+"#,
+    )?;
+    Command::cargo_bin("plumb")?
+        .args(["lint", "plumb-fake://hello"])
+        .current_dir(dir.path())
+        .assert()
+        .code(2)
+        .stderr(contains("note").or(contains("unknown field")));
+    Ok(())
+}

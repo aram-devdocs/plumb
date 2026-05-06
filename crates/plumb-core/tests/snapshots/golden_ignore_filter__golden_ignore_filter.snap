@@ -1,0 +1,210 @@
+---
+source: crates/plumb-core/tests/golden_ignore_filter.rs
+expression: json
+---
+{
+  "reported": [
+    {
+      "rule_id": "spacing/grid-conformance",
+      "severity": "warning",
+      "message": "`html > body > div:nth-child(3)` has off-grid padding-top 13px; expected a multiple of 4px.",
+      "selector": "html > body > div:nth-child(3)",
+      "viewport": "desktop",
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 200,
+        "height": 100
+      },
+      "dom_order": 4,
+      "fix": {
+        "kind": {
+          "kind": "css_property_replace",
+          "property": "padding-top",
+          "from": "13px",
+          "to": "12px"
+        },
+        "description": "Snap `padding-top` to the nearest spacing-grid value (12px).",
+        "confidence": "medium"
+      },
+      "doc_url": "https://plumb.aramhammoudeh.com/rules/spacing-grid-conformance"
+    },
+    {
+      "rule_id": "spacing/grid-conformance",
+      "severity": "warning",
+      "message": "`html > body > div:nth-child(4)` has off-grid padding-top 13px; expected a multiple of 4px.",
+      "selector": "html > body > div:nth-child(4)",
+      "viewport": "desktop",
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 200,
+        "height": 100
+      },
+      "dom_order": 5,
+      "fix": {
+        "kind": {
+          "kind": "css_property_replace",
+          "property": "padding-top",
+          "from": "13px",
+          "to": "12px"
+        },
+        "description": "Snap `padding-top` to the nearest spacing-grid value (12px).",
+        "confidence": "medium"
+      },
+      "doc_url": "https://plumb.aramhammoudeh.com/rules/spacing-grid-conformance"
+    },
+    {
+      "rule_id": "spacing/scale-conformance",
+      "severity": "warning",
+      "message": "`html > body > div:nth-child(2)` has off-scale padding-top 13px; expected a value from spacing.scale.",
+      "selector": "html > body > div:nth-child(2)",
+      "viewport": "desktop",
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 200,
+        "height": 100
+      },
+      "dom_order": 3,
+      "fix": {
+        "kind": {
+          "kind": "css_property_replace",
+          "property": "padding-top",
+          "from": "13px",
+          "to": "12px"
+        },
+        "description": "Snap `padding-top` to the nearest spacing-scale value (12px).",
+        "confidence": "medium"
+      },
+      "doc_url": "https://plumb.aramhammoudeh.com/rules/spacing-scale-conformance"
+    },
+    {
+      "rule_id": "spacing/scale-conformance",
+      "severity": "warning",
+      "message": "`html > body > div:nth-child(3)` has off-scale padding-top 13px; expected a value from spacing.scale.",
+      "selector": "html > body > div:nth-child(3)",
+      "viewport": "desktop",
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 200,
+        "height": 100
+      },
+      "dom_order": 4,
+      "fix": {
+        "kind": {
+          "kind": "css_property_replace",
+          "property": "padding-top",
+          "from": "13px",
+          "to": "12px"
+        },
+        "description": "Snap `padding-top` to the nearest spacing-scale value (12px).",
+        "confidence": "medium"
+      },
+      "doc_url": "https://plumb.aramhammoudeh.com/rules/spacing-scale-conformance"
+    },
+    {
+      "rule_id": "spacing/scale-conformance",
+      "severity": "warning",
+      "message": "`html > body > div:nth-child(4)` has off-scale padding-top 13px; expected a value from spacing.scale.",
+      "selector": "html > body > div:nth-child(4)",
+      "viewport": "desktop",
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 200,
+        "height": 100
+      },
+      "dom_order": 5,
+      "fix": {
+        "kind": {
+          "kind": "css_property_replace",
+          "property": "padding-top",
+          "from": "13px",
+          "to": "12px"
+        },
+        "description": "Snap `padding-top` to the nearest spacing-scale value (12px).",
+        "confidence": "medium"
+      },
+      "doc_url": "https://plumb.aramhammoudeh.com/rules/spacing-scale-conformance"
+    }
+  ],
+  "ignored": [
+    {
+      "rule_id": "spacing/grid-conformance",
+      "severity": "warning",
+      "message": "`html > body > div:nth-child(1)` has off-grid padding-top 13px; expected a multiple of 4px.",
+      "selector": "html > body > div:nth-child(1)",
+      "viewport": "desktop",
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 200,
+        "height": 100
+      },
+      "dom_order": 2,
+      "fix": {
+        "kind": {
+          "kind": "css_property_replace",
+          "property": "padding-top",
+          "from": "13px",
+          "to": "12px"
+        },
+        "description": "Snap `padding-top` to the nearest spacing-grid value (12px).",
+        "confidence": "medium"
+      },
+      "doc_url": "https://plumb.aramhammoudeh.com/rules/spacing-grid-conformance"
+    },
+    {
+      "rule_id": "spacing/grid-conformance",
+      "severity": "warning",
+      "message": "`html > body > div:nth-child(2)` has off-grid padding-top 13px; expected a multiple of 4px.",
+      "selector": "html > body > div:nth-child(2)",
+      "viewport": "desktop",
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 200,
+        "height": 100
+      },
+      "dom_order": 3,
+      "fix": {
+        "kind": {
+          "kind": "css_property_replace",
+          "property": "padding-top",
+          "from": "13px",
+          "to": "12px"
+        },
+        "description": "Snap `padding-top` to the nearest spacing-grid value (12px).",
+        "confidence": "medium"
+      },
+      "doc_url": "https://plumb.aramhammoudeh.com/rules/spacing-grid-conformance"
+    },
+    {
+      "rule_id": "spacing/scale-conformance",
+      "severity": "warning",
+      "message": "`html > body > div:nth-child(1)` has off-scale padding-top 13px; expected a value from spacing.scale.",
+      "selector": "html > body > div:nth-child(1)",
+      "viewport": "desktop",
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 200,
+        "height": 100
+      },
+      "dom_order": 2,
+      "fix": {
+        "kind": {
+          "kind": "css_property_replace",
+          "property": "padding-top",
+          "from": "13px",
+          "to": "12px"
+        },
+        "description": "Snap `padding-top` to the nearest spacing-scale value (12px).",
+        "confidence": "medium"
+      },
+      "doc_url": "https://plumb.aramhammoudeh.com/rules/spacing-scale-conformance"
+    }
+  ]
+}

@@ -178,9 +178,9 @@ pub async fn run(args: LintArgs) -> Result<ExitCode> {
         snapshots
     };
 
-    let violations = plumb_core::run_many(snapshots.iter(), &config);
+    let report = plumb_core::run_report(snapshots.iter(), &config);
 
-    let out = render(&violations, format, suggest_ignores)?;
+    let out = render(&report, format, suggest_ignores)?;
 
     if let Some(path) = output_path {
         std::fs::write(&path, out)
@@ -194,7 +194,7 @@ pub async fn run(args: LintArgs) -> Result<ExitCode> {
         }
     }
 
-    Ok(exit_code_for(&violations))
+    Ok(exit_code_for(&report.reported))
 }
 
 /// Decide which viewports to snapshot.
@@ -297,31 +297,42 @@ fn load_config(path: Option<&Path>) -> Result<Config> {
     }
 }
 
-/// Format `violations` into the requested string output, optionally
+/// Format `report` into the requested string output, optionally
 /// appending the `.plumbignore` suggestion block.
 ///
-/// SARIF intentionally ignores `suggest_ignores`: GitHub Code Scanning
-/// consumers parse the strict 2.1.0 schema, and adding a non-standard
-/// property would either confuse them or be silently dropped. Pretty
-/// and JSON have full control of their own envelope.
+/// `report.ignored.len()` flows into the pretty footer
+/// (`N violation(s) suppressed by config`) and the JSON envelope
+/// (`"ignored": N`) so users can audit how many violations the
+/// loaded `[[ignore]]` entries silenced. SARIF intentionally drops
+/// the count: GitHub Code Scanning consumers parse the strict 2.1.0
+/// schema, and adding a non-standard property would either confuse
+/// them or be silently dropped.
+///
+/// `suggest_ignores` is independent of the runtime ignore filter:
+/// the suggestion list is derived from `report.reported` only —
+/// already-ignored violations don't need to be suggested back.
 fn render(
-    violations: &[plumb_core::Violation],
+    report: &plumb_core::RunReport,
     format: OutputFormat,
     suggest_ignores: bool,
 ) -> Result<String> {
+    let violations = report.reported.as_slice();
+    let ignored_count = report.ignored.len();
     Ok(match format {
         OutputFormat::Pretty => {
             if suggest_ignores {
-                plumb_format::pretty_with_suggested_ignores(violations)
+                plumb_format::pretty_with_suggested_ignores_and_ignored(violations, ignored_count)
             } else {
-                plumb_format::pretty(violations)
+                plumb_format::pretty_with_ignored(violations, ignored_count)
             }
         }
         OutputFormat::Json => {
             if suggest_ignores {
-                plumb_format::json_with_suggested_ignores(violations).context("serialize JSON")?
+                plumb_format::json_with_suggested_ignores_and_ignored(violations, ignored_count)
+                    .context("serialize JSON")?
             } else {
-                plumb_format::json(violations).context("serialize JSON")?
+                plumb_format::json_with_ignored(violations, ignored_count)
+                    .context("serialize JSON")?
             }
         }
         OutputFormat::Sarif => {

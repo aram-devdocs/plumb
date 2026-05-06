@@ -53,3 +53,20 @@ min_height_px = 24
 # [rules."spacing/grid-conformance"]
 # enabled = false
 # severity = "error"
+
+# Selector-scoped runtime suppression.
+#
+# Each `[[ignore]]` block silences every violation whose CSS selector
+# path matches `selector` exactly (string equality, not a CSS-engine
+# match). When `rule_id` is set, only that rule is suppressed at the
+# selector; otherwise every rule fired there is suppressed. `reason`
+# is required — document why the exemption is intentional.
+#
+# `plumb lint --suggest-ignores` emits one `<rule_id> <selector>` line
+# per active violation; pipe that list into `[[ignore]]` blocks here
+# to suppress them in subsequent runs.
+#
+# [[ignore]]
+# selector = "html > body"
+# rule_id = "spacing/grid-conformance"
+# reason = "mdBook root padding is theme-controlled"
