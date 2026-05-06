@@ -46,6 +46,7 @@ pub struct LintArgs {
     /// rendered output. Pretty format adds a footer; JSON format adds a
     /// `suggested_ignores` array; SARIF is unchanged.
     pub suggest_ignores: bool,
+    pub auto_fetch_chromium: bool,
 }
 
 /// CLI-side errors that never need to leak across the
@@ -93,6 +94,7 @@ pub async fn run(args: LintArgs) -> Result<ExitCode> {
         hide_scrollbars,
         dpr,
         suggest_ignores,
+        auto_fetch_chromium,
     } = args;
 
     tracing::debug!(url = %url, format = %format, viewports = ?viewports, selector = ?selector, "lint");
@@ -149,6 +151,7 @@ pub async fn run(args: LintArgs) -> Result<ExitCode> {
             headers: parsed_headers,
             auth_script,
             storage_state,
+            auto_fetch_chromium,
             ..ChromiumOptions::default()
         });
         driver

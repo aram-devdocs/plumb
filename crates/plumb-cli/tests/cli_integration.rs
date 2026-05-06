@@ -170,6 +170,36 @@ fn lint_fake_url_ignores_executable_path_override() -> Result<(), Box<dyn std::e
     Ok(())
 }
 
+/// `--auto-fetch-chromium` is a CLI flag whose runtime effect (a
+/// network download) we don't want to exercise inside the test suite.
+/// The contract we _can_ check end-to-end is that the flag parses,
+/// shows up in `--help`, and that fake-URL runs ignore it just like
+/// `--executable-path`.
+#[test]
+fn auto_fetch_chromium_flag_is_documented_in_help() -> Result<(), Box<dyn std::error::Error>> {
+    Command::cargo_bin("plumb")?
+        .args(["lint", "--help"])
+        .assert()
+        .success()
+        .stdout(contains("--auto-fetch-chromium"));
+    Ok(())
+}
+
+#[test]
+fn lint_fake_url_ignores_auto_fetch_flag() -> Result<(), Box<dyn std::error::Error>> {
+    // Auto-fetch must not fire on the FakeDriver path. If it did, this
+    // test would either hang waiting for a download or fail with a
+    // network error — the FakeDriver branch in `commands::lint::run`
+    // skips driver options entirely, so passing the flag is a no-op
+    // and the canned snapshot still produces its single warning.
+    Command::cargo_bin("plumb")?
+        .args(["lint", "plumb-fake://hello", "--auto-fetch-chromium"])
+        .assert()
+        .code(3)
+        .stdout(contains("spacing/grid-conformance"));
+    Ok(())
+}
+
 #[test]
 fn schema_outputs_json_schema() -> Result<(), Box<dyn std::error::Error>> {
     Command::cargo_bin("plumb")?

@@ -65,6 +65,7 @@ bind address, not the token value.
 | `explain_rule` | Return canonical documentation and metadata for a Plumb rule by id. Args: `{ "rule_id": "<category>/<id>" }`. |
 | `list_rules` | List every built-in Plumb rule with id, default severity, and one-line summary. No args. |
 | `get_config` | Return resolved `plumb.toml` for a working directory as JSON. Memoized per `(path, mtime)`. |
+| `compare_viewports` | Capture snapshots at 2+ viewports and return a deterministic diff: missing nodes, size changes above a pixel threshold, document-order reorderings, and computed-style differences. Args: `{ "url": "...", "viewports": [{ "name", "width", "height", "dpr" }, ...], "size_threshold_px"?: 4 }`. 10 KB `structuredContent` budget; aggregate counts plus a capped diff list. Full reference: [`compare_viewports`](./mcp/compare-viewports.md). |
 
 ## Resources
 
