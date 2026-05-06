@@ -1,0 +1,71 @@
+---
+source: crates/plumb-cli/tests/init_from.rs
+assertion_line: 97
+expression: redacted
+---
+# Plumb configuration — bootstrapped by `plumb init --from <path>` from the sources below.
+#
+# - tailwind: tailwind.config.ts
+# - css: src/styles/tokens.css
+#
+# Tailwind config detected. Plumb merges Tailwind theme tokens at lint time —
+# run `plumb lint` from the same directory and the adapter will resolve Tailwind's theme.
+
+[viewports]
+
+[spacing]
+base_unit = 4
+scale = [
+    4,
+    8,
+    16,
+]
+
+[spacing.tokens]
+space-xs = 4
+space-sm = 8
+space-md = 16
+
+[type]
+families = []
+weights = []
+scale = []
+
+[type.tokens]
+
+[color]
+delta_e_tolerance = 2.0
+
+[color.tokens]
+color-bg = "#ffffff"
+color-fg = "#0b0b0b"
+color-accent = "#0b7285"
+
+[radius]
+scale = [
+    4,
+    8,
+]
+
+[alignment]
+tolerance_px = 3
+
+[shadow]
+scale = []
+
+[z_index]
+scale = []
+
+[opacity]
+scale = []
+
+[rhythm]
+base_line_px = 0
+tolerance_px = 2
+cap_height_fallback_px = 0
+
+[a11y.touch_target]
+min_width_px = 24
+min_height_px = 24
+
+[rules]

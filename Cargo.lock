@@ -1850,8 +1850,10 @@ dependencies = [
  "assert_cmd",
  "clap",
  "indexmap",
+ "insta",
  "miette",
  "plumb-cdp",
+ "plumb-codegen",
  "plumb-config",
  "plumb-core",
  "plumb-format",
@@ -1865,6 +1867,21 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "plumb-codegen"
+version = "0.0.1"
+dependencies = [
+ "indexmap",
+ "insta",
+ "plumb-config",
+ "plumb-core",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "toml 1.1.2+spec-1.1.0",
+ "tracing",
 ]
 
 [[package]]

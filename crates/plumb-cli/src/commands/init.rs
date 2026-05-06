@@ -1,21 +1,28 @@
 //! `plumb init` — write a starter `plumb.toml`.
 //!
-//! Detects Tailwind (and, as a hint, Next.js) in the current directory
-//! and branches between two scaffolds: a generic template, or a
-//! Tailwind-flavoured template that records the discovered config in
-//! its header comment.
+//! Two modes:
 //!
-//! Detection is filesystem-only — no JS evaluation, no env var reads.
-//! `tailwind.config.{ts,mts,cts,js,mjs,cjs}` in CWD or a `tailwindcss`
-//! entry in `package.json`'s `dependencies` / `devDependencies` /
-//! `peerDependencies` triggers the Tailwind template. Next.js without
-//! Tailwind keeps the generic template — we hint at it in the summary
-//! line but don't switch flavours.
+//! - **Default.** Detects Tailwind (and, as a hint, Next.js) in the
+//!   current directory and branches between two static scaffolds: a
+//!   generic template, or a Tailwind-flavoured template that records
+//!   the discovered config in its header comment.
+//! - **`--from <path>`.** Walks the given source tree, infers tokens
+//!   from CSS custom properties / Tailwind configs / DTCG JSON, and
+//!   bootstraps `plumb.toml` from the recovered values. Implementation
+//!   lives in `plumb_codegen`.
+//!
+//! Default-mode detection is filesystem-only — no JS evaluation, no env
+//! var reads. `tailwind.config.{ts,mts,cts,js,mjs,cjs}` in CWD or a
+//! `tailwindcss` entry in `package.json`'s `dependencies` /
+//! `devDependencies` / `peerDependencies` triggers the Tailwind
+//! template. Next.js without Tailwind keeps the generic template — we
+//! hint at it in the summary line but don't switch flavours.
 
 use std::path::Path;
 use std::process::ExitCode;
 
 use anyhow::{Context, Result, bail};
+use plumb_codegen::{InferredConfig, infer_config, render_toml};
 
 const GENERIC_TEMPLATE: &str = include_str!("../../../../examples/plumb.toml");
 const TAILWIND_TEMPLATE: &str = include_str!("../../../../examples/plumb-tailwind.toml");
@@ -49,12 +56,16 @@ impl Detection {
 
 /// Run `plumb init`. Returns `ExitCode::SUCCESS` on a fresh write.
 ///
+/// When `from` is `Some(path)`, the starter config is inferred from the
+/// project tree at `path` via [`plumb_codegen::infer_config`].
+/// Otherwise the static template is used.
+///
 /// # Errors
 ///
 /// Returns an error if the current directory cannot be read, if
-/// `plumb.toml` already exists and `force` is `false`, or if the file
-/// cannot be written.
-pub fn run(force: bool) -> Result<ExitCode> {
+/// `plumb.toml` already exists and `force` is `false`, if the source
+/// tree at `from` cannot be walked, or if the file cannot be written.
+pub fn run(force: bool, from: Option<&Path>) -> Result<ExitCode> {
     let cwd = std::env::current_dir().context("read current working directory")?;
     let target = cwd.join("plumb.toml");
     if target.exists() && !force {
@@ -63,8 +74,14 @@ pub fn run(force: bool) -> Result<ExitCode> {
             target.display()
         );
     }
-    let detection = detect(&cwd);
-    let (content, summary) = render(&detection);
+
+    let (content, summary) = if let Some(source_dir) = from {
+        render_from_source(source_dir)?
+    } else {
+        let detection = detect(&cwd);
+        render(&detection)
+    };
+
     std::fs::write(&target, content.as_bytes())
         .with_context(|| format!("write {}", target.display()))?;
     #[allow(clippy::print_stdout)]
@@ -72,6 +89,30 @@ pub fn run(force: bool) -> Result<ExitCode> {
         println!("Wrote {}. {summary}", target.display());
     }
     Ok(ExitCode::SUCCESS)
+}
+
+/// Walk `source_dir` and render an inferred starter TOML.
+fn render_from_source(source_dir: &Path) -> Result<(String, String)> {
+    let inferred =
+        infer_config(source_dir).with_context(|| format!("walk {}", source_dir.display()))?;
+    let content = render_toml(&inferred)
+        .with_context(|| format!("render TOML from {}", source_dir.display()))?;
+    let summary = summary_for_inferred(&inferred, source_dir);
+    Ok((content, summary))
+}
+
+fn summary_for_inferred(inferred: &InferredConfig, source_dir: &Path) -> String {
+    if inferred.sources.is_empty() {
+        return format!(
+            "No design-token sources discovered under {}; wrote a blank starter.",
+            source_dir.display()
+        );
+    }
+    format!(
+        "Inferred from {} source(s) under {}.",
+        inferred.sources.len(),
+        source_dir.display()
+    )
 }
 
 /// Inspect `cwd` for Tailwind / Next.js signals.

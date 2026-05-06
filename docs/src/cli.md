@@ -33,6 +33,14 @@ Exit codes:
 Write a starter `plumb.toml` to the current directory. Pass `--force` to
 overwrite.
 
+Pass `--from <path>` to bootstrap from an existing project tree. The
+walker discovers CSS custom properties (`:root { --token: value; }`),
+Tailwind config files, and DTCG token JSON, and folds them into a
+starter config. Output is deterministic — two runs against the same
+tree produce byte-identical files. Token names that don't match a
+known prefix (e.g. `--space-*`, `--color-*`, `--radius-*`) are skipped;
+edit the file to fill the gaps.
+
 ### `plumb explain <rule-id>`
 
 Print the long-form documentation for a rule. The argument is a slash-

@@ -22,6 +22,7 @@ path = "src/main.rs"
 plumb-core = { workspace = true, features = ["test-fake"] }
 plumb-format = { workspace = true }
 plumb-config = { workspace = true }
+plumb-codegen = { workspace = true }
 plumb-cdp = { workspace = true }
 plumb-mcp = { workspace = true }
 clap = { workspace = true }
@@ -43,6 +44,7 @@ assert_cmd = { workspace = true }
 predicates = { workspace = true }
 tempfile = { workspace = true }
 reqwest = { workspace = true }
+insta = { workspace = true }
 
 [lints]
 workspace = true
