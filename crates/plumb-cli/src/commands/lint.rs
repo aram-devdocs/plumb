@@ -24,6 +24,10 @@ use crate::commands::{OutputFormat, selector as selector_filter};
 /// Aggregated args for [`run`]. Bundling them into a struct keeps the
 /// `Command::Lint` dispatch readable as the flag surface grows
 /// (PRD §15 — `--wait-for`, `--cookie`, `--storage-state`, etc.).
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "LintArgs mirrors clap CLI flags 1:1; a state-machine refactor would obscure the flag-to-arg mapping"
+)]
 #[derive(Debug)]
 pub struct LintArgs {
     pub url: String,
