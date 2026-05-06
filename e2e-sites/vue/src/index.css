@@ -1,0 +1,11 @@
+@import "tailwindcss";
+
+@layer base {
+  html,
+  body {
+    font-family: Inter, system-ui;
+    font-size: 16px;
+    font-weight: 400;
+    line-height: 24px;
+  }
+}

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Plumb e2e — tailwind-html fixture</title>
+    <link rel="stylesheet" href="./output.css" />
+  </head>
+  <body class="bg-white text-[#0b0b0b]">
+    <main class="p-6">
+      <!-- Control card: every utility lands on the design-system tokens. -->
+      <section class="bg-white text-[#0b0b0b] p-4 mb-6">
+        <h1 class="text-2xl font-semibold mb-2">Plumb e2e — tailwind-html</h1>
+        <p class="text-base">
+          Static Tailwind fixture. The card you are reading is the
+          control element.
+        </p>
+      </section>
+
+      <!-- Off-grid hero: arbitrary padding 13px → 4 grid + 4 scale violations. -->
+      <section class="bg-white text-[#0b0b0b] p-[13px] mb-6">
+        <h2 class="text-xl font-semibold mb-2">Off-grid hero</h2>
+        <p class="text-base">
+          This region uses an intentionally off-grid arbitrary padding.
+        </p>
+      </section>
+
+      <!-- Off-palette alert: text color #2e7d2e → 1 palette violation.
+           border-color is pinned to a palette token so the four
+           border-*-color longhands stay clean. -->
+      <p
+        class="bg-white border-[#0b0b0b] text-[#2e7d2e] text-base p-4"
+      >
+        Off-palette alert text.
+      </p>
+    </main>
+  </body>
+</html>

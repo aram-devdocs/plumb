@@ -1,0 +1,92 @@
+/*
+ * html-css fixture stylesheet.
+ *
+ * Every value is either an intentional violation (commented inline) or
+ * a clean design-system token from `e2e-sites/plumb.toml`:
+ *
+ *   color tokens — bg/canvas #ffffff, fg/primary #0b0b0b,
+ *                  accent/brand #0b7285, accent/danger #c92a2a
+ *   spacing scale — [0, 4, 8, 12, 16, 24, 32, 48], base_unit 4
+ *   type families — Inter, system-ui
+ *   type weights  — [400, 500, 600, 700]
+ *   type scale    — [12, 14, 16, 18, 20, 24, 30, 36, 48]
+ */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  background-color: #ffffff;
+  color: #0b0b0b;
+  font-family: Inter, system-ui;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 24px;
+}
+
+.page {
+  background-color: #ffffff;
+  padding: 24px;
+}
+
+.card {
+  background-color: #ffffff;
+  color: #0b0b0b;
+  padding: 16px;
+  margin-bottom: 24px;
+}
+
+.card-title {
+  color: #0b0b0b;
+  font-size: 24px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.card-body {
+  color: #0b0b0b;
+  font-size: 16px;
+  font-weight: 400;
+}
+
+/* Intentional violations: padding 13px → 4 grid + 4 scale violations. */
+.hero {
+  background-color: #ffffff;
+  color: #0b0b0b;
+  padding: 13px;
+  margin-bottom: 24px;
+}
+
+.hero-title {
+  color: #0b0b0b;
+  font-size: 20px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.hero-body {
+  color: #0b0b0b;
+  font-size: 16px;
+  font-weight: 400;
+}
+
+/* Intentional violation: color is off-palette → 1 palette violation.
+ *
+ * `border-color` is pinned to the primary palette token so the four
+ * `border-*-color` longhands stay clean — without this, the off-palette
+ * `color` value would propagate to `currentColor` and trip four extra
+ * palette violations (one per side). Only the `color` longhand is the
+ * intended violation source.
+ */
+.alert {
+  background-color: #ffffff;
+  border-color: #0b0b0b;
+  color: #2e7d2e;
+  font-size: 16px;
+  font-weight: 400;
+  padding: 16px;
+}

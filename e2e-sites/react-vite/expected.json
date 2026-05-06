@@ -1,0 +1,14 @@
+{
+  "$comment": "React 18 + Vite + Tailwind v4. The component renders the same layout as html-css/ and tailwind-html/.",
+  "target_rules": [
+    "color/palette-conformance",
+    "spacing/grid-conformance",
+    "spacing/scale-conformance"
+  ],
+  "by_rule_id": {
+    "color/palette-conformance": 1,
+    "spacing/grid-conformance": 4,
+    "spacing/scale-conformance": 4
+  },
+  "total_target_violations": 9
+}

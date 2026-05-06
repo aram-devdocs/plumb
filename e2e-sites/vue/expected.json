@@ -1,0 +1,14 @@
+{
+  "$comment": "Vue 3 + Vite + Tailwind v4. Same intentional violations as the rest of the matrix.",
+  "target_rules": [
+    "color/palette-conformance",
+    "spacing/grid-conformance",
+    "spacing/scale-conformance"
+  ],
+  "by_rule_id": {
+    "color/palette-conformance": 1,
+    "spacing/grid-conformance": 4,
+    "spacing/scale-conformance": 4
+  },
+  "total_target_violations": 9
+}

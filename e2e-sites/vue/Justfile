@@ -1,0 +1,16 @@
+# vue fixture build recipes.
+
+set shell := ["bash", "-euo", "pipefail", "-c"]
+
+# Default — list available recipes.
+default:
+    @just --list --unsorted
+
+install:
+    npm ci --silent
+
+build: install
+    npx vite build
+
+clean:
+    rm -rf dist node_modules

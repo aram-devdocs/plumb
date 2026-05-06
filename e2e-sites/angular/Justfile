@@ -1,0 +1,27 @@
+# angular fixture build recipes.
+
+set shell := ["bash", "-euo", "pipefail", "-c"]
+
+# Default — list available recipes.
+default:
+    @just --list --unsorted
+
+install:
+    npm ci --silent --legacy-peer-deps
+
+# Angular's CLI build pipeline does not play well with Tailwind v4's
+# postcss plugin (the build-angular peer-dep range pins to Tailwind 2/3),
+# so we compile Tailwind separately via the standalone CLI and Angular
+# emits its own bundle. The Angular `application` builder writes into
+# `dist/browser/`; we flatten that up into `dist/` to match the layout
+# the harness's static server (and Pages) expects.
+build: install
+    npx ng build --configuration=production
+    if [ -d dist/browser ]; then \
+        find dist/browser -mindepth 1 -maxdepth 1 -exec mv {} dist/ \; ; \
+        rmdir dist/browser ; \
+    fi
+    npx @tailwindcss/cli@4 -i ./src/tailwind.css -o ./dist/tailwind.css --minify
+
+clean:
+    rm -rf dist node_modules .angular

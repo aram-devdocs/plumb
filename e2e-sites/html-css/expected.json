@@ -1,0 +1,14 @@
+{
+  "$comment": "Targeted intentional violations for the html-css fixture. The harness asserts that the count of violations whose rule_id is one of `target_rules` matches `total_target_violations`, and that the per-rule breakdown matches `by_rule_id` exactly. Non-target rules are tolerated — see crates/plumb-e2e/README.md.",
+  "target_rules": [
+    "color/palette-conformance",
+    "spacing/grid-conformance",
+    "spacing/scale-conformance"
+  ],
+  "by_rule_id": {
+    "color/palette-conformance": 1,
+    "spacing/grid-conformance": 4,
+    "spacing/scale-conformance": 4
+  },
+  "total_target_violations": 9
+}
