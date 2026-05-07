@@ -37,6 +37,21 @@ tap = "aram-devdocs/homebrew-plumb"
 # in the `publish-npm` job in `.github/workflows/release.yml` (not via
 # cargo-dist's built-in publish-jobs). The `NPM_TOKEN` repo secret powers
 # that push. Public install command: `npm i -g plumb-cli`.
+#
+# Known issue (audit finding H7): cargo-dist 0.28.0 auto-expands the npm
+# `supportedPlatforms` map with fallback target triples that point at
+# the wrong-arch binary. With the `targets` list above, the generated
+# `package.json` adds these entries automatically:
+#
+#   aarch64-pc-windows-msvc  → plumb-cli-x86_64-pc-windows-msvc.zip   (wrong arch — silent x86_64 install on Windows ARM)
+#   x86_64-pc-windows-gnu    → plumb-cli-x86_64-pc-windows-msvc.zip   (msvc binary, gnu host — usually OK)
+#
+# cargo-dist 0.28.0 has no knob in `dist-workspace.toml` to opt out of
+# the supportedPlatforms fallback. The fix lives in the `publish-npm`
+# job in `.github/workflows/release.yml`: extract the tarball, strip
+# the `aarch64-pc-windows-msvc` key from `package.json`, re-pack, then
+# `npm publish`. Tracked in the share-readiness plan; see the
+# follow-up PR that wires the strip step.
 
 [dist.github-custom-runners]
 aarch64-unknown-linux-gnu = "ubuntu-24.04-arm"
