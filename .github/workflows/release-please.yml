@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      publish_tag:
+        description: "Force-publish this existing tag to crates.io (e.g. v0.0.3). Skips the release-please step."
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -32,13 +37,17 @@ jobs:
   crates-io:
     name: Publish to crates.io
     needs: release-please
-    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    # Run when release-please cut a new tag, OR when an operator passes
+    # `publish_tag` via workflow_dispatch to retry an existing tag.
+    if: |
+      needs.release-please.outputs.release_created == 'true' ||
+      inputs.publish_tag != ''
     runs-on: ubuntu-latest
     environment: crates-io
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ needs.release-please.outputs.tag_name }}
+          ref: ${{ inputs.publish_tag || needs.release-please.outputs.tag_name }}
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Refresh Cargo.lock for bumped workspace deps
