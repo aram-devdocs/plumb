@@ -117,9 +117,9 @@ else
     fail "release workflow missing attestations: write permission"
 fi
 
-if grep -Fq 'Cargo publish and curl installers are the only non-manual release' "$RELEASE_WORKFLOW" \
-    && grep -Fq 'Homebrew tap and npm' "$RELEASE_WORKFLOW" \
-    && grep -Fq 'publishing are intentionally inactive here.' "$RELEASE_WORKFLOW"; then
+if grep -Fq 'Cargo publish, curl installers, and Homebrew tap publish are the' "$RELEASE_WORKFLOW" \
+    && grep -Fq 'non-manual release channels active in this repo today.' "$RELEASE_WORKFLOW" \
+    && grep -Fq 'npm publishing remains intentionally inactive' "$RELEASE_WORKFLOW"; then
     pass "release workflow docs distinguish active non-manual channels from gated ones"
 else
     fail "release workflow docs do not distinguish active non-manual channels from gated ones"
@@ -210,16 +210,9 @@ for wf in "$RELEASE_WORKFLOW" "$INSTALL_SMOKE"; do
     fi
 done
 
-# ── 5. Homebrew tap publish is gated ───────────────────────────────
+# ── 5. Homebrew tap publish is enabled via cargo-dist ──────────────
 
-echo "5. Homebrew publish gating"
-
-# The release workflow must NOT contain active (non-comment) Homebrew publish steps.
-if grep -v '^\s*#' "$RELEASE_WORKFLOW" | grep -Eiq 'brew.*push|homebrew.*publish|tap.*push'; then
-    fail "release workflow contains active Homebrew publish steps — must be gated"
-else
-    pass "release workflow does not contain active Homebrew publish steps"
-fi
+echo "5. Homebrew publish wiring"
 
 # `dist-workspace.toml` is part of the release contract (cargo-dist
 # generates it; the repo checks it in). Treat absence uniformly as a
@@ -227,23 +220,19 @@ fi
 # below — silent passes on absence would let a missing file mask real
 # regressions.
 if [ ! -f "$DIST_CONFIG" ]; then
-    fail "dist-workspace.toml missing — required for Homebrew/npm gating checks"
+    fail "dist-workspace.toml missing — required for Homebrew/npm publish wiring checks"
 fi
 
-# dist-workspace.toml must not have tap field set (gated until prereqs exist).
+# dist-workspace.toml MUST set `tap = "aram-devdocs/homebrew-plumb"` so
+# cargo-dist publishes the Homebrew formula on tag. The publish step
+# itself is `cargo dist host` in `release.yml`; cargo-dist emits the
+# tap PR using `HOMEBREW_TAP_TOKEN` (added as a repo secret before the
+# next release-please merge).
 if [ -f "$DIST_CONFIG" ]; then
-    if grep -Eq '^\s*tap\s*=' "$DIST_CONFIG"; then
-        fail "dist-workspace.toml has tap field set — Homebrew tap must stay gated"
+    if grep -Eq '^\s*tap\s*=\s*"aram-devdocs/homebrew-plumb"\s*$' "$DIST_CONFIG"; then
+        pass "dist-workspace.toml sets tap = \"aram-devdocs/homebrew-plumb\" — Homebrew publish wired via cargo-dist"
     else
-        pass "dist-workspace.toml does not set tap — Homebrew publish correctly gated"
-    fi
-fi
-
-if [ -f "$DIST_CONFIG" ]; then
-    if grep -Fq 'Issues #51 and #52 are intentionally prep-only' "$DIST_CONFIG"; then
-        pass "dist-workspace.toml documents #51/#52 as prep-only"
-    else
-        fail "dist-workspace.toml does not document #51/#52 as prep-only"
+        fail "dist-workspace.toml does not set tap = \"aram-devdocs/homebrew-plumb\" — Homebrew publish must be wired"
     fi
 fi
 
@@ -287,11 +276,11 @@ else
 fi
 
 if [ -f "$RELEASE_PREP_DOC" ] \
-    && grep -Fq 'Until those blockers are resolved, the install docs describe the' "$RELEASE_PREP_DOC" \
+    && grep -Fq 'install-smoke `brew` legs stay gated and the docs MUST NOT claim' "$RELEASE_PREP_DOC" \
     && grep -Fq 'Until those blockers are resolved, this repo MUST NOT claim that' "$RELEASE_PREP_DOC"; then
-    pass "release prep doc keeps Homebrew/npm claims gated behind external blockers"
+    pass "release prep doc keeps Homebrew claims gated until live verification and npm gated behind external blockers"
 else
-    fail "release prep doc does not keep Homebrew/npm claims gated behind external blockers"
+    fail "release prep doc does not keep Homebrew/npm claims appropriately gated"
 fi
 
 # ── 7. Security audit workflow exists ──────────────────────────────

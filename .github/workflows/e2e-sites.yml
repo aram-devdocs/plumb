@@ -76,6 +76,13 @@ jobs:
       - name: Run the e2e harness for ${{ matrix.framework }}
         env:
           CHROME_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
+        # Next.js leg is advisory until upstream chromiumoxide handles
+        # the WebSocket "Invalid message" warnings that fire during
+        # Next.js's hydration phase on Linux + Windows Chromium. macOS
+        # is stable. Static-export refactor (#235) didn't resolve this
+        # — the WS bug fires before any wait_for selector polls.
+        # Tracking via re-opened #233.
+        continue-on-error: ${{ matrix.framework == 'nextjs' }}
         shell: bash
         run: |
           cargo run --release -p plumb-e2e -- \

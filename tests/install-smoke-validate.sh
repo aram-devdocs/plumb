@@ -210,11 +210,12 @@ else
 fi
 
 if [ -f "$RELEASE_PREP_DOC" ] \
-    && grep -Fq 'Issue #51 is prep-only in this repo state.' "$RELEASE_PREP_DOC" \
+    && grep -Fq 'Issue #51 is wired in this repo state.' "$RELEASE_PREP_DOC" \
+    && grep -Fq 'install-smoke `brew` legs stay gated' "$RELEASE_PREP_DOC" \
     && grep -Fq 'Issue #52 is also prep-only in this repo state.' "$RELEASE_PREP_DOC"; then
-    pass "release prep doc records #51/#52 as prep-only"
+    pass "release prep doc records #51 as wired-but-unverified and #52 as prep-only"
 else
-    fail "release prep doc does not record #51/#52 as prep-only"
+    fail "release prep doc does not record the current #51 (wired) / #52 (prep-only) state"
 fi
 
 # Exit code handling: 0 and 3 are acceptable, 2 is infra failure.

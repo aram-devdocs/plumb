@@ -29,7 +29,7 @@ parent:
     - "Local deterministic kits are checked in under `tests/fixtures/release-readiness/`, with the manifest at `tests/fixtures/release-readiness/manifest.json`, and cover static, large-DOM, responsive, typography, color/contrast, shadow/z/opacity/padding, dynamic/wait, auth/storage, and MCP scenarios."
     - "Install smoke expectations are defined per release channel and supported OS, including auth/no-secret-leak behavior."
     - "Release dry-run, token/security blockers, and attestation verification are defined as observable gates before publication."
-    - "Cargo and curl are defined as the current non-manual validation channels, while Homebrew (#51) and npm (#52) remain explicit prep-only/gated channels until external setup and live publish verification exist."
+    - "Cargo, curl, and Homebrew (#51) are defined as the current non-manual validation channels, while npm (#52) remains an explicit prep-only/gated channel until external setup and live publish verification exist."
     - "Reviewer sign-off lanes are defined so #192, #51/#52, and #101 can be evaluated as one release-readiness boundary without treating #51/#52 as complete."
     - "#65 and #66–#85 remain parked until this runbook closes, #51/#52 retain prep-only gating evidence, and #101 clears its first-release evidence."
   related_prd_sections: ["§10.6", "§14.1", "§14.2", "§14.4", "§15.1", "§15.3", "§15.4", "§15.5", "§16"]

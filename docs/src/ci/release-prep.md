@@ -5,39 +5,29 @@ live distribution changes.
 
 ## Homebrew tap activation
 
-Issue #51 is prep-only in this repo state. The release workflow and
-`dist-workspace.toml` already validate the cargo-dist setup, but they do
-not enable Homebrew publishing yet.
+Issue #51 is wired in this repo state. `dist-workspace.toml` sets
+`tap = "aram-devdocs/homebrew-plumb"`, and `cargo dist host` in
+`release.yml` pushes the formula to that tap on each release tag using
+the `HOMEBREW_TAP_TOKEN` repo secret.
 
-Before anyone uncomments the `tap` setting in `dist-workspace.toml`,
-these prerequisites MUST exist:
+Live verification still depends on the first tag-driven release. Until
+that release publishes successfully and `brew install
+aram-devdocs/plumb/plumb` is verified end to end on macOS and Linux, the
+install-smoke `brew` legs stay gated and the docs MUST NOT claim
+`brew install` is a verified install path.
 
-1. The `aram-devdocs/homebrew-plumb` tap repo (already exists).
-2. The token and GitHub permissions cargo-dist needs to update the tap
-   on release.
+Channel maintenance steps:
 
-Activation steps, once the external prerequisites exist:
-
-1. Confirm `cargo dist plan` still passes with the current repo state.
-2. Create or verify the `aram-devdocs/homebrew-plumb` repo settings that
-   cargo-dist expects for formula updates.
-3. Add the release token or permissions required for cargo-dist to push
-   Homebrew formula changes.
-4. Uncomment `tap = "aram-devdocs/homebrew-plumb"` in
-   `dist-workspace.toml`.
-5. Run `cargo dist plan` again and review the generated manifest for the
-   Homebrew artifacts.
-6. Cut a tag-driven dry run in GitHub Actions before claiming
-   `brew install` support.
-
-Current blockers this repo does not solve:
-
-- cargo-dist publishing credentials and permissions are external to this
-  repo.
-
-Until those blockers are resolved, the install docs describe the
-Homebrew command shape, but this repo MUST NOT claim `brew install`
-verification.
+1. Confirm `cargo dist plan` still includes the Homebrew artifacts when
+   the dist version or installer list changes.
+2. Keep the `aram-devdocs/homebrew-plumb` tap repo settings in shape for
+   cargo-dist formula updates (default branch, branch protection that
+   accepts the tap PR).
+3. Rotate `HOMEBREW_TAP_TOKEN` if the publishing identity changes.
+4. After the first successful tag-driven publish, ungate the `brew`
+   channel in `.github/workflows/install-smoke.yml` and update the
+   gating expectations in `tests/install-smoke-validate.sh` in the same
+   PR.
 
 ## npm activation for `@plumb/cli`
 
