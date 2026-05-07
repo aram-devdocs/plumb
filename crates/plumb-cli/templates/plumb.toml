@@ -1,0 +1,72 @@
+# Plumb configuration — starter file.
+#
+# Every field here is optional. Remove anything you don't need; add
+# `$schema = "https://plumb.aramhammoudeh.com/schemas/plumb.toml.json"` to a wrapper
+# `plumb.json` if you prefer JSON.
+
+[viewports.mobile]
+width = 375
+height = 667
+device_pixel_ratio = 2.0
+
+[viewports.tablet]
+width = 768
+height = 1024
+device_pixel_ratio = 2.0
+
+[viewports.desktop]
+width = 1280
+height = 800
+device_pixel_ratio = 1.0
+
+[spacing]
+base_unit = 4
+scale = [0, 4, 8, 12, 16, 24, 32, 48]
+tokens = { xs = 4, sm = 8, md = 16, lg = 24, xl = 32, "2xl" = 48 }
+
+[type]
+families = ["Inter", "system-ui"]
+weights = [400, 500, 600, 700]
+scale = [12, 14, 16, 18, 20, 24, 30, 36, 48]
+tokens = { caption = 12, body = 16, heading = 24 }
+
+[color]
+tokens = { "bg/canvas" = "#ffffff", "fg/primary" = "#0b0b0b", "accent/brand" = "#0b7285" }
+delta_e_tolerance = 2.0
+
+[radius]
+scale = [0, 2, 4, 8, 12, 16, 9999]
+
+[alignment]
+grid_columns = 12
+gutter_px = 24
+tolerance_px = 3
+
+[a11y]
+min_contrast_ratio = 4.5
+
+[a11y.touch_target]
+min_width_px = 24
+min_height_px = 24
+
+# Example per-rule overrides. Every rule is enabled by default.
+# [rules."spacing/grid-conformance"]
+# enabled = false
+# severity = "error"
+
+# Selector-scoped runtime suppression.
+#
+# Each `[[ignore]]` block silences every violation whose CSS selector
+# path matches `selector` exactly (string equality, not a CSS-engine
+# match). When `rule_id` is set, only that rule is suppressed at the
+# selector; otherwise every rule fired there is suppressed. `reason`
+# is required — document why the exemption is intentional.
+#
+# `plumb lint --suggest-ignores` emits one `<rule_id> <selector>` line
+# per active violation; pipe that list into `[[ignore]]` blocks here
+# to suppress them in subsequent runs.
+#
+# [[ignore]]
+# selector = "html > body"
+# rule_id = "spacing/grid-conformance"
+# reason = "mdBook root padding is theme-controlled"

@@ -24,8 +24,8 @@ use std::process::ExitCode;
 use anyhow::{Context, Result, bail};
 use plumb_codegen::{InferredConfig, infer_config, render_toml};
 
-const GENERIC_TEMPLATE: &str = include_str!("../../../../examples/plumb.toml");
-const TAILWIND_TEMPLATE: &str = include_str!("../../../../examples/plumb-tailwind.toml");
+const GENERIC_TEMPLATE: &str = include_str!("../../templates/plumb.toml");
+const TAILWIND_TEMPLATE: &str = include_str!("../../templates/plumb-tailwind.toml");
 const TAILWIND_PLACEHOLDER: &str = "{{TAILWIND_CONFIG}}";
 
 const TAILWIND_CONFIG_NAMES: &[&str] = &[
