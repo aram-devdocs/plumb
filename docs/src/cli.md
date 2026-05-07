@@ -36,10 +36,16 @@ Exit codes:
 
 | Code | Meaning |
 |------|---------|
-| 0 | No violations. |
+| 0 | No violations, or only `info`-severity violations. |
 | 1 | One or more `error`-severity violations. |
 | 2 | CLI or infrastructure failure (bad URL, missing config, etc.). |
-| 3 | Only `warning`-severity violations. |
+| 3 | Only `warning`-severity violations (no errors). |
+
+`info`-severity violations are reported in the output but never fail
+the run on their own — the bucket is reserved for advisory checks
+(suggestions, low-confidence fixes) you might want surfaced without
+breaking CI. Use `[rules."<id>"] severity = "warning"` to promote a
+specific advisory rule into the CI-failing tier.
 
 ### `plumb init`
 
