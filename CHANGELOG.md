@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 From the first release onward, this file is maintained automatically by [`release-please`](https://github.com/googleapis/release-please) based on [Conventional Commits](https://www.conventionalcommits.org/) on `main`. Do not edit released sections by hand.
 
+## [0.0.6](https://github.com/aram-devdocs/plumb/compare/v0.0.5...v0.0.6) (2026-05-07)
+
+
+### Bug Fixes
+
+* **mcp:** rule-docs embed + windows-11-arm runner ([#259](https://github.com/aram-devdocs/plumb/issues/259)) ([35db074](https://github.com/aram-devdocs/plumb/commit/35db074e6d84ca2a6554b4fe81d617e2d0e6afb1))
+
 ## [0.0.5](https://github.com/aram-devdocs/plumb/compare/v0.0.4...v0.0.5) (2026-05-07)
 
 
