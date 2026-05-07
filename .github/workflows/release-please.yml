@@ -41,6 +41,13 @@ jobs:
           ref: ${{ needs.release-please.outputs.tag_name }}
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - name: Refresh Cargo.lock for bumped workspace deps
+        # release-please bumps the workspace-dep `version` fields in
+        # Cargo.toml but does not touch Cargo.lock, so `cargo publish
+        # --locked` rejects the package. `cargo update --workspace`
+        # regenerates lockfile entries for the workspace crates only;
+        # external dep versions stay pinned to whatever was in main.
+        run: cargo update --workspace
       - name: Publish crates (bottom-up dependency order)
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
