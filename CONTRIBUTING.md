@@ -7,7 +7,7 @@ Thanks for your interest in contributing. This document covers prerequisites, th
 - **Rust 1.95+** via [rustup](https://rustup.rs/). The `rust-toolchain.toml` pins the exact version; rustup will install it automatically when you run any cargo command.
 - **[`just`](https://github.com/casey/just)** — task runner. Install with `cargo install just` or `brew install just`.
 - **[`lefthook`](https://github.com/evilmartians/lefthook)** — git hooks. Install with `brew install lefthook` (macOS/Linux) or `scoop install lefthook` (Windows).
-- **Chromium** — required at runtime by the CDP driver (later PRs). Not needed for the walking skeleton.
+- **Chromium** — required at runtime by the CDP driver. `plumb-fake://` fixture tests run without it; real-URL linting requires a Chromium install.
 
 ### Windows notes
 
