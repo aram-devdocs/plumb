@@ -183,6 +183,14 @@ strip = "symbols"
 debug = false
 incremental = false
 
+# cargo-dist requires a `[profile.dist]` section to build release artifacts.
+# Inherits the release profile so binaries are byte-identical to local
+# `cargo build --release` output, with `lto = "thin"` to keep cross-platform
+# build time in CI under the 25min job budget.
+[profile.dist]
+inherits = "release"
+lto = "thin"
+
 [profile.dev]
 incremental = true
 codegen-units = 256
