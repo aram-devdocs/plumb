@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 From the first release onward, this file is maintained automatically by [`release-please`](https://github.com/googleapis/release-please) based on [Conventional Commits](https://www.conventionalcommits.org/) on `main`. Do not edit released sections by hand.
 
+## [0.0.10](https://github.com/aram-devdocs/plumb/compare/v0.0.9...v0.0.10) (2026-05-07)
+
+
+### Bug Fixes
+
+* **ci:** drop x86_64-apple-darwin target post-V0 ([#270](https://github.com/aram-devdocs/plumb/issues/270)) ([2077aff](https://github.com/aram-devdocs/plumb/commit/2077affed2a7b578a2bcfa08a393b81d05a99fcf))
+
+
+### Documentation
+
+* **install:** pin --version example to 0.0.9 (latest) ([#268](https://github.com/aram-devdocs/plumb/issues/268)) ([91ec6ec](https://github.com/aram-devdocs/plumb/commit/91ec6ec2ad7699c8bdd178697b0a982a23ce9c0a))
+
 ## [0.0.9](https://github.com/aram-devdocs/plumb/compare/v0.0.8...v0.0.9) (2026-05-07)
 
 
