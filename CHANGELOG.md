@@ -188,6 +188,7 @@ From the first release onward, this file is maintained automatically by [`releas
 
 ### Changed
 
+- Dropped `x86_64-apple-darwin` (Intel Mac) from the cargo-dist native install matrix. Intel Mac users continue to install via `cargo install plumb-cli`. Re-enable tracked in #269.
 - Docs landing page now frames Plumb around the rendered-UI gap, adds a
   demo placeholder, and points readers to install, MCP, and CI entry
   points.
