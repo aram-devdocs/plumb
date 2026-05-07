@@ -19,12 +19,14 @@ default = []
 # Opt-in flag for end-to-end tests that need a real Chromium binary in
 # the supported major-version range on the host. Off in `just validate`
 # / CI; flip on for local smoke runs.
-# Pulls in `plumb-core/test-fake` so `FakeDriver::snapshot` (which calls
-# `PlumbSnapshot::canned`) builds without dev-deps.
-e2e-chromium = ["plumb-core/test-fake"]
+e2e-chromium = []
 
 [dependencies]
-plumb-core = { workspace = true }
+# `test-fake` is enabled unconditionally because `FakeDriver::snapshot`
+# (the in-tree `plumb-fake://` CLI scheme) calls `PlumbSnapshot::canned`,
+# which is gated behind that feature in plumb-core. The feature name is
+# legacy — it's a runtime fixture, not a test-only path.
+plumb-core = { workspace = true, features = ["test-fake"] }
 # `fetcher` + `rustls` + `zip8` enables
 # `chromiumoxide::fetcher::BrowserFetcher` (Chrome-for-Testing download)
 # used by the auto-fetch path (issue #78). The rustls transport matches
