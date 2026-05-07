@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 From the first release onward, this file is maintained automatically by [`release-please`](https://github.com/googleapis/release-please) based on [Conventional Commits](https://www.conventionalcommits.org/) on `main`. Do not edit released sections by hand.
 
+## [0.0.3](https://github.com/aram-devdocs/plumb/compare/v0.0.2...v0.0.3) (2026-05-07)
+
+
+### Bug Fixes
+
+* **ci:** pin workspace deps to current crate version ([#248](https://github.com/aram-devdocs/plumb/issues/248)) ([4c8ce85](https://github.com/aram-devdocs/plumb/commit/4c8ce8581c3a4c00c4c5c996e93803e484b95a4c))
+
 ## [0.0.2](https://github.com/aram-devdocs/plumb/compare/v0.0.1...v0.0.2) (2026-05-07)
 
 
