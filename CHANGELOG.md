@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 From the first release onward, this file is maintained automatically by [`release-please`](https://github.com/googleapis/release-please) based on [Conventional Commits](https://www.conventionalcommits.org/) on `main`. Do not edit released sections by hand.
 
+## [0.0.4](https://github.com/aram-devdocs/plumb/compare/v0.0.3...v0.0.4) (2026-05-07)
+
+
+### Bug Fixes
+
+* **ci:** cargo update + dist rename for v0.0.3 publish ([#253](https://github.com/aram-devdocs/plumb/issues/253)) ([7d31bc2](https://github.com/aram-devdocs/plumb/commit/7d31bc238c70c75eb0d1942091abfeb4bc35cbf9))
+* **ci:** publish_tag dispatch + [profile.dist] for v0.0.3 release ([#255](https://github.com/aram-devdocs/plumb/issues/255)) ([b8e525b](https://github.com/aram-devdocs/plumb/commit/b8e525b8d6726e0dc49b68a9173c179ded000da5))
+
 ## [0.0.3](https://github.com/aram-devdocs/plumb/compare/v0.0.2...v0.0.3) (2026-05-07)
 
 
