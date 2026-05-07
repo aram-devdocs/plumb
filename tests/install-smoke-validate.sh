@@ -67,20 +67,21 @@ else
     fail "no channels marked gated"
 fi
 
-# Brew and npm must be gated (external prerequisites not yet available).
+# Brew must be gated (first tag-driven release has not yet verified the tap publish path).
 brew_gated=$(grep -A5 'channel: brew' "$WORKFLOW" | grep -c 'gated: true' || true)
 npm_gated=$(grep -A5 'channel: npm' "$WORKFLOW" | grep -c 'gated: true' || true)
 
 if [ "$brew_gated" -gt 0 ]; then
     pass "brew channel is gated"
 else
-    fail "brew channel is not gated — external prerequisites not yet available"
+    fail "brew channel is not gated — first tag-driven publish has not yet been verified"
 fi
 
-if [ "$npm_gated" -gt 0 ]; then
-    pass "npm channel is gated"
+# npm now publishes unscoped `plumb-cli` and must NOT be gated.
+if [ "$npm_gated" -eq 0 ]; then
+    pass "npm channel is not gated"
 else
-    fail "npm channel is not gated — external prerequisites not yet available"
+    fail "npm channel should not be gated — unscoped plumb-cli publish path is wired"
 fi
 
 # Cargo and curl must NOT be gated.
@@ -99,9 +100,9 @@ else
     fail "curl channel should not be gated"
 fi
 
-# Current repo contract: cargo/curl run automatically on all supported
-# platforms; brew/npm stay documented as prep-only until external setup
-# exists.
+# Current repo contract: cargo/curl/npm run automatically on all
+# supported platforms; brew stays documented as prep-only until the
+# first tag-driven release verifies the tap publish path.
 #
 # Expected matrix counts (one entry per OS leg, see
 # `.github/workflows/install-smoke.yml`):
@@ -111,8 +112,8 @@ fi
 #                       leg uses PowerShell installer)
 #   brew_count  = 2  → ubuntu + macos only (homebrew has no Windows
 #                       support; gated until a tap publish path exists)
-#   npm_count   = 3  → ubuntu + macos + windows (gated; npm runs
-#                       cross-platform once a publish path exists)
+#   npm_count   = 3  → ubuntu + macos + windows (non-manual; cargo-dist
+#                       publishes unscoped `plumb-cli` via NPM_TOKEN)
 #
 # Adjust both the counts and the corresponding pass/fail messages
 # together when the matrix changes — they document the contract.
@@ -140,9 +141,9 @@ else
 fi
 
 if [ "$npm_count" -eq 3 ]; then
-    pass "npm channel covers all three OSes as gated OS legs"
+    pass "npm channel covers all three OSes as a non-manual path"
 else
-    fail "npm channel count is $npm_count (expected 3 gated OS legs: ubuntu + macos + windows)"
+    fail "npm channel count is $npm_count (expected 3 OS legs: ubuntu + macos + windows)"
 fi
 
 # ── 5. Verification steps ──────────────────────────────────────────
@@ -194,16 +195,16 @@ else
     fail "brew channel gating/install contract is incorrect"
 fi
 
-if [ "$npm_gated" -gt 0 ] \
+if [ "$npm_gated" -eq 0 ] \
     && grep -Fq "if: \"!matrix.gated && matrix.channel == 'npm'\"" "$WORKFLOW" \
-    && grep -Fq 'npm install -g @plumb/cli' "$WORKFLOW"; then
-    pass "npm channel stays gated until a publish path exists"
+    && grep -Fq 'npm install -g plumb-cli' "$WORKFLOW"; then
+    pass "npm channel installs unscoped plumb-cli on all OS legs"
 else
-    fail "npm channel gating/install contract is incorrect"
+    fail "npm channel install contract is incorrect (expected ungated install of plumb-cli)"
 fi
 
-if grep -Fq 'Cargo and curl are the current non-manual validation paths' "$WORKFLOW" \
-    && grep -Fq 'Brew and npm stay gated/prep-only' "$WORKFLOW"; then
+if grep -Fq 'Cargo, curl, and npm run as non-manual validation paths' "$WORKFLOW" \
+    && grep -Fq 'Brew stays gated/prep-only' "$WORKFLOW"; then
     pass "workflow docs describe non-manual vs prep-only channel state"
 else
     fail "workflow docs do not describe the current non-manual/prep-only channel state"
@@ -212,10 +213,10 @@ fi
 if [ -f "$RELEASE_PREP_DOC" ] \
     && grep -Fq 'Issue #51 is wired in this repo state.' "$RELEASE_PREP_DOC" \
     && grep -Fq 'install-smoke `brew` legs stay gated' "$RELEASE_PREP_DOC" \
-    && grep -Fq 'Issue #52 is also prep-only in this repo state.' "$RELEASE_PREP_DOC"; then
-    pass "release prep doc records #51 as wired-but-unverified and #52 as prep-only"
+    && grep -Fq 'Issue #52 is wired in this repo state.' "$RELEASE_PREP_DOC"; then
+    pass "release prep doc records #51 (wired-but-unverified) and #52 (wired, unscoped plumb-cli)"
 else
-    fail "release prep doc does not record the current #51 (wired) / #52 (prep-only) state"
+    fail "release prep doc does not record the current #51 (wired) / #52 (wired) state"
 fi
 
 # Exit code handling: 0 and 3 are acceptable, 2 is infra failure.

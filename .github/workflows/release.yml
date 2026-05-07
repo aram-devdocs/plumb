@@ -8,19 +8,15 @@ name: release
 # would generate. It stays in sync with `dist-workspace.toml`. Re-run
 # `cargo dist generate` locally and diff before editing.
 #
-# Cargo publish, curl installers, and Homebrew tap publish are the
+# Cargo publish, curl installers, Homebrew tap publish, and npm publish are the
 # non-manual release channels active in this repo today. cargo-dist
 # pushes the formula to `aram-devdocs/homebrew-plumb` using the
-# `HOMEBREW_TAP_TOKEN` repo secret on each tag.
-#
-# npm publishing remains intentionally inactive. Do not add the
-# `npm-scope` field in `dist-workspace.toml` until the external
-# prerequisites exist: ownership of the `@plumb` npm scope and the
-# `@plumb/cli` package, and the cargo-dist publishing token/permissions.
-# npm activation also needs `npm` added to the installer list;
-# `npm-scope` alone does not emit npm artifacts on cargo-dist 0.28.0.
-# This workflow must not claim `npm i -g @plumb/cli` support until a
-# live publish verifies that channel.
+# `HOMEBREW_TAP_TOKEN` repo secret on each tag, and publishes the
+# unscoped `plumb-cli` npm package using the `NPM_TOKEN` repo secret.
+# `dist-workspace.toml` enables npm by listing it in `installers` with
+# `npm-scope` left unset; that emits `plumb-cli-npm-package.tar.gz` and
+# publishes under the cargo package name (`plumb-cli`). Public install:
+# `npm i -g plumb-cli`.
 
 on:
   push:

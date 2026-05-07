@@ -117,12 +117,11 @@ else
     fail "release workflow missing attestations: write permission"
 fi
 
-if grep -Fq 'Cargo publish, curl installers, and Homebrew tap publish are the' "$RELEASE_WORKFLOW" \
-    && grep -Fq 'non-manual release channels active in this repo today.' "$RELEASE_WORKFLOW" \
-    && grep -Fq 'npm publishing remains intentionally inactive' "$RELEASE_WORKFLOW"; then
-    pass "release workflow docs distinguish active non-manual channels from gated ones"
+if grep -Fq 'Cargo publish, curl installers, Homebrew tap publish, and npm publish are the' "$RELEASE_WORKFLOW" \
+    && grep -Fq 'non-manual release channels active in this repo today.' "$RELEASE_WORKFLOW"; then
+    pass "release workflow docs describe active non-manual channels including npm"
 else
-    fail "release workflow docs do not distinguish active non-manual channels from gated ones"
+    fail "release workflow docs do not describe active non-manual channels including npm"
 fi
 
 # ── 3. Token handling via env indirection ──────────────────────────
@@ -236,51 +235,46 @@ if [ -f "$DIST_CONFIG" ]; then
     fi
 fi
 
-# ── 6. NPM scope publish is gated ─────────────────────────────────
+# ── 6. NPM publish wiring (unscoped plumb-cli) ─────────────────────
 
-echo "6. NPM publish gating"
+echo "6. NPM publish wiring"
 
-# The release workflow must NOT contain active (non-comment) npm publish steps.
-if grep -v '^\s*#' "$RELEASE_WORKFLOW" | grep -Eiq 'npm.*publish|npm-scope'; then
-    fail "release workflow contains active npm publish steps — must be gated"
-else
-    pass "release workflow does not contain active npm publish steps"
-fi
-
-# Absent-file behavior here mirrors section 5: a missing
-# dist-workspace.toml has already been flagged as a fail above, so the
-# inner checks short-circuit without re-emitting noise. When the file
-# is present, both shape (no `npm-scope`) and content
-# (`installers = ["shell", "powershell"]`) get checked.
+# `npm-scope` must NOT be set: this repo publishes the unscoped
+# `plumb-cli` package by leaving `npm-scope` unset and relying on the
+# cargo package name. Setting `npm-scope` would change the public
+# install command shape away from `npm i -g plumb-cli`.
 if [ -f "$DIST_CONFIG" ]; then
     if grep -Eq '^\s*npm-scope\s*=' "$DIST_CONFIG"; then
-        fail "dist-workspace.toml has npm-scope field set — NPM publish must stay gated"
+        fail "dist-workspace.toml sets npm-scope — unscoped plumb-cli publish is the contract"
     else
-        pass "dist-workspace.toml does not set npm-scope — NPM publish correctly gated"
+        pass "dist-workspace.toml leaves npm-scope unset — unscoped plumb-cli publish is wired"
     fi
 fi
 
+# `npm` MUST be in the installers list so cargo-dist 0.28 emits the
+# `plumb-cli-npm-package.tar.gz` artifact.
 if [ -f "$DIST_CONFIG" ]; then
-    if grep -Fq 'installers = ["shell", "powershell"]' "$DIST_CONFIG"; then
-        pass "dist-workspace.toml keeps npm out of the active installer list"
+    if grep -Fq 'installers = ["shell", "powershell", "npm"]' "$DIST_CONFIG"; then
+        pass "dist-workspace.toml includes npm in the active installer list"
     else
-        fail "dist-workspace.toml does not keep npm out of the active installer list"
+        fail "dist-workspace.toml does not include npm in the active installer list"
     fi
 fi
 
-# The install-smoke workflow documents NPM_TOKEN is not yet wired.
-if grep -Fq 'npm' "$INSTALL_SMOKE"; then
-    pass "install-smoke acknowledges npm channel"
+# The install-smoke workflow runs the npm channel non-manually now.
+if grep -Fq 'npm install -g plumb-cli' "$INSTALL_SMOKE"; then
+    pass "install-smoke installs unscoped plumb-cli"
 else
-    fail "install-smoke does not acknowledge npm channel"
+    fail "install-smoke does not install unscoped plumb-cli"
 fi
 
 if [ -f "$RELEASE_PREP_DOC" ] \
     && grep -Fq 'install-smoke `brew` legs stay gated and the docs MUST NOT claim' "$RELEASE_PREP_DOC" \
-    && grep -Fq 'Until those blockers are resolved, this repo MUST NOT claim that' "$RELEASE_PREP_DOC"; then
-    pass "release prep doc keeps Homebrew claims gated until live verification and npm gated behind external blockers"
+    && grep -Fq '## npm activation for `plumb-cli`' "$RELEASE_PREP_DOC" \
+    && grep -Fq 'Issue #52 is wired in this repo state.' "$RELEASE_PREP_DOC"; then
+    pass "release prep doc keeps Homebrew claims gated until live verification and records npm as wired (unscoped plumb-cli)"
 else
-    fail "release prep doc does not keep Homebrew/npm claims appropriately gated"
+    fail "release prep doc does not record current Homebrew/npm channel state"
 fi
 
 # ── 7. Security audit workflow exists ──────────────────────────────
