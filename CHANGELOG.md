@@ -13,12 +13,6 @@ From the first release onward, this file is maintained automatically by [`releas
 
 * **ci:** wire homebrew + npm publish jobs into release.yml ([#272](https://github.com/aram-devdocs/plumb/issues/272)) ([e570b46](https://github.com/aram-devdocs/plumb/commit/e570b46958f4353951a699ffade21b0653cc86a1))
 
-## [Unreleased]
-
-### Added
-- Homebrew tap publish job (`aram-devdocs/homebrew-plumb`) wired into release.yml.
-- npm package publish job (`plumb-cli` unscoped) wired into release.yml.
-
 ## [0.0.10](https://github.com/aram-devdocs/plumb/compare/v0.0.9...v0.0.10) (2026-05-07)
 
 
@@ -184,52 +178,3 @@ From the first release onward, this file is maintained automatically by [`releas
 * **runbooks:** V0→V1 delivery specs for all 7 phases + roadmap umbrella + phase labels ([6e47ea7](https://github.com/aram-devdocs/plumb/commit/6e47ea733ea9e9c36a3bdbbef0f5adb0dd539be4))
 * V0 ship-ready cleanup pass — DRY, accurate, no AI-tell ([#247](https://github.com/aram-devdocs/plumb/issues/247)) ([d56262f](https://github.com/aram-devdocs/plumb/commit/d56262f30bc908b2c788588187eb1c8e1456754b))
 * validate landing-page demo asset and CTAs ([#185](https://github.com/aram-devdocs/plumb/issues/185)) ([086c0d2](https://github.com/aram-devdocs/plumb/commit/086c0d2b6ab83c620ca572b6cccbc7c94d9f3ccb))
-
-## [Unreleased]
-
-### Added
-
-- Real-world e2e test-site matrix at `e2e-sites/` covering vanilla HTML/CSS, static Tailwind, React + Vite, Vue 3 + Vite, Angular 17, and Next.js 14. The fixtures publish to `https://plumb.aramhammoudeh.com/test-sites/<framework>/` alongside the docs and are linted on every CI run via the new `plumb-e2e` harness crate.
-- `plumb init --from <path>`: bootstrap a starter `plumb.toml` from an existing project tree. The new `plumb-codegen` crate walks the directory, scrapes CSS custom properties under `:root`, records discovered Tailwind config files, and merges DTCG token JSON. Walk order is deterministic; two runs produce byte-identical output.
-- Rule `baseline/rhythm`: flags text elements whose typographic baselines miss the configured vertical-rhythm grid.
-- Per-crate README files and package metadata for crates.io publishing.
-- `release-please.yml` crates-io publish job now uses bottom-up interleaved dry-run + publish, `--locked`, GitHub environment protection, and `::group::` log folding.
-
-- `plumb lint` now accepts `--output <path>` for writing rendered JSON or SARIF output to a file without changing the command's exit code.
-- SARIF output now includes built-in rule metadata, canonical rule `helpUri` links, and Code Scanning-compatible result locations.
-- Pretty and JSON formatter output now include deterministic stats with severity counts, viewport count, rule count, and a content-hashed run id. Pretty output now groups violations by viewport, then rule, then selector.
-- Repository hooks now enforce the talking-stick workflow for agent-driven changes.
-- Initial workspace scaffold, tooling, and walking skeleton.
-- PRD-style `[spacing]` and `[type]` config sections with schema validation.
-- `plumb mcp` `lint_url` now accepts an optional `detail` argument. The default `compact` mode preserves the existing MCP payload, while `detail: "full"` returns the canonical full JSON envelope and rejects structured payloads above 50 KB.
-- `plumb mcp` `compare_viewports`: capture snapshots at two-or-more viewports of the same URL and return a deterministic per-node delta (missing nodes, size changes above a configurable pixel threshold, document-order reorderings, computed-style differences). Aggregate counts plus a 200-entry capped diff list keep `structuredContent` under the 10 KB budget.
-- `plumb mcp` now exposes a `plumb://config` resource that returns the resolved `plumb.toml` for the server working directory as JSON.
-- Rule `spacing/grid-conformance`: flags `margin-*`, `padding-*`, `gap`, `row-gap`, and `column-gap` values that aren't multiples of `spacing.base_unit`.
-- Rule `spacing/scale-conformance`: flags the same property set when values aren't members of `spacing.scale`.
-- Rule `type/scale-conformance`: flags `font-size` values that aren't members of `type.scale`.
-- PRD §12.2 `[color]`, `[radius]`, `[alignment]`, `[a11y]` config sections fleshed out: `color.delta_e_tolerance` (default 2.0), `alignment.tolerance_px` (default 3), `a11y.touch_target.{min_width_px, min_height_px}` (default 24×24 per WCAG 2.5.8).
-- DTCG 2025.10 token adapter in `plumb-config`: `merge_dtcg(&mut Config, &DtcgSource)` imports a Design Tokens Community Group JSON file into a `Config`. Maps `color`, `dimension` (spacing or typography by namespace heuristic), `fontFamily`, `fontWeight`, and `radius` / `borderRadius`; resolves `{path.to.token}` brace aliases and `{ "$ref": "#/..." }` pointers with cycle detection; caps nesting at 64 levels.
-- `plumb-cdp::PersistentBrowser`: long-lived Chromium handle that warms once per MCP session and gives every `snapshot` call a fresh incognito `BrowserContext`. The MCP server's `lint_url` tool uses it for real `http(s)://` URLs so back-to-back lints reuse the warm browser without leaking cookies or storage between calls. The `plumb-fake://` fast path stays browser-free.
-
-### Changed
-
-- Dropped `x86_64-apple-darwin` (Intel Mac) from the cargo-dist native install matrix. Intel Mac users continue to install via `cargo install plumb-cli`. Re-enable tracked in #269.
-- Docs landing page now frames Plumb around the rendered-UI gap, adds a
-  demo placeholder, and points readers to install, MCP, and CI entry
-  points.
-- Renamed `radius.allowed_px` to `radius.scale` for naming consistency with `spacing.scale` and `type.scale`. The old name is rejected; update any pre-existing `plumb.toml`.
-- `plumb-cdp` accepts a Chromium major-version range
-  (`MIN_SUPPORTED_CHROMIUM_MAJOR..=MAX_SUPPORTED_CHROMIUM_MAJOR`,
-  currently `131..=150`) instead of an exact pin on `131`. The
-  `CdpError::UnsupportedChromium` variant now carries `min_supported`,
-  `max_supported`, and `found` fields, and the install hint reflects the
-  range. This unblocks `plumb lint <real-url>` on any host running a
-  recent Chrome / Chromium build.
-- `plumb-cdp`'s `e2e-chromium` tests no longer silently skip when
-  Chromium is missing or out-of-range. They now hard-fail unless the
-  user opts in via `PLUMB_E2E_CHROMIUM_SKIP=1`, in which case the skip
-  is logged via `tracing::warn!`.
-
-### Removed
-
-- Walking-skeleton placeholder rule `placeholder/hello-world` and its docs.
