@@ -41,6 +41,9 @@ cargo install plumb-cli
 
 # Homebrew
 brew install aram-devdocs/plumb/plumb
+
+# npm
+npm i -g plumb-cli
 ```
 
 ## Documentation
