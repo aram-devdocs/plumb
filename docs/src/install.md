@@ -54,7 +54,7 @@ This builds from source against the version published to crates.io.
 Pin a version with `--version`:
 
 ```bash
-cargo install plumb-cli --version 0.0.2
+cargo install plumb-cli --version 0.0.9
 ```
 
 ## Homebrew
