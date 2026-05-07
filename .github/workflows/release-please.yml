@@ -67,9 +67,10 @@ jobs:
           #   → format (core)
           #   → cdp (core)
           #   → config (core)
+          #   → codegen (core, config)
           #   → mcp (core, format, cdp, config)
           #   → cli (all)
-          CRATES=(plumb-core plumb-format plumb-cdp plumb-config plumb-mcp plumb-cli)
+          CRATES=(plumb-core plumb-format plumb-cdp plumb-config plumb-codegen plumb-mcp plumb-cli)
           for crate in "${CRATES[@]}"; do
             echo "::group::Publishing $crate"
             echo "▸ dry-run $crate"
