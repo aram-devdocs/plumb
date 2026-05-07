@@ -198,10 +198,8 @@ fn run_rules(snapshot: &PlumbSnapshot, config: &Config, rules: &[Box<dyn Rule>])
             // Apply [rules."<id>"].severity, if set. Lookup is a single
             // IndexMap probe per rule, regardless of how many
             // violations it emitted.
-            if let Some(override_severity) = config
-                .rules
-                .get(rule.id())
-                .and_then(|over| over.severity)
+            if let Some(override_severity) =
+                config.rules.get(rule.id()).and_then(|over| over.severity)
             {
                 for violation in &mut local {
                     violation.severity = override_severity;
