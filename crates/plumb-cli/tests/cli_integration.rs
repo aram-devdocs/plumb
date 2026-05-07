@@ -226,6 +226,28 @@ fn explain_spacing_grid_rule() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// `plumb explain` for an unknown rule MUST surface a friendly error
+/// pointing at `list_rules` and the docs site — and MUST NOT leak the
+/// candidate filesystem paths it walked. The npm-shim install layout
+/// (`/Users/<name>/.nvm/...`) is the specific path that used to leak;
+/// pin the contract here so a future refactor can't regress it.
+#[test]
+fn explain_unknown_rule_does_not_leak_install_paths() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = TempDir::new()?;
+    Command::cargo_bin("plumb")?
+        .args(["explain", "not/a-real-rule"])
+        .current_dir(dir.path())
+        .assert()
+        .failure()
+        .stderr(contains("not/a-real-rule"))
+        .stderr(contains("list_rules"))
+        .stderr(contains("https://plumb.aramhammoudeh.com/rules/"))
+        .stderr(contains("/Users/").not())
+        .stderr(contains("/.nvm/").not())
+        .stderr(contains("docs/src/rules").not());
+    Ok(())
+}
+
 #[test]
 fn help_runs() -> Result<(), Box<dyn std::error::Error>> {
     Command::cargo_bin("plumb")?
