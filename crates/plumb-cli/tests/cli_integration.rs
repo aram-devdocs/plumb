@@ -828,6 +828,37 @@ fn watch_help_lists_the_subcommand() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// `docs/src/cli.md` says watch flags mirror lint's. `--suggest-ignores`
+/// is the one that used to be missing — the docs claim now matches
+/// behavior. This test pins the contract so a future flag-cull on
+/// the watch subcommand can't silently reintroduce the gap.
+#[test]
+fn watch_help_lists_suggest_ignores_flag() -> Result<(), Box<dyn std::error::Error>> {
+    Command::cargo_bin("plumb")?
+        .args(["watch", "--help"])
+        .assert()
+        .success()
+        .stdout(contains("--suggest-ignores"));
+    Ok(())
+}
+
+/// `plumb watch --once --suggest-ignores` reproduces the same footer
+/// `plumb lint --suggest-ignores` emits — proving the flag isn't just
+/// declared at the CLI layer but actually threads through to the lint
+/// renderer.
+#[test]
+fn watch_once_with_suggest_ignores_appends_footer() -> Result<(), Box<dyn std::error::Error>> {
+    Command::cargo_bin("plumb")?
+        .args(["watch", "plumb-fake://hello", "--once", "--suggest-ignores"])
+        .assert()
+        .code(3)
+        .stdout(contains("Suggested .plumbignore"))
+        .stdout(contains("would suppress 1 violation"))
+        .stdout(contains("spacing/grid-conformance html > body"))
+        .stderr(contains("watching"));
+    Ok(())
+}
+
 // ============================================================
 // `[[ignore]]` runtime suppression — the canned `plumb-fake://hello`
 // snapshot fires `spacing/grid-conformance` on `html > body`. With a

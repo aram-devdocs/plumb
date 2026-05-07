@@ -254,6 +254,14 @@ enum Command {
         /// Pin the device-pixel ratio used by the driver.
         #[arg(long, value_name = "FACTOR")]
         dpr: Option<f64>,
+        /// After each rendered cycle, append a suggested `.plumbignore`
+        /// block listing one entry per `(rule_id, selector)` tuple that
+        /// would suppress every current violation. Mirrors
+        /// `plumb lint --suggest-ignores`. Pretty format appends a
+        /// footer; JSON format adds a `suggested_ignores` array; SARIF
+        /// is unchanged.
+        #[arg(long, default_value_t = false)]
+        suggest_ignores: bool,
         /// Opt in to downloading Chrome-for-Testing into Plumb's cache
         /// directory when no `--executable-path` is given and no
         /// system Chromium is detected. See `plumb lint --help` for the
@@ -380,6 +388,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 disable_animations,
                 hide_scrollbars,
                 dpr,
+                suggest_ignores,
                 auto_fetch_chromium,
                 watch_paths,
                 once,
@@ -402,7 +411,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
                         disable_animations,
                         hide_scrollbars,
                         dpr,
-                        suggest_ignores: false,
+                        suggest_ignores,
                         auto_fetch_chromium,
                     },
                     watch_paths,
