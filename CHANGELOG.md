@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 From the first release onward, this file is maintained automatically by [`release-please`](https://github.com/googleapis/release-please) based on [Conventional Commits](https://www.conventionalcommits.org/) on `main`. Do not edit released sections by hand.
 
+## [0.0.7](https://github.com/aram-devdocs/plumb/compare/v0.0.6...v0.0.7) (2026-05-07)
+
+
+### Bug Fixes
+
+* **ci:** include plumb-codegen in crates.io publish chain ([#261](https://github.com/aram-devdocs/plumb/issues/261)) ([474caa9](https://github.com/aram-devdocs/plumb/commit/474caa9cfd7a4e6a8440093274474e300acad045))
+
 ## [0.0.6](https://github.com/aram-devdocs/plumb/compare/v0.0.5...v0.0.6) (2026-05-07)
 
 
