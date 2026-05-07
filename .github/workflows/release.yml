@@ -23,14 +23,30 @@ on:
     tags:
       - "v[0-9]+.[0-9]+.[0-9]+"
       - "v[0-9]+.[0-9]+.[0-9]+-*"
+  # Manual fallback. release-please creates tags using GITHUB_TOKEN, which
+  # GitHub will NOT use to trigger downstream `push` workflows (loop guard).
+  # Use this dispatch (or set RELEASE_PLEASE_TOKEN to a PAT in
+  # release-please.yml) when an automated tag push needs cargo-dist.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build (e.g. v0.0.3)"
+        required: true
+        type: string
 
 permissions:
   contents: write
   id-token: write
   attestations: write
 
+env:
+  # Resolves to the dispatch input on workflow_dispatch, or the pushed
+  # tag name on tag push. Used as the cargo-dist `--tag` arg and the
+  # checkout `ref` everywhere below.
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ inputs.tag || github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -39,9 +55,11 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       val: ${{ steps.plan.outputs.manifest }}
-      tag: ${{ (github.ref_type == 'tag' && github.ref_name) || '' }}
+      tag: ${{ env.RELEASE_TAG }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.RELEASE_TAG }}
       - uses: cargo-bins/cargo-binstall@main
       - name: Install cargo-dist
         run: cargo binstall --no-confirm --force --locked cargo-dist@0.28.0
@@ -49,7 +67,7 @@ jobs:
         id: plan
         run: |
           set -euo pipefail
-          manifest="$(cargo dist plan --tag "${{ github.ref_name }}" --output-format=json)"
+          manifest="$(cargo dist plan --tag "${RELEASE_TAG}" --output-format=json)"
           echo "$manifest" > dist-manifest.json
           echo "manifest<<EOF" >> "$GITHUB_OUTPUT"
           echo "$manifest" >> "$GITHUB_OUTPUT"
@@ -83,6 +101,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.RELEASE_TAG }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
@@ -97,7 +117,9 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y musl-tools
       - name: cargo dist build
         shell: bash
-        run: cargo dist build --tag "${{ github.ref_name }}" --target ${{ matrix.target }}
+        env:
+          RELEASE_TAG: ${{ env.RELEASE_TAG }}
+        run: cargo dist build --tag "${RELEASE_TAG}" --target ${{ matrix.target }}
       - uses: actions/attest-build-provenance@v4
         with:
           subject-path: target/distrib/*
@@ -113,6 +135,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.RELEASE_TAG }}
       - uses: actions/download-artifact@v8
         with:
           path: target/distrib/
@@ -122,7 +146,9 @@ jobs:
       - uses: cargo-bins/cargo-binstall@main
       - run: cargo binstall --no-confirm --force --locked cargo-dist@0.28.0
       - name: cargo dist build installers
-        run: cargo dist build --tag "${{ github.ref_name }}" --artifacts=global
+        env:
+          RELEASE_TAG: ${{ env.RELEASE_TAG }}
+        run: cargo dist build --tag "${RELEASE_TAG}" --artifacts=global
       - uses: actions/attest-build-provenance@v4
         with:
           subject-path: target/distrib/plumb-installer.*
@@ -137,6 +163,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.RELEASE_TAG }}
       - uses: actions/download-artifact@v8
         with:
           path: target/distrib/
@@ -147,4 +175,5 @@ jobs:
       - name: cargo dist host
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: cargo dist host --tag "${{ github.ref_name }}" --steps=upload --steps=release
+          RELEASE_TAG: ${{ env.RELEASE_TAG }}
+        run: cargo dist host --tag "${RELEASE_TAG}" --steps=upload --steps=release
