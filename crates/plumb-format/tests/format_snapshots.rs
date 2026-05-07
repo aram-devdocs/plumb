@@ -76,16 +76,27 @@ fn pretty_grouped_snapshot() {
     insta::assert_snapshot!("pretty_grouped", pretty(&grouped_fixture()));
 }
 
+// Redact the `plumb_version` field — it sources from CARGO_PKG_VERSION
+// and would otherwise force a snapshot bump on every release.
+fn json_snapshot_settings() -> insta::Settings {
+    let mut settings = insta::Settings::clone_current();
+    settings.add_filter(
+        r#""plumb_version": "\d+\.\d+\.\d+(?:-[\w.+-]+)?""#,
+        r#""plumb_version": "[redacted]""#,
+    );
+    settings
+}
+
 #[test]
 fn json_snapshot() {
     let out = json(&fixture()).expect("json serialize");
-    insta::assert_snapshot!("json", out);
+    json_snapshot_settings().bind(|| insta::assert_snapshot!("json", out));
 }
 
 #[test]
 fn json_stats_snapshot() {
     let out = json(&grouped_fixture()).expect("json serialize grouped");
-    insta::assert_snapshot!("json_stats", out);
+    json_snapshot_settings().bind(|| insta::assert_snapshot!("json_stats", out));
 }
 
 #[test]
