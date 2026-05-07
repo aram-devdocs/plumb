@@ -28,7 +28,7 @@ allow-dirty = ["ci"]
 # Homebrew and npm publishing stay disabled in this prep-only state.
 # Uncomment these only after:
 # 1. the `plumb-dev` GitHub org exists,
-# 2. the `plumb-dev/homebrew-tap` repo exists and is wired for cargo-dist,
+# 2. the `aram-devdocs/homebrew-plumb` tap exists (it does — https://github.com/aram-devdocs/homebrew-plumb) and is wired for cargo-dist,
 # 3. the `@plumb` npm scope and the `@plumb/cli` package are owned by the
 #    release account that will publish from this repo,
 # 4. the release token/permissions for cargo-dist publishing are in place,
@@ -36,7 +36,7 @@ allow-dirty = ["ci"]
 #    claim `npm i -g @plumb/cli` support.
 # Issues #51 and #52 are intentionally prep-only, so this repo must not enable
 # either installer yet.
-# tap = "plumb-dev/homebrew-tap"
+# tap = "aram-devdocs/homebrew-plumb"
 # Keep the value aligned with the intended package name `@plumb/cli`, but do
 # not uncomment this field until the external npm prerequisites above exist.
 # Future activation also needs `npm` added to `installers`; `npm-scope` alone

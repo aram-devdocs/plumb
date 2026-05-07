@@ -70,10 +70,10 @@ cargo install plumb-cli --version 0.1.0
 For macOS or Linuxbrew:
 
 ```bash
-brew install plumb-dev/tap/plumb
+brew install aram-devdocs/plumb/plumb
 ```
 
-The tap repository is `plumb-dev/homebrew-tap`. The formula tracks the
+The tap repository is `aram-devdocs/homebrew-plumb`. The formula tracks the
 latest tagged release.
 
 ## Build from source

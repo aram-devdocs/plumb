@@ -188,7 +188,7 @@ fi
 
 if [ "$brew_gated" -gt 0 ] \
     && grep -Fq "if: \"!matrix.gated && matrix.channel == 'brew'\"" "$WORKFLOW" \
-    && grep -Fq 'brew install plumb-dev/tap/plumb' "$WORKFLOW"; then
+    && grep -Fq 'brew install aram-devdocs/plumb/plumb' "$WORKFLOW"; then
     pass "brew channel stays gated until a publish path exists"
 else
     fail "brew channel gating/install contract is incorrect"

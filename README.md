@@ -39,8 +39,8 @@ curl -LsSf https://plumb.aramhammoudeh.com/install.sh | sh
 # Cargo
 cargo install plumb-cli
 
-# Homebrew (coming soon)
-brew install plumb-dev/tap/plumb
+# Homebrew
+brew install aram-devdocs/plumb/plumb
 ```
 
 ## Documentation
