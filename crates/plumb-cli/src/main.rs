@@ -304,6 +304,12 @@ fn main() -> ExitCode {
     }
 }
 
+// `Command::Lint` and `Command::Watch` carry the full PRD §15 capture-knob
+// surface inline (16+ fields each), so the dispatch arm is unavoidably
+// long. Splitting it would obscure the 1:1 clap-flag-to-LintArgs/WatchArgs
+// mapping a casual reader expects to find in this file. Allow the
+// length here rather than fragmenting the readable shape.
+#[allow(clippy::too_many_lines)]
 fn run(cli: Cli) -> Result<ExitCode> {
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -408,12 +414,26 @@ fn run(cli: Cli) -> Result<ExitCode> {
     })
 }
 
-fn init_tracing(verbose: u8) {
-    let default_filter = match verbose {
-        0 => "plumb=info,warn",
-        1 => "plumb=debug,warn",
+/// Default `tracing` filter string for a given `--verbose` count.
+///
+/// The `chromiumoxide::handler=error` override silences the recurring
+/// `WS Invalid message: data did not match any variant of untagged enum
+/// Message` warning that fires on every successful real-URL lint
+/// (issue #244) — it's a benign upstream parser warning for CDP events
+/// the handler doesn't model. The broader `chromiumoxide=warn` keeps
+/// genuine driver-level warnings visible. `RUST_LOG=trace` (or any
+/// explicit `RUST_LOG`) takes over and re-exposes the silenced events
+/// for debugging.
+fn default_log_filter(verbose: u8) -> &'static str {
+    match verbose {
+        0 => "plumb=info,warn,chromiumoxide=warn,chromiumoxide::handler=error",
+        1 => "plumb=debug,warn,chromiumoxide=warn,chromiumoxide::handler=error",
         _ => "plumb=trace,debug",
-    };
+    }
+}
+
+fn init_tracing(verbose: u8) {
+    let default_filter = default_log_filter(verbose);
     let env = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_filter));
     let use_ansi = std::io::stderr().is_terminal();
     let _ = tracing_subscriber::fmt()
@@ -431,4 +451,38 @@ fn report_error(err: &anyhow::Error) -> std::io::Result<()> {
         writeln!(stderr, "  caused by: {cause}")?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::default_log_filter;
+    use tracing_subscriber::EnvFilter;
+
+    /// Every default-filter string MUST parse as a valid `EnvFilter`
+    /// directive. A typo here would silently fall back to the empty
+    /// filter at runtime; this test pins each branch to compile time.
+    #[test]
+    fn default_log_filters_parse_for_each_verbosity() {
+        for v in [0u8, 1, 2, 5] {
+            let filter = default_log_filter(v);
+            EnvFilter::try_new(filter)
+                .expect("default tracing filter must be a valid EnvFilter directive");
+        }
+    }
+
+    /// The default filter MUST silence the chromiumoxide handler
+    /// warning that floods stderr on every successful real-URL lint
+    /// (issue #244). The override appears in the default-verbosity
+    /// branch and the `-v` branch; `-vv` (trace) is intentionally
+    /// noisier so debug callers see everything.
+    #[test]
+    fn default_filter_silences_chromiumoxide_handler_warn() {
+        for v in [0u8, 1] {
+            let filter = default_log_filter(v);
+            assert!(
+                filter.contains("chromiumoxide::handler=error"),
+                "verbose={v} filter must mute chromiumoxide::handler WARN"
+            );
+        }
+    }
 }
