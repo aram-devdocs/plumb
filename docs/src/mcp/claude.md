@@ -52,6 +52,40 @@ Run a quick smoke test by asking Claude Code:
 
 If the tool returns your message, the transport is working.
 
+## Verified locally
+
+The plumb MCP server has been wired into a live Claude Code session.
+The agent invoked `lint_url` against `plumb-fake://hello` (the canonical
+walking-skeleton URL); the response below is the actual JSON returned
+by the server.
+
+```text
+Tool call: mcp__plumb__lint_url with `{"url": "plumb-fake://hello"}`
+```
+
+```json
+{
+  "violations": [
+    {
+      "rule_id": "spacing/grid-conformance",
+      "severity": "warning",
+      "message": "`html > body` has off-grid padding-top 13px; expected a multiple of 4px.",
+      "selector": "html > body",
+      "viewport": "desktop",
+      "rect": { "x": 0, "y": 0, "width": 1280, "height": 800 },
+      "dom_order": 2,
+      "fix": {
+        "kind": { "kind": "css_property_replace", "property": "padding-top", "from": "13px", "to": "12px" },
+        "description": "Snap `padding-top` to the nearest spacing-grid value (12px).",
+        "confidence": "medium"
+      },
+      "doc_url": "https://plumb.aramhammoudeh.com/rules/spacing-grid-conformance"
+    }
+  ],
+  "counts": { "error": 0, "warning": 1, "info": 0, "total": 1 }
+}
+```
+
 ## Lint a page
 
 Ask Claude Code:
