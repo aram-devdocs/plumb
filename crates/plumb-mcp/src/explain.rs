@@ -31,67 +31,67 @@ pub(crate) struct RuleDoc {
 pub(crate) const RULE_DOCS: &[RuleDoc] = &[
     RuleDoc {
         rule_id: "a11y/touch-target",
-        markdown: include_str!("../../../docs/src/rules/a11y-touch-target.md"),
+        markdown: include_str!("../rule-docs/a11y-touch-target.md"),
     },
     RuleDoc {
         rule_id: "baseline/rhythm",
-        markdown: include_str!("../../../docs/src/rules/baseline-rhythm.md"),
+        markdown: include_str!("../rule-docs/baseline-rhythm.md"),
     },
     RuleDoc {
         rule_id: "color/contrast-aa",
-        markdown: include_str!("../../../docs/src/rules/color-contrast-aa.md"),
+        markdown: include_str!("../rule-docs/color-contrast-aa.md"),
     },
     RuleDoc {
         rule_id: "color/palette-conformance",
-        markdown: include_str!("../../../docs/src/rules/color-palette-conformance.md"),
+        markdown: include_str!("../rule-docs/color-palette-conformance.md"),
     },
     RuleDoc {
         rule_id: "edge/near-alignment",
-        markdown: include_str!("../../../docs/src/rules/edge-near-alignment.md"),
+        markdown: include_str!("../rule-docs/edge-near-alignment.md"),
     },
     RuleDoc {
         rule_id: "opacity/scale-conformance",
-        markdown: include_str!("../../../docs/src/rules/opacity-scale-conformance.md"),
+        markdown: include_str!("../rule-docs/opacity-scale-conformance.md"),
     },
     RuleDoc {
         rule_id: "radius/scale-conformance",
-        markdown: include_str!("../../../docs/src/rules/radius-scale-conformance.md"),
+        markdown: include_str!("../rule-docs/radius-scale-conformance.md"),
     },
     RuleDoc {
         rule_id: "shadow/scale-conformance",
-        markdown: include_str!("../../../docs/src/rules/shadow-scale-conformance.md"),
+        markdown: include_str!("../rule-docs/shadow-scale-conformance.md"),
     },
     RuleDoc {
         rule_id: "sibling/height-consistency",
-        markdown: include_str!("../../../docs/src/rules/sibling-height-consistency.md"),
+        markdown: include_str!("../rule-docs/sibling-height-consistency.md"),
     },
     RuleDoc {
         rule_id: "sibling/padding-consistency",
-        markdown: include_str!("../../../docs/src/rules/sibling-padding-consistency.md"),
+        markdown: include_str!("../rule-docs/sibling-padding-consistency.md"),
     },
     RuleDoc {
         rule_id: "spacing/grid-conformance",
-        markdown: include_str!("../../../docs/src/rules/spacing-grid-conformance.md"),
+        markdown: include_str!("../rule-docs/spacing-grid-conformance.md"),
     },
     RuleDoc {
         rule_id: "spacing/scale-conformance",
-        markdown: include_str!("../../../docs/src/rules/spacing-scale-conformance.md"),
+        markdown: include_str!("../rule-docs/spacing-scale-conformance.md"),
     },
     RuleDoc {
         rule_id: "type/family-conformance",
-        markdown: include_str!("../../../docs/src/rules/type-family-conformance.md"),
+        markdown: include_str!("../rule-docs/type-family-conformance.md"),
     },
     RuleDoc {
         rule_id: "type/scale-conformance",
-        markdown: include_str!("../../../docs/src/rules/type-scale-conformance.md"),
+        markdown: include_str!("../rule-docs/type-scale-conformance.md"),
     },
     RuleDoc {
         rule_id: "type/weight-conformance",
-        markdown: include_str!("../../../docs/src/rules/type-weight-conformance.md"),
+        markdown: include_str!("../rule-docs/type-weight-conformance.md"),
     },
     RuleDoc {
         rule_id: "z/scale-conformance",
-        markdown: include_str!("../../../docs/src/rules/z-scale-conformance.md"),
+        markdown: include_str!("../rule-docs/z-scale-conformance.md"),
     },
 ];
 
