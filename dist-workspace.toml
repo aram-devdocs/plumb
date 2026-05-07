@@ -25,20 +25,17 @@ github-attestations = true
 pr-run-mode = "plan"
 allow-dirty = ["ci"]
 
-# Homebrew and npm publishing stay disabled in this prep-only state.
-# Uncomment these only after:
-# 1. the `plumb-dev` GitHub org exists,
-# 2. the `aram-devdocs/homebrew-plumb` tap exists (it does — https://github.com/aram-devdocs/homebrew-plumb) and is wired for cargo-dist,
-# 3. the `@plumb` npm scope and the `@plumb/cli` package are owned by the
+# Homebrew publishing is enabled: the `aram-devdocs/homebrew-plumb` tap
+# (https://github.com/aram-devdocs/homebrew-plumb) exists and is wired for
+# cargo-dist, and the `HOMEBREW_TAP_TOKEN` repo secret will be populated
+# before the next release-please PR merges.
+tap = "aram-devdocs/homebrew-plumb"
+
+# npm publishing stays disabled. Uncomment `npm-scope` only after:
+# 1. the `@plumb` npm scope and the `@plumb/cli` package are owned by the
 #    release account that will publish from this repo,
-# 4. the release token/permissions for cargo-dist publishing are in place,
-# 5. a live publish has verified the public install command shape before docs
+# 2. a live publish has verified the public install command shape before docs
 #    claim `npm i -g @plumb/cli` support.
-# Issues #51 and #52 are intentionally prep-only, so this repo must not enable
-# either installer yet.
-# tap = "aram-devdocs/homebrew-plumb"
-# Keep the value aligned with the intended package name `@plumb/cli`, but do
-# not uncomment this field until the external npm prerequisites above exist.
 # Future activation also needs `npm` added to `installers`; `npm-scope` alone
 # does not produce npm artifacts in cargo-dist 0.28.0.
 # npm-scope = "@plumb"

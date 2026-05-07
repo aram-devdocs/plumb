@@ -8,17 +8,19 @@ name: release
 # would generate. It stays in sync with `dist-workspace.toml`. Re-run
 # `cargo dist generate` locally and diff before editing.
 #
-# Cargo publish and curl installers are the only non-manual release
-# channels this repo validates end-to-end today. Homebrew tap and npm
-# publishing are intentionally inactive here. Do not add the `tap` or
-# `npm-scope` fields in `dist-workspace.toml` until the external
-# prerequisites exist: the `aram-devdocs/homebrew-plumb` tap repo
-# (already exists), ownership of the `@plumb` npm scope and `@plumb/cli` package,
-# and the cargo-dist publishing token/permissions. npm activation also
-# needs `npm` added to the installer list; `npm-scope` alone does not
-# emit npm artifacts on cargo-dist 0.28.0. This workflow must not claim
-# `brew install` or `npm i -g @plumb/cli` support until a live publish
-# verifies those channels.
+# Cargo publish, curl installers, and Homebrew tap publish are the
+# non-manual release channels active in this repo today. cargo-dist
+# pushes the formula to `aram-devdocs/homebrew-plumb` using the
+# `HOMEBREW_TAP_TOKEN` repo secret on each tag.
+#
+# npm publishing remains intentionally inactive. Do not add the
+# `npm-scope` field in `dist-workspace.toml` until the external
+# prerequisites exist: ownership of the `@plumb` npm scope and the
+# `@plumb/cli` package, and the cargo-dist publishing token/permissions.
+# npm activation also needs `npm` added to the installer list;
+# `npm-scope` alone does not emit npm artifacts on cargo-dist 0.28.0.
+# This workflow must not claim `npm i -g @plumb/cli` support until a
+# live publish verifies that channel.
 
 on:
   push:
