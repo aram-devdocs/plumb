@@ -22,7 +22,7 @@ default-members = [
 ]
 
 [workspace.package]
-version = "0.0.8"
+version = "0.0.9"
 edition = "2024"
 rust-version = "1.95"
 license = "MIT OR Apache-2.0"
@@ -36,12 +36,12 @@ categories = ["command-line-utilities", "development-tools", "web-programming"]
 
 [workspace.dependencies]
 # Internal path dependencies resolved by consumers.
-plumb-core = { path = "crates/plumb-core", version = "0.0.8" }
-plumb-format = { path = "crates/plumb-format", version = "0.0.8" }
-plumb-cdp = { path = "crates/plumb-cdp", version = "0.0.8" }
-plumb-config = { path = "crates/plumb-config", version = "0.0.8" }
-plumb-codegen = { path = "crates/plumb-codegen", version = "0.0.8" }
-plumb-mcp = { path = "crates/plumb-mcp", version = "0.0.8" }
+plumb-core = { path = "crates/plumb-core", version = "0.0.9" }
+plumb-format = { path = "crates/plumb-format", version = "0.0.9" }
+plumb-cdp = { path = "crates/plumb-cdp", version = "0.0.9" }
+plumb-config = { path = "crates/plumb-config", version = "0.0.9" }
+plumb-codegen = { path = "crates/plumb-codegen", version = "0.0.9" }
+plumb-mcp = { path = "crates/plumb-mcp", version = "0.0.9" }
 
 # CDP driver.
 chromiumoxide = { version = "0.9", default-features = false }
