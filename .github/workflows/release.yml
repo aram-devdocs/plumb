@@ -167,13 +167,31 @@ jobs:
           path: target/distrib/
           pattern: artifacts-*
           merge-multiple: true
-      - uses: cargo-bins/cargo-binstall@main
-      - run: cargo binstall --no-confirm --force --locked cargo-dist@0.28.0
-      - name: dist host
+      - name: List artifacts to upload
+        run: ls -la target/distrib/
+      - name: Upload artifacts to GitHub Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ env.RELEASE_TAG }}
-        run: dist host --tag "${RELEASE_TAG}" --steps=upload --steps=release
+        run: |
+          set -euo pipefail
+          # Upload every file in target/distrib/ as a release asset.
+          # `--clobber` lets us re-run this step against an existing
+          # release (e.g. via workflow_dispatch retry).
+          shopt -s nullglob
+          assets=(target/distrib/plumb-cli-*.tar.xz \
+                  target/distrib/plumb-cli-*.tar.xz.sha256 \
+                  target/distrib/plumb-cli-installer.* \
+                  target/distrib/plumb-cli.rb \
+                  target/distrib/plumb-cli-npm-package.tar.gz \
+                  target/distrib/source.tar.gz \
+                  target/distrib/source.tar.gz.sha256 \
+                  target/distrib/sha256.sum)
+          if [ ${#assets[@]} -eq 0 ]; then
+            echo "::error::No release assets found in target/distrib/"
+            exit 1
+          fi
+          gh release upload "${RELEASE_TAG}" "${assets[@]}" --clobber --repo "${GITHUB_REPOSITORY}"
 
   publish-homebrew:
     name: Publish Homebrew formula
