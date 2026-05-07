@@ -119,4 +119,3 @@ tool today. Per-element suppression follows the standard
 
 - [`sibling/height-consistency`](./sibling-height-consistency.md) —
   the rule that catches sibling height drift.
-- PRD §11.4 — the alignment rule family.

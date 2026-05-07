@@ -103,7 +103,7 @@ into the rule and pinned by a unit test:
 - Height-deviation threshold: 4 CSS px.
 
 Future revisions MAY expose these under a `sibling.height` section
-of the config — see PRD §11.6.
+of the config.
 
 ## Suppression
 
@@ -129,4 +129,3 @@ Per-element suppression follows the standard `RuleOverride` model.
 
 - [`edge/near-alignment`](./edge-near-alignment.md) — the rule that
   catches sibling edges that almost-but-not-quite line up.
-- PRD §11.6 — the sibling-relationship rule family.
