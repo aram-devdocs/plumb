@@ -63,11 +63,11 @@ jobs:
       - uses: cargo-bins/cargo-binstall@main
       - name: Install cargo-dist
         run: cargo binstall --no-confirm --force --locked cargo-dist@0.28.0
-      - name: cargo dist plan
+      - name: dist plan
         id: plan
         run: |
           set -euo pipefail
-          manifest="$(cargo dist plan --tag "${RELEASE_TAG}" --output-format=json)"
+          manifest="$(dist plan --tag "${RELEASE_TAG}" --output-format=json)"
           echo "$manifest" > dist-manifest.json
           echo "manifest<<EOF" >> "$GITHUB_OUTPUT"
           echo "$manifest" >> "$GITHUB_OUTPUT"
@@ -115,11 +115,11 @@ jobs:
       - name: Install musl toolchain
         if: endsWith(matrix.target, '-musl')
         run: sudo apt-get update && sudo apt-get install -y musl-tools
-      - name: cargo dist build
+      - name: dist build
         shell: bash
         env:
           RELEASE_TAG: ${{ env.RELEASE_TAG }}
-        run: cargo dist build --tag "${RELEASE_TAG}" --target ${{ matrix.target }}
+        run: dist build --tag "${RELEASE_TAG}" --target ${{ matrix.target }}
       - uses: actions/attest-build-provenance@v4
         with:
           subject-path: target/distrib/*
@@ -145,10 +145,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: cargo-bins/cargo-binstall@main
       - run: cargo binstall --no-confirm --force --locked cargo-dist@0.28.0
-      - name: cargo dist build installers
+      - name: dist build installers
         env:
           RELEASE_TAG: ${{ env.RELEASE_TAG }}
-        run: cargo dist build --tag "${RELEASE_TAG}" --artifacts=global
+        run: dist build --tag "${RELEASE_TAG}" --artifacts=global
       - uses: actions/attest-build-provenance@v4
         with:
           subject-path: target/distrib/plumb-installer.*
@@ -172,8 +172,8 @@ jobs:
           merge-multiple: true
       - uses: cargo-bins/cargo-binstall@main
       - run: cargo binstall --no-confirm --force --locked cargo-dist@0.28.0
-      - name: cargo dist host
+      - name: dist host
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ env.RELEASE_TAG }}
-        run: cargo dist host --tag "${RELEASE_TAG}" --steps=upload --steps=release
+        run: dist host --tag "${RELEASE_TAG}" --steps=upload --steps=release
