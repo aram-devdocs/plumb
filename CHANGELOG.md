@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 From the first release onward, this file is maintained automatically by [`release-please`](https://github.com/googleapis/release-please) based on [Conventional Commits](https://www.conventionalcommits.org/) on `main`. Do not edit released sections by hand.
 
+## [0.0.5](https://github.com/aram-devdocs/plumb/compare/v0.0.4...v0.0.5) (2026-05-07)
+
+
+### Bug Fixes
+
+* **cdp:** enable plumb-core/test-fake unconditionally ([#257](https://github.com/aram-devdocs/plumb/issues/257)) ([84d9cce](https://github.com/aram-devdocs/plumb/commit/84d9ccef099fd3184feb2ea065a4525c9610f156))
+
 ## [0.0.4](https://github.com/aram-devdocs/plumb/compare/v0.0.3...v0.0.4) (2026-05-07)
 
 
