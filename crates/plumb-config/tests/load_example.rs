@@ -258,3 +258,52 @@ fn rejects_unknown_extension() {
     let err = plumb_config::load(&path).unwrap_err();
     assert!(matches!(err, plumb_config::ConfigError::NotFound(_)));
 }
+
+/// Bad-TOML errors MUST surface the underlying span-annotated parser
+/// message exactly **once** when walked via `std::error::Error::source`.
+/// Before this fix the chain was three layers deep — `ConfigError::Parse`
+/// (with `{source}` interpolated into its `Display`), then
+/// `ConfigParseSource::Toml` (with `"{0}"`), then the raw `toml::de::Error`
+/// — which made `anyhow::Error::chain` print three identical span
+/// blocks for one error. The fix makes `Parse`'s display drop `{source}`
+/// and marks `ConfigParseSource` `#[error(transparent)]` so the chain
+/// stays one-source-per-cause.
+#[test]
+fn bad_toml_error_chain_lists_span_text_only_once() {
+    use std::error::Error;
+
+    let dir = tempfile::tempdir().expect("create tempdir");
+    let path = dir.path().join("plumb.toml");
+    std::fs::write(&path, "invalid_garbage = \"yes\"\n").expect("write bad toml");
+
+    let err = plumb_config::load(&path).expect_err("garbage toml must fail to load");
+
+    // Top-level `Display` is stable: just the path, no span block.
+    let top = err.to_string();
+    assert!(
+        top.contains("failed to parse config file"),
+        "top-level Display should describe the failure: {top}"
+    );
+    assert!(
+        !top.contains("invalid_garbage = \"yes\""),
+        "top-level Display MUST NOT inline the source span block: {top}"
+    );
+
+    // Walk the source chain and count occurrences of the span-text
+    // marker (`^^^^^^^^^^`). It MUST appear at most once across every
+    // layer — the `unknown field` line is what users see in the
+    // dedicated "caused by:" footer.
+    let mut occurrences = 0usize;
+    let mut current: Option<&dyn Error> = err.source();
+    while let Some(e) = current {
+        let s = e.to_string();
+        if s.contains("^^^") {
+            occurrences += 1;
+        }
+        current = e.source();
+    }
+    assert_eq!(
+        occurrences, 1,
+        "exactly one source layer must carry the span block; got {occurrences} in chain for {err}"
+    );
+}
