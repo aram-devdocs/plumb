@@ -30,6 +30,13 @@ Windows (PowerShell):
 irm https://plumb.aramhammoudeh.com/install.ps1 | iex
 ```
 
+> **Windows note:** the PowerShell installer relies on the GitHub
+> Actions build attestation for integrity. It does not verify the
+> published `.sha256` sidecar — that gap is in upstream `cargo-dist` and
+> is tracked for follow-up. If you want belt-and-braces verification,
+> download the archive and run `gh attestation verify` (see [Verify
+> release attestations](#verify-release-attestations)).
+
 If you want to read the script first, fetch it without piping to
 `sh`:
 
@@ -54,7 +61,7 @@ This builds from source against the version published to crates.io.
 Pin a version with `--version`:
 
 ```bash
-cargo install plumb-cli --version 0.0.9
+cargo install plumb-cli --version 0.0.11
 ```
 
 ## Homebrew
@@ -148,7 +155,7 @@ tampering.
 Install the [GitHub CLI](https://cli.github.com/) (`gh`), then:
 
 ```bash
-gh attestation verify plumb-x86_64-unknown-linux-gnu.tar.xz \
+gh attestation verify plumb-cli-x86_64-unknown-linux-gnu.tar.xz \
   --repo aram-devdocs/plumb
 ```
 
@@ -160,7 +167,7 @@ command exits 0 if the attestation is valid.
 | Artifact kind | Attested? |
 |---------------|-----------|
 | Platform archives (`.tar.xz`, `.zip`) | Yes |
-| Installer scripts (`plumb-installer.sh`, `plumb-installer.ps1`) | Yes |
+| Installer scripts (`plumb-cli-installer.sh`, `plumb-cli-installer.ps1`) | Yes |
 
 The attestation binds each file's SHA-256 digest to the GitHub Actions
 workflow run that produced it. You can inspect the full SLSA provenance
@@ -168,7 +175,7 @@ bundle on the release page under **Attestations**, or query it
 programmatically:
 
 ```bash
-gh attestation verify plumb-x86_64-unknown-linux-gnu.tar.xz \
+gh attestation verify plumb-cli-x86_64-unknown-linux-gnu.tar.xz \
   --repo aram-devdocs/plumb \
   --format json | jq '.verificationResult.statement'
 ```
@@ -180,7 +187,7 @@ release assets. To verify offline, first export the attestation bundle
 while you have network access:
 
 ```bash
-gh attestation download plumb-x86_64-unknown-linux-gnu.tar.xz \
+gh attestation download plumb-cli-x86_64-unknown-linux-gnu.tar.xz \
   --repo aram-devdocs/plumb \
   --output-file bundle.jsonl
 ```
@@ -193,5 +200,5 @@ cosign verify-blob \
   --bundle bundle.jsonl \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   --certificate-identity-regexp '^https://github\.com/aram-devdocs/plumb/' \
-  plumb-x86_64-unknown-linux-gnu.tar.xz
+  plumb-cli-x86_64-unknown-linux-gnu.tar.xz
 ```
