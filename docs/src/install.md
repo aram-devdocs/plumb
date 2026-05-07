@@ -68,6 +68,8 @@ brew install aram-devdocs/plumb/plumb
 The tap repository is `aram-devdocs/homebrew-plumb`. The formula tracks the
 latest tagged release.
 
+> **Intel Mac users**: V0 ships native binaries for Apple Silicon (aarch64) only. Install via `cargo install plumb-cli` instead. Native Intel binaries return when the upstream cargo-dist runner pool stabilizes (#269).
+
 ## npm
 
 If your project already pins CLI tools through npm:
