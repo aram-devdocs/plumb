@@ -58,7 +58,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install Plumb
-        run: cargo install --git https://github.com/aram-devdocs/plumb plumb
+        run: cargo install plumb-cli
 
       - uses: reviewdog/action-setup@v1
         with:

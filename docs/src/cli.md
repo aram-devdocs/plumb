@@ -30,6 +30,7 @@ major version falls in Plumb's supported range (see
 | `--hide-scrollbars [bool]` | CSS scrollbar killer. Default `true`. |
 | `--dpr <factor>` | Pin device-pixel ratio for `Emulation.setDeviceMetricsOverride`. |
 | `--suggest-ignores` | Append a suggested `.plumbignore` block. See [`--suggest-ignores`](./cli/suggest-ignores.md). |
+| `--auto-fetch-chromium` | Download Chrome-for-Testing into Plumb's cache when no `--executable-path` is given and no system Chromium is detected. See [Install Chromium](./install-chromium.md#auto-fetch-opt-in). |
 
 Exit codes:
 
@@ -90,12 +91,11 @@ Stdout carries the rendered lint output (`pretty` by default;
 can tail the watch output with the JSON consumer of your choice
 without losing the status line.
 
-Watch flags mirror `plumb lint`'s. Two extras:
+Watch flags mirror `plumb lint`'s. One extra:
 
 | Flag | Description |
 |------|-------------|
 | `--path <dir>` | Directory to watch. Repeatable. Defaults to CWD. |
-| `--once` | Hidden — runs a single cycle and exits, used by tests. |
 
 A `.plumbignore` file at the root of any watched directory excludes
 paths whose substring matches any of its lines. Blank lines and lines

@@ -5,8 +5,7 @@ an open Discussions tab for questions, ideas, and field reports.
 
 If you want to see the project as it exists today, start with
 [plumb.aramhammoudeh.com](https://plumb.aramhammoudeh.com/). That is
-the current public docs URL. `plumb.dev` is not the canonical docs
-domain yet, so keep using the `aramhammoudeh.com` address for now.
+the current public docs URL.
 
 ## What shipped in v0.6
 
@@ -20,32 +19,18 @@ websites. It has two entry points:
 - `plumb lint <url>` for local runs and CI
 - `plumb mcp` for AI coding agents
 
-## Install status
+## Install
 
-The install page in the book lists four channels:
+Plumb is published to crates.io, npm, and a Homebrew tap, with a curl
+install script and prebuilt platform archives. The full set of channels
+lives on the [Install](../install.md) page; the [Quick start](../quickstart.md)
+walks through the first run.
 
-- install script
-- `cargo install`
-- Homebrew
-- build from source
-
-Today, the supported path is still build from source. The other channels
-are documented so the book does not need a rewrite on release day, but
-they do not replace the source build yet.
-
-If you want to try Plumb right now:
+If you want to lint the live docs site as a smoke test:
 
 ```bash
-git clone https://github.com/aram-devdocs/plumb
-cd plumb
-just setup
-just build-release
-target/release/plumb --version
-target/release/plumb lint plumb-fake://hello
+plumb lint https://plumb.aramhammoudeh.com
 ```
-
-The full setup notes live on the [Install](../install.md) and
-[Quick start](../quickstart.md) pages.
 
 ## Demo and docs
 
@@ -54,12 +39,6 @@ The live docs site is the easiest demo at the moment:
 - [Docs home](https://plumb.aramhammoudeh.com/)
 - [Install](https://plumb.aramhammoudeh.com/install.html)
 - [Quick start](https://plumb.aramhammoudeh.com/quickstart.html)
-
-If you already have a local build, you can lint the live site directly:
-
-```bash
-plumb lint https://plumb.aramhammoudeh.com
-```
 
 ## Join the discussion
 
