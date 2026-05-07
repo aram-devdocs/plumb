@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 From the first release onward, this file is maintained automatically by [`release-please`](https://github.com/googleapis/release-please) based on [Conventional Commits](https://www.conventionalcommits.org/) on `main`. Do not edit released sections by hand.
 
+## [0.0.11](https://github.com/aram-devdocs/plumb/compare/v0.0.10...v0.0.11) (2026-05-07)
+
+
+### Bug Fixes
+
+* **ci:** wire homebrew + npm publish jobs into release.yml ([#272](https://github.com/aram-devdocs/plumb/issues/272)) ([e570b46](https://github.com/aram-devdocs/plumb/commit/e570b46958f4353951a699ffade21b0653cc86a1))
+
 ## [Unreleased]
 
 ### Added
