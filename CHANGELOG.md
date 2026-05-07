@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 From the first release onward, this file is maintained automatically by [`release-please`](https://github.com/googleapis/release-please) based on [Conventional Commits](https://www.conventionalcommits.org/) on `main`. Do not edit released sections by hand.
 
+## [0.0.9](https://github.com/aram-devdocs/plumb/compare/v0.0.8...v0.0.9) (2026-05-07)
+
+
+### Bug Fixes
+
+* **ci:** drop aarch64-pc-windows-msvc target post-V0 ([#266](https://github.com/aram-devdocs/plumb/issues/266)) ([cc7fb64](https://github.com/aram-devdocs/plumb/commit/cc7fb64c4cef88cee249ecb18b97d29f86fe9e10))
+
 ## [0.0.8](https://github.com/aram-devdocs/plumb/compare/v0.0.7...v0.0.8) (2026-05-07)
 
 
