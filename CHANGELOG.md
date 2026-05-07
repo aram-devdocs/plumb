@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 From the first release onward, this file is maintained automatically by [`release-please`](https://github.com/googleapis/release-please) based on [Conventional Commits](https://www.conventionalcommits.org/) on `main`. Do not edit released sections by hand.
 
+## [Unreleased]
+
+### Added
+- Homebrew tap publish job (`aram-devdocs/homebrew-plumb`) wired into release.yml.
+- npm package publish job (`plumb-cli` unscoped) wired into release.yml.
+
 ## [0.0.10](https://github.com/aram-devdocs/plumb/compare/v0.0.9...v0.0.10) (2026-05-07)
 
 

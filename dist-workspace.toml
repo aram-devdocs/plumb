@@ -22,16 +22,21 @@ github-attestations = true
 pr-run-mode = "plan"
 allow-dirty = ["ci"]
 
-# Homebrew publishing is enabled: the `aram-devdocs/homebrew-plumb` tap
-# (https://github.com/aram-devdocs/homebrew-plumb) exists and is wired for
-# cargo-dist, and the `HOMEBREW_TAP_TOKEN` repo secret is populated.
+# Homebrew formula generation is enabled here so cargo-dist emits
+# `plumb-cli.rb` as a global artifact. Publishing the formula to the
+# `aram-devdocs/homebrew-plumb` tap is hand-authored in the
+# `publish-homebrew` job in `.github/workflows/release.yml` (cargo-dist's
+# built-in publish-jobs require its auto-generated workflow, which we do
+# not use). The `HOMEBREW_TAP_TOKEN` repo secret powers that push.
 tap = "aram-devdocs/homebrew-plumb"
 
-# npm publishing is enabled as an unscoped package. With `npm` in the
-# installers list and no `npm-scope` set, cargo-dist 0.28.0 emits an
-# unscoped `plumb-cli` package (matching the cargo package name) that
-# publishes to the npm account associated with the repo's `NPM_TOKEN`
-# secret. Public install command: `npm i -g plumb-cli`.
+# npm package generation is enabled as an unscoped package. With `npm` in
+# the installers list and no `npm-scope` set, cargo-dist 0.28.0 emits an
+# unscoped `plumb-cli` package (matching the cargo package name) as
+# `plumb-cli-npm-package.tar.gz`. Publishing that tarball is hand-authored
+# in the `publish-npm` job in `.github/workflows/release.yml` (not via
+# cargo-dist's built-in publish-jobs). The `NPM_TOKEN` repo secret powers
+# that push. Public install command: `npm i -g plumb-cli`.
 
 [dist.github-custom-runners]
 aarch64-unknown-linux-gnu = "ubuntu-24.04-arm"
