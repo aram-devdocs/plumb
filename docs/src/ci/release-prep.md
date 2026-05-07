@@ -5,16 +5,14 @@ live distribution changes.
 
 ## Homebrew tap activation
 
-Issue #51 is wired in this repo state. `dist-workspace.toml` sets
-`tap = "aram-devdocs/homebrew-plumb"`, and `cargo dist host` in
-`release.yml` pushes the formula to that tap on each release tag using
-the `HOMEBREW_TAP_TOKEN` repo secret.
+Issue #51 is verified in this repo state. Homebrew tap publish is verified live.
+`dist-workspace.toml` sets `tap = "aram-devdocs/homebrew-plumb"`, and
+`cargo dist host` in `release.yml` pushes the formula to that tap on
+each release tag using the `HOMEBREW_TAP_TOKEN` repo secret.
 
-Live verification still depends on the first tag-driven release. Until
-that release publishes successfully and `brew install
-aram-devdocs/plumb/plumb` is verified end to end on macOS and Linux, the
-install-smoke `brew` legs stay gated and the docs MUST NOT claim
-`brew install` is a verified install path.
+The v0.0.11 tag-driven release verified `brew install
+aram-devdocs/plumb/plumb` end to end on macOS and Linux, so the
+install-smoke `brew` legs run live alongside the other channels.
 
 Channel maintenance steps:
 
@@ -24,10 +22,8 @@ Channel maintenance steps:
    cargo-dist formula updates (default branch, branch protection that
    accepts the tap PR).
 3. Rotate `HOMEBREW_TAP_TOKEN` if the publishing identity changes.
-4. After the first successful tag-driven publish, ungate the `brew`
-   channel in `.github/workflows/install-smoke.yml` and update the
-   gating expectations in `tests/install-smoke-validate.sh` in the same
-   PR.
+4. Treat brew-channel breakage like any other non-gated install-smoke
+   failure.
 
 ## npm activation for `plumb-cli`
 

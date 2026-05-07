@@ -4,9 +4,8 @@ name: Install smoke test
 # across platforms. Runs weekly and on every release tag.
 #
 # Matrix: {cargo, brew, npm, curl} x {ubuntu, macos, windows}.
-# Cargo, curl, and npm run as non-manual validation paths in this repo
-# state. Brew stays gated/prep-only until the first tag-driven release
-# verifies `brew install aram-devdocs/plumb/plumb` end to end.
+# All four install channels (cargo, brew, npm, curl) run live against
+# the latest published tag.
 # See dist-workspace.toml and docs/src/ci/release-prep.md for details.
 #
 # Non-gated failures open or update a single tracking issue so the team
@@ -91,13 +90,13 @@ jobs:
             os: windows-latest
             gated: false
 
-          # ── brew (gated — no tap yet) ───────────────────────────
+          # ── brew (live tap aram-devdocs/homebrew-plumb) ─────────
           - channel: brew
             os: ubuntu-latest
-            gated: true
+            gated: false
           - channel: brew
             os: macos-latest
-            gated: true
+            gated: false
 
           # ── npm (unscoped `plumb-cli`) ──────────────────────────
           - channel: npm
