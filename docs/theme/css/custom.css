@@ -1,0 +1,25 @@
+/* Plumb book — custom theme overrides.
+ *
+ * Sidebar chapter links: ensure a >= 24 px touch target per WCAG 2.5.8
+ * (Target Size, Minimum). The default mdBook theme produces ~22 px tall
+ * sidebar anchors on common viewports, which trips Plumb's own
+ * `a11y/touch-target` rule (default `min_height_px = 24`) when the docs
+ * site is self-linted. Bumping `min-height` plus padding/line-height
+ * keeps the sidebar above the 24 px floor without disrupting layout.
+ */
+.chapter li a,
+.chapter li.affix a,
+.chapter li.expanded a,
+.chapter li.chapter-item a {
+    min-height: 24px;
+    line-height: 1.5;
+    padding-top: 4px;
+    padding-bottom: 4px;
+    display: flex;
+    align-items: center;
+}
+
+/* Maintain visual rhythm for non-link list items (numbered prefixes, dividers). */
+.chapter li {
+    line-height: 1.5;
+}
