@@ -23,6 +23,7 @@
 # CI
 
 - [GitHub Code Scanning](./ci/github-code-scanning.md)
+- [Release Prep](./ci/release-prep.md)
 - [reviewdog](./ci/reviewdog.md)
 
 # Rules
