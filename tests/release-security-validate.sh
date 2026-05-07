@@ -269,10 +269,10 @@ else
 fi
 
 if [ -f "$RELEASE_PREP_DOC" ] \
-    && grep -Fq 'install-smoke `brew` legs stay gated and the docs MUST NOT claim' "$RELEASE_PREP_DOC" \
+    && grep -Fq 'Homebrew tap publish is verified live' "$RELEASE_PREP_DOC" \
     && grep -Fq '## npm activation for `plumb-cli`' "$RELEASE_PREP_DOC" \
     && grep -Fq 'Issue #52 is wired in this repo state.' "$RELEASE_PREP_DOC"; then
-    pass "release prep doc keeps Homebrew claims gated until live verification and records npm as wired (unscoped plumb-cli)"
+    pass "release prep doc records current Homebrew (verified) + npm (wired) channel state"
 else
     fail "release prep doc does not record current Homebrew/npm channel state"
 fi

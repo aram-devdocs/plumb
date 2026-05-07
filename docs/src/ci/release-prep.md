@@ -5,10 +5,10 @@ live distribution changes.
 
 ## Homebrew tap activation
 
-Issue #51 is verified in this repo state. `dist-workspace.toml` sets
-`tap = "aram-devdocs/homebrew-plumb"`, and `cargo dist host` in
-`release.yml` pushes the formula to that tap on each release tag using
-the `HOMEBREW_TAP_TOKEN` repo secret.
+Issue #51 is verified in this repo state. Homebrew tap publish is verified live.
+`dist-workspace.toml` sets `tap = "aram-devdocs/homebrew-plumb"`, and
+`cargo dist host` in `release.yml` pushes the formula to that tap on
+each release tag using the `HOMEBREW_TAP_TOKEN` repo secret.
 
 The v0.0.11 tag-driven release verified `brew install
 aram-devdocs/plumb/plumb` end to end on macOS and Linux, so the
