@@ -19,6 +19,12 @@ on:
       - "v[0-9]+.[0-9]+.[0-9]+"
       - "v[0-9]+.[0-9]+.[0-9]+-*"
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to smoke (e.g. v0.0.11). Leave empty to use the latest release."
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -42,8 +48,11 @@ jobs:
           REF_TYPE: ${{ github.ref_type }}
           REF_NAME: ${{ github.ref_name }}
           REPO: ${{ github.repository }}
+          INPUT_TAG: ${{ inputs.tag }}
         run: |
-          if [[ "$REF_TYPE" == "tag" ]]; then
+          if [[ -n "$INPUT_TAG" ]]; then
+            tag="$INPUT_TAG"
+          elif [[ "$REF_TYPE" == "tag" ]]; then
             tag="$REF_NAME"
           else
             tag="$(gh release view --repo "$REPO" --json tagName -q .tagName 2>/dev/null || true)"
@@ -133,21 +142,21 @@ jobs:
         if: "!matrix.gated && matrix.channel == 'curl' && runner.os != 'Windows'"
         shell: bash
         env:
-          INSTALLER_URL: "https://github.com/${{ github.repository }}/releases/download/${{ needs.resolve-tag.outputs.tag }}/plumb-installer.sh"
+          INSTALLER_URL: "https://github.com/${{ github.repository }}/releases/download/${{ needs.resolve-tag.outputs.tag }}/plumb-cli-installer.sh"
           REPO: ${{ github.repository }}
         run: |
-          curl -LsSf -o plumb-installer.sh "$INSTALLER_URL"
-          gh attestation verify plumb-installer.sh --repo "$REPO"
-          sh plumb-installer.sh
+          curl -LsSf -o plumb-cli-installer.sh "$INSTALLER_URL"
+          gh attestation verify plumb-cli-installer.sh --repo "$REPO"
+          sh plumb-cli-installer.sh
 
       - name: Install via curl (windows)
         if: "!matrix.gated && matrix.channel == 'curl' && runner.os == 'Windows'"
         shell: pwsh
         env:
-          INSTALLER_URL: "https://github.com/${{ github.repository }}/releases/download/${{ needs.resolve-tag.outputs.tag }}/plumb-installer.ps1"
+          INSTALLER_URL: "https://github.com/${{ github.repository }}/releases/download/${{ needs.resolve-tag.outputs.tag }}/plumb-cli-installer.ps1"
           REPO: ${{ github.repository }}
         run: |
-          $installer = Join-Path $PWD "plumb-installer.ps1"
+          $installer = Join-Path $PWD "plumb-cli-installer.ps1"
           Invoke-WebRequest -Uri "$env:INSTALLER_URL" -OutFile $installer
           gh attestation verify $installer --repo "$env:REPO"
           & $installer
