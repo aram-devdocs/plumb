@@ -4,10 +4,9 @@ name: Install smoke test
 # across platforms. Runs weekly and on every release tag.
 #
 # Matrix: {cargo, brew, npm, curl} x {ubuntu, macos, windows}.
-# Cargo and curl are the current non-manual validation paths in this
-# repo state. Brew and npm stay gated/prep-only — they skip until the
-# external prerequisites (aram-devdocs/homebrew-plumb tap repo already exists; npm scope,
-# publish identity, and secrets/permissions) exist.
+# Cargo, curl, and npm run as non-manual validation paths in this repo
+# state. Brew stays gated/prep-only until the first tag-driven release
+# verifies `brew install aram-devdocs/plumb/plumb` end to end.
 # See dist-workspace.toml and docs/src/ci/release-prep.md for details.
 #
 # Non-gated failures open or update a single tracking issue so the team
@@ -100,16 +99,16 @@ jobs:
             os: macos-latest
             gated: true
 
-          # ── npm (gated — no scope yet) ──────────────────────────
+          # ── npm (unscoped `plumb-cli`) ──────────────────────────
           - channel: npm
             os: ubuntu-latest
-            gated: true
+            gated: false
           - channel: npm
             os: macos-latest
-            gated: true
+            gated: false
           - channel: npm
             os: windows-latest
-            gated: true
+            gated: false
 
     steps:
       - name: Skip gated channel
@@ -166,7 +165,7 @@ jobs:
         if: "!matrix.gated && matrix.channel == 'npm'"
         shell: bash
         run: |
-          npm install -g @plumb/cli
+          npm install -g plumb-cli
 
       # ── Verify ────────────────────────────────────────────────
       - name: Verify plumb

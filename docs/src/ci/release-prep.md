@@ -29,43 +29,27 @@ Channel maintenance steps:
    gating expectations in `tests/install-smoke-validate.sh` in the same
    PR.
 
-## npm activation for `@plumb/cli`
+## npm activation for `plumb-cli`
 
-Issue #52 is also prep-only in this repo state. The release workflow and
-`dist-workspace.toml` may validate the cargo-dist config shape, but they
-do not enable npm publishing yet.
+Issue #52 is wired in this repo state. `dist-workspace.toml` includes
+`npm` in the `installers` list with no `npm-scope` set, so cargo-dist
+0.28.0 emits an unscoped `plumb-cli` package that publishes to the npm
+account that owns the repo's `NPM_TOKEN` secret. The public install
+command is `npm i -g plumb-cli`.
 
-Before anyone uncomments the `npm-scope` setting in
-`dist-workspace.toml`, these prerequisites MUST exist:
+The install-smoke `npm` legs run non-manually on ubuntu, macOS, and
+windows. Live verification still depends on the first tag-driven
+release: until that release publishes successfully and the legs pass
+end to end, treat npm-channel breakage like any other non-gated
+install-smoke failure.
 
-1. The `@plumb` npm scope.
-2. Ownership or publish access for the `@plumb/cli` package under the
-   release identity used by this repo.
-3. The `NPM_TOKEN` secret and any required repo or environment
-   permissions for release publishing.
+Channel maintenance steps:
 
-Activation steps, once the external prerequisites exist:
-
-1. Confirm `cargo dist plan` still passes with the current repo state.
-2. Verify the commented config shape still matches the intended package
-   name: `npm-scope = "@plumb"` targets `@plumb/cli` for this binary.
-3. Add `npm` to the `installers` list when enabling npm publishing.
-   In cargo-dist 0.28.0, uncommenting `npm-scope` alone does not emit
-   npm artifacts.
-4. Add the `NPM_TOKEN` secret and any required GitHub repo or
-   environment permissions for cargo-dist publishing.
-5. Uncomment `npm-scope = "@plumb"` in `dist-workspace.toml`.
-6. Run `cargo dist plan` again and review the generated manifest for npm
-   installer entries before tagging a release.
-7. Publish from a controlled release tag and verify the live install on
-   macOS, Linux, and Windows before updating docs or acceptance claims.
-
-Current blockers this repo does not solve:
-
-- The `@plumb` npm scope may not exist yet.
-- Ownership of `@plumb/cli` is external to this repo.
-- `NPM_TOKEN` and the required repo or environment permissions are
-  external to this repo.
-
-Until those blockers are resolved, this repo MUST NOT claim that
-`npm i -g @plumb/cli` has been verified.
+1. Confirm `cargo dist plan` still includes the
+   `plumb-cli-npm-package.tar.gz` artifact when the dist version or
+   installer list changes.
+2. Keep the `NPM_TOKEN` secret valid for the release-publishing
+   identity. Rotate when that identity changes.
+3. If the package later moves to an org-scoped name, set `npm-scope`
+   in `dist-workspace.toml` and update the docs/install-smoke shape in
+   the same PR.

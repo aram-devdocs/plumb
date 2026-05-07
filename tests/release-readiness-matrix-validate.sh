@@ -209,16 +209,16 @@ else
     fail "v0 release-readiness runbook missing"
 fi
 
-if grep -Fq 'Cargo, curl, and Homebrew (#51) are defined as the current non-manual validation channels' "$RUNBOOK"; then
-    pass "runbook records cargo/curl/brew as current non-manual validation channels"
+if grep -Fq 'Cargo, curl, Homebrew (#51), and npm (#52) are defined as the current non-manual validation channels' "$RUNBOOK"; then
+    pass "runbook records cargo/curl/brew/npm as current non-manual validation channels"
 else
-    fail "runbook does not record cargo/curl/brew as current non-manual validation channels"
+    fail "runbook does not record cargo/curl/brew/npm as current non-manual validation channels"
 fi
 
-if grep -Fq 'while npm (#52) remains an explicit prep-only/gated channel' "$RUNBOOK"; then
-    pass "runbook records #52 as the remaining prep-only/gated channel"
+if grep -Fq 'while live verification of the first tag-driven publish remains pending' "$RUNBOOK"; then
+    pass "runbook records the first-tag publish as the remaining verification gate"
 else
-    fail "runbook does not record #52 as the remaining prep-only/gated channel"
+    fail "runbook does not record the first-tag publish as the remaining verification gate"
 fi
 
 if grep -Fq 'before #101 can be accepted as' "$RUNBOOK" \
