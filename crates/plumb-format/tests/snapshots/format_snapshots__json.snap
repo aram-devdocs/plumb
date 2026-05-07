@@ -4,7 +4,7 @@ expression: out
 ---
 {
   "ignored": 0,
-  "plumb_version": "0.0.2",
+  "plumb_version": "[redacted]",
   "run_id": "sha256:53a662be238be796f9a08b74adb05e4020dd3d9f653e9bf91a7fb5b1c7a274c0",
   "stats": {
     "counts": {
