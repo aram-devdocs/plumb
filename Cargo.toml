@@ -36,12 +36,12 @@ categories = ["command-line-utilities", "development-tools", "web-programming"]
 
 [workspace.dependencies]
 # Internal path dependencies resolved by consumers.
-plumb-core = { path = "crates/plumb-core", version = "0.0.1" }
-plumb-format = { path = "crates/plumb-format", version = "0.0.1" }
-plumb-cdp = { path = "crates/plumb-cdp", version = "0.0.1" }
-plumb-config = { path = "crates/plumb-config", version = "0.0.1" }
-plumb-codegen = { path = "crates/plumb-codegen", version = "0.0.1" }
-plumb-mcp = { path = "crates/plumb-mcp", version = "0.0.1" }
+plumb-core = { path = "crates/plumb-core", version = "0.0.2" }
+plumb-format = { path = "crates/plumb-format", version = "0.0.2" }
+plumb-cdp = { path = "crates/plumb-cdp", version = "0.0.2" }
+plumb-config = { path = "crates/plumb-config", version = "0.0.2" }
+plumb-codegen = { path = "crates/plumb-codegen", version = "0.0.2" }
+plumb-mcp = { path = "crates/plumb-mcp", version = "0.0.2" }
 
 # CDP driver.
 chromiumoxide = { version = "0.9", default-features = false }

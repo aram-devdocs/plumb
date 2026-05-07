@@ -24,11 +24,13 @@
       "release-type": "simple",
       "include-component-in-tag": false,
       "extra-files": [
-        {
-          "type": "toml",
-          "path": "Cargo.toml",
-          "jsonpath": "$.workspace.package.version"
-        }
+        { "type": "toml", "path": "Cargo.toml", "jsonpath": "$.workspace.package.version" },
+        { "type": "toml", "path": "Cargo.toml", "jsonpath": "$.workspace.dependencies.plumb-core.version" },
+        { "type": "toml", "path": "Cargo.toml", "jsonpath": "$.workspace.dependencies.plumb-format.version" },
+        { "type": "toml", "path": "Cargo.toml", "jsonpath": "$.workspace.dependencies.plumb-cdp.version" },
+        { "type": "toml", "path": "Cargo.toml", "jsonpath": "$.workspace.dependencies.plumb-config.version" },
+        { "type": "toml", "path": "Cargo.toml", "jsonpath": "$.workspace.dependencies.plumb-codegen.version" },
+        { "type": "toml", "path": "Cargo.toml", "jsonpath": "$.workspace.dependencies.plumb-mcp.version" }
       ]
     }
   }
