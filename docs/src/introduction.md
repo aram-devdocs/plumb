@@ -58,7 +58,8 @@ Pick the channel that fits your workflow:
 - [Install script (macOS / Linux / Windows)](./install.md#install-script-macos--linux--windows) — one-line curl/irm
 - [`cargo install`](./install.md#cargo) — if you already have a Rust toolchain
 - [Homebrew](./install.md#homebrew) — `brew install aram-devdocs/plumb/plumb`
-- [Build from source](./install.md#build-from-source) — the only path available today (pre-alpha)
+- [npm](./install.md#npm) — `npm i -g plumb-cli`
+- [Build from source](./install.md#build-from-source) — for hacking on Plumb itself
 
 Then continue with the docs for your workflow:
 
@@ -66,11 +67,6 @@ Then continue with the docs for your workflow:
 - [MCP server](./mcp.md) for agent setup
 - [GitHub Code Scanning](./ci/github-code-scanning.md) for SARIF in CI
 - [reviewdog](./ci/reviewdog.md) for PR feedback in CI
-
-## Status
-
-Pre-alpha. The current public docs live at
-`https://plumb.aramhammoudeh.com/`.
 
 ## Next
 

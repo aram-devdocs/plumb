@@ -53,9 +53,9 @@ configuration fields.
 [rules."<id>"]        # per-rule overrides
 ```
 
-The walking skeleton defaults to a single `desktop` viewport at
-1280×800 if `[viewports.*]` is omitted. Real runs SHOULD declare every
-viewport explicitly.
+If `[viewports.*]` is omitted, Plumb defaults to a single `desktop`
+viewport at 1280×800. Real runs SHOULD declare every viewport
+explicitly.
 
 ## `[viewports.<name>]`
 

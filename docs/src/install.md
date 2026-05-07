@@ -1,22 +1,14 @@
 # Install
 
-Plumb ships as a single binary. Pick the channel that matches your
-shell and your tolerance for tracking pre-release builds.
+Plumb ships as a single binary. Pick the channel that matches your shell.
 
-> **Pre-release notice.** Plumb is pre-alpha. The install script,
-> `cargo install`, and Homebrew channels become available at the first
-> tagged release. Until then the supported install path is "build from
-> source." The other commands are listed here so the page does not
-> change shape after release day.
-
-## Channels at a glance
-
-| Channel | Best for | Status |
-|---------|----------|--------|
-| Install script | macOS / Linux / Windows users who want one-line install | Available at first release |
-| `cargo install` | Rust developers already on `cargo` | Available at first release |
-| Homebrew tap | macOS / Linux Homebrew users | Available at first release |
-| Build from source | Contributors and pre-release testers | Available now |
+| Channel | Best for |
+|---------|----------|
+| Install script | macOS / Linux / Windows users who want one-line install |
+| `cargo install` | Rust developers already on `cargo` |
+| Homebrew tap | macOS / Linux Homebrew users |
+| `npm i -g` | Node-tooling shops that already pin CLI tools through npm |
+| Build from source | Contributors hacking on Plumb itself |
 
 After install, run `plumb --version` to confirm. Then point yourself at
 the [Quick start](./quickstart.md).
@@ -62,7 +54,7 @@ This builds from source against the version published to crates.io.
 Pin a version with `--version`:
 
 ```bash
-cargo install plumb-cli --version 0.1.0
+cargo install plumb-cli --version 0.0.2
 ```
 
 ## Homebrew
@@ -76,9 +68,22 @@ brew install aram-devdocs/plumb/plumb
 The tap repository is `aram-devdocs/homebrew-plumb`. The formula tracks the
 latest tagged release.
 
+## npm
+
+If your project already pins CLI tools through npm:
+
+```bash
+npm i -g plumb-cli
+```
+
+The npm package is unscoped and wraps the same prebuilt binary that
+the install script and Homebrew formula download. The install script
+that ships inside the package verifies the platform archive's checksum
+before extracting it.
+
 ## Build from source
 
-This is the only supported path until the first release. You need:
+Use this path if you're hacking on Plumb. You need:
 
 - `git`
 - A Rust toolchain (1.95+). Install via [`rustup`](https://rustup.rs/).

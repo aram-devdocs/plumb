@@ -92,4 +92,4 @@ severity = "error"
 
 - [`spacing/grid-conformance`](./spacing-grid-conformance.md) — the
   horizontal spacing-grid sibling.
-- PRD SS11.3 -- vertical rhythm and baseline alignment.
+- PRD §11.3 — vertical rhythm and baseline alignment.

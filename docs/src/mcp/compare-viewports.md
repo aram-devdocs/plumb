@@ -121,5 +121,6 @@ text content block describing the error.
 
 ## See also
 
-- [`lint_url`](./lint_url.md) — single-viewport lint.
-- [PRD §14.2](../../local/prd.md) — MCP response shape.
+- [MCP server reference](../mcp.md) — single-viewport `lint_url` and
+  full tool list.
+- [Configuration](../configuration.md) — `plumb.toml` reference.
