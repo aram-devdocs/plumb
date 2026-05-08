@@ -85,4 +85,3 @@ severity = "info"
   sibling rule for font-family tokens.
 - [`type/scale-conformance`](./type-scale-conformance.md) — the
   sibling rule for font-size tokens.
-- PRD §11.3 — type rules.

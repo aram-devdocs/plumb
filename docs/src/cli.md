@@ -83,7 +83,7 @@ Press Ctrl-C to exit. The status line on stderr after every cycle
 records the cycle's shape:
 
 ```text
-watching… changed: <N> files; lint: <M> violations; took <T> ms
+watching… changed: 3 files; lint: 2 violations; took 412 ms
 ```
 
 Stdout carries the rendered lint output (`pretty` by default;

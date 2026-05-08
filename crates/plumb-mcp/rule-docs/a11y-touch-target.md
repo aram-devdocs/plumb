@@ -121,4 +121,3 @@ Per-element suppression follows the standard `RuleOverride` model.
 ## See also
 
 - [WCAG 2.5.8 *Target Size (Minimum)*](https://www.w3.org/WAI/WCAG22/Understanding/target-size-minimum.html).
-- PRD §11.7 — accessibility rules.
