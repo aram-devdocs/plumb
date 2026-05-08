@@ -2116,7 +2116,7 @@ dependencies = [
 
 [[package]]
 name = "plumb-cdp"
-version = "0.0.11"
+version = "0.0.12"
 dependencies = [
  "chromiumoxide",
  "criterion",
@@ -2138,7 +2138,7 @@ dependencies = [
 
 [[package]]
 name = "plumb-cli"
-version = "0.0.11"
+version = "0.0.12"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -2168,7 +2168,7 @@ dependencies = [
 
 [[package]]
 name = "plumb-codegen"
-version = "0.0.11"
+version = "0.0.12"
 dependencies = [
  "indexmap",
  "insta",
@@ -2181,7 +2181,7 @@ dependencies = [
 
 [[package]]
 name = "plumb-config"
-version = "0.0.11"
+version = "0.0.12"
 dependencies = [
  "dunce",
  "figment",
@@ -2202,7 +2202,7 @@ dependencies = [
 
 [[package]]
 name = "plumb-core"
-version = "0.0.11"
+version = "0.0.12"
 dependencies = [
  "indexmap",
  "insta",
@@ -2216,7 +2216,7 @@ dependencies = [
 
 [[package]]
 name = "plumb-e2e"
-version = "0.0.11"
+version = "0.0.12"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -2233,7 +2233,7 @@ dependencies = [
 
 [[package]]
 name = "plumb-format"
-version = "0.0.11"
+version = "0.0.12"
 dependencies = [
  "indexmap",
  "insta",
@@ -2245,7 +2245,7 @@ dependencies = [
 
 [[package]]
 name = "plumb-mcp"
-version = "0.0.11"
+version = "0.0.12"
 dependencies = [
  "axum",
  "indexmap",
@@ -4432,7 +4432,7 @@ checksum = "1ffae5123b2d3fc086436f8834ae3ab053a283cfac8fe0a0b8eaae044768a4c4"
 
 [[package]]
 name = "xtask"
-version = "0.0.11"
+version = "0.0.12"
 dependencies = [
  "anyhow",
  "clap",
