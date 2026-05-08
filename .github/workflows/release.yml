@@ -181,6 +181,8 @@ jobs:
           shopt -s nullglob
           assets=(target/distrib/plumb-cli-*.tar.xz \
                   target/distrib/plumb-cli-*.tar.xz.sha256 \
+                  target/distrib/plumb-cli-*.zip \
+                  target/distrib/plumb-cli-*.zip.sha256 \
                   target/distrib/plumb-cli-installer.* \
                   target/distrib/plumb-cli.rb \
                   target/distrib/plumb-cli-npm-package.tar.gz \
@@ -207,6 +209,7 @@ jobs:
         env:
           TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           RELEASE_TAG: ${{ env.RELEASE_TAG }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           if [ ! -f target/distrib/plumb-cli.rb ]; then
@@ -218,7 +221,73 @@ jobs:
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git clone "https://x-access-token:${TAP_TOKEN}@github.com/aram-devdocs/homebrew-plumb.git" tap
           mkdir -p tap/Formula
+
+          # cargo-dist 0.28 emits the formula as `class PlumbCli` (matching the
+          # `plumb-cli` cargo package name) but the tap install command is
+          # `brew install aram-devdocs/plumb/plumb`, so the file is renamed to
+          # `Formula/plumb.rb` and the class must be `Plumb` to match.
           cp target/distrib/plumb-cli.rb tap/Formula/plumb.rb
+          sed -i 's/^class PlumbCli < Formula/class Plumb < Formula/' tap/Formula/plumb.rb
+
+          # Inject sha256 fields after each url. cargo-dist 0.28 does not emit
+          # them for the binary tap; brew audit flags missing checksums and a
+          # MITM-tampered url would not be caught without them.
+          python3 - "$RELEASE_TAG" tap/Formula/plumb.rb target/distrib <<'PY'
+          import sys, re, pathlib
+          tag, formula_path, distrib = sys.argv[1], sys.argv[2], pathlib.Path(sys.argv[3])
+          text = pathlib.Path(formula_path).read_text()
+          out = []
+          for line in text.splitlines(keepends=True):
+              out.append(line)
+              m = re.match(r'(\s+)url "https://[^/]+/[^/]+/[^/]+/releases/download/[^/]+/([^"]+)"', line)
+              if m:
+                  indent, asset = m.group(1), m.group(2)
+                  sidecar = distrib / f"{asset}.sha256"
+                  if sidecar.exists():
+                      digest = sidecar.read_text().strip().split()[0]
+                      out.append(f'{indent}sha256 "{digest}"\n')
+          pathlib.Path(formula_path).write_text("".join(out))
+          PY
+
+          # Inject Intel Mac fallback. cargo-dist's emitted formula assumes a
+          # native binary exists for every platform in dist-workspace.toml's
+          # `targets` list. x86_64-apple-darwin is intentionally absent (post-V0;
+          # tracked at #269), so without an explicit `on_intel` `odie` block
+          # `brew install` errors with a generic platform error instead of
+          # pointing the user at `cargo install plumb-cli`.
+          python3 - tap/Formula/plumb.rb <<'PY'
+          import sys, pathlib
+          path = pathlib.Path(sys.argv[1])
+          text = path.read_text()
+          if "on_intel do" in text:
+              sys.exit(0)
+          marker = "class Plumb < Formula\n"
+          insert = (
+              "  on_macos do\n"
+              "    on_intel do\n"
+              "      odie <<~EOS\n"
+              "        Plumb does not yet ship native Intel Mac (x86_64) binaries.\n"
+              "        Install via Cargo instead:\n"
+              "\n"
+              "          cargo install plumb-cli\n"
+              "\n"
+              "        Tracking: https://github.com/aram-devdocs/plumb/issues/269\n"
+              "      EOS\n"
+              "    end\n"
+              "  end\n"
+              "\n"
+          )
+          # Insert after the `desc/homepage/version/license` header block, just before
+          # the first `if OS.mac?` or `on_macos`. The simplest reliable anchor is the
+          # first `if OS.` line; insert before it.
+          lines = text.splitlines(keepends=True)
+          for i, line in enumerate(lines):
+              if line.lstrip().startswith("if OS."):
+                  lines.insert(i, insert)
+                  break
+          path.write_text("".join(lines))
+          PY
+
           cd tap
           git add Formula/plumb.rb
           if git diff --cached --quiet; then
