@@ -249,8 +249,34 @@ impl PlumbServer {
         }
     }
 
-    async fn echo(&self, args: EchoArgs) -> Result<CallToolResult, ErrorData> {
-        Ok(CallToolResult::success(vec![Content::text(args.message)]))
+    /// Smoke-test the MCP transport by echoing a message back to the
+    /// caller.
+    ///
+    /// Returns a [`CallToolResult`] whose `content[0]` is the text
+    /// `message` (so chatty agents can surface it directly) and whose
+    /// `structured_content` is a `{ "echoed": <message> }` JSON object
+    /// (so tool-using agents can parse it without re-parsing the
+    /// text). Both fields are required by `mcp-tool-patterns.md`.
+    ///
+    /// # Errors
+    ///
+    /// Currently never returns an error — `echo` is a smoke test, not
+    /// a validated input gate. The signature retains `Result` for
+    /// forward-compatibility with future input checks (e.g. byte caps).
+    pub async fn echo(&self, args: EchoArgs) -> Result<CallToolResult, ErrorData> {
+        // `mcp-tool-patterns.md`: every tool MUST return both `content`
+        // (human-friendly summary) AND `structuredContent` (machine
+        // payload). Without the structured block, tool-using agents
+        // are forced to re-parse the text — which is exactly what the
+        // contract is designed to avoid for transport smoke tests.
+        let mut structured = JsonObject::new();
+        structured.insert(
+            "echoed".to_owned(),
+            serde_json::Value::String(args.message.clone()),
+        );
+        let mut result = CallToolResult::success(vec![Content::text(args.message)]);
+        result.structured_content = Some(serde_json::Value::Object(structured));
+        Ok(result)
     }
 
     /// Lint a URL and return aggregated violations.

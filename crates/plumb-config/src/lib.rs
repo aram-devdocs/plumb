@@ -33,14 +33,21 @@ pub use tailwind::{TailwindOptions, merge_tailwind};
 use validate::ValidationIssue;
 
 /// Underlying config parse errors.
+///
+/// Both variants forward Display **and** `source()` to the inner error
+/// via `#[error(transparent)]`. Without this, an `anyhow::Error::chain`
+/// over a `ConfigError::Parse` would print the toml/figment error
+/// twice — once from this enum's `"{0}"` display and once from the
+/// chained inner — producing duplicated span-annotated blocks on a
+/// single bad-TOML file.
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum ConfigParseSource {
     /// TOML parser or schema error.
-    #[error("{0}")]
+    #[error(transparent)]
     Toml(#[from] toml::de::Error),
     /// Figment parser or schema error.
-    #[error("{0}")]
+    #[error(transparent)]
     Figment(#[from] figment::Error),
 }
 
@@ -65,7 +72,13 @@ pub enum ConfigError {
     },
     /// The file exists but couldn't be parsed or the content didn't
     /// match the config schema.
-    #[error("failed to parse config file `{path}`: {source}")]
+    ///
+    /// The Display message intentionally omits `{source}` — the chained
+    /// [`ConfigParseSource`] (transparent) prints the underlying toml /
+    /// figment span block once via the standard
+    /// `Error::source()` walk. Embedding `{source}` here would
+    /// duplicate the span block in `anyhow::Error::chain` output.
+    #[error("failed to parse config file `{path}`")]
     #[diagnostic(code(plumb::config::parse))]
     Parse {
         /// Path that failed to parse.

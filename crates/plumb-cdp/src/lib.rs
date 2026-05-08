@@ -46,6 +46,7 @@
 #![deny(missing_docs)]
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 
+pub mod chrome_path;
 pub mod fetcher;
 
 use indexmap::IndexMap;
@@ -866,12 +867,17 @@ impl ChromiumDriver {
         // Precedence:
         //   1. caller-resolved path (auto-fetch produced one),
         //   2. user-supplied `executable_path`,
-        //   3. chromiumoxide auto-detect (no `chrome_executable` call).
+        //   3. macOS `.app`-bundle priority list (see `chrome_path::detect`),
+        //   4. chromiumoxide auto-detect (no `chrome_executable` call).
         let builder = if let Some(path) = resolved_executable {
             ensure_executable_path(path)?;
             builder.chrome_executable(path)
         } else if let Some(path) = &self.options.executable_path {
             ensure_executable_path(path)?;
+            builder.chrome_executable(path)
+        } else if let Some(path) = chrome_path::detect() {
+            // No need to `ensure_executable_path` — `detect` only
+            // returns paths that already passed an `is_file` probe.
             builder.chrome_executable(path)
         } else {
             builder
@@ -1199,6 +1205,8 @@ fn persistent_browser_config(
         builder.chrome_executable(path)
     } else if let Some(path) = &options.executable_path {
         ensure_executable_path(path)?;
+        builder.chrome_executable(path)
+    } else if let Some(path) = chrome_path::detect() {
         builder.chrome_executable(path)
     } else {
         builder

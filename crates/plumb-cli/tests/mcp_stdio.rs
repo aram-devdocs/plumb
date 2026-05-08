@@ -268,10 +268,23 @@ fn mcp_echo_round_trip() {
         .iter()
         .find(|r| r["id"] == 2)
         .unwrap_or_else(|| panic!("echo response missing: got {responses:?}"));
-    let text = echo_resp["result"]["content"][0]["text"]
-        .as_str()
-        .expect("text content");
+    let result = &echo_resp["result"];
+
+    // `mcp-tool-patterns.md`: every tool response carries BOTH a
+    // text content block AND a structuredContent block. The end-to-end
+    // stdio path must preserve that contract.
+    let text = result["content"][0]["text"].as_str().expect("text content");
     assert!(text.contains("hi plumb"), "unexpected text: {text}");
+
+    let echoed = result["structuredContent"]["echoed"]
+        .as_str()
+        .unwrap_or_else(|| {
+            panic!("echo response must include structuredContent.echoed: got {result}")
+        });
+    assert_eq!(
+        echoed, "hi plumb",
+        "structuredContent.echoed must round-trip the message verbatim"
+    );
 }
 
 #[test]

@@ -12,8 +12,8 @@ use std::path::PathBuf;
 
 use plumb_core::register_builtin;
 use plumb_mcp::{
-    CompareViewport, CompareViewportsArgs, ExplainRuleArgs, LintPageHtmlArgs, LintUrlArgs,
-    LintUrlDetail, PlumbServer, documented_rule_ids,
+    CompareViewport, CompareViewportsArgs, EchoArgs, ExplainRuleArgs, LintPageHtmlArgs,
+    LintUrlArgs, LintUrlDetail, PlumbServer, documented_rule_ids,
 };
 use rmcp::ServerHandler;
 use rmcp::model::ErrorCode;
@@ -57,6 +57,69 @@ fn server_info_includes_instructions() {
     assert!(
         info.instructions.is_some(),
         "server must advertise instructions for agents"
+    );
+}
+
+/// `echo` is the transport smoke test, but it still has to obey the
+/// `mcp-tool-patterns.md` contract: every tool response carries
+/// **both** a `content` block (human summary) and `structuredContent`
+/// (machine payload). Older versions returned only the text content,
+/// which forced tool-using agents to re-parse the text — exactly what
+/// the contract is designed to avoid.
+#[tokio::test]
+async fn echo_returns_both_content_and_structured_content() {
+    let server = server();
+    let result = server
+        .echo(EchoArgs {
+            message: "ping".to_owned(),
+        })
+        .await
+        .expect("echo must succeed for any string");
+
+    // `content[0]` carries the human-readable echo.
+    let text = result
+        .content
+        .iter()
+        .find_map(|content| content.as_text().map(|text| text.text.clone()))
+        .expect("echo response must include a text content block");
+    assert_eq!(text, "ping", "text block must echo the input verbatim");
+
+    // `structured_content` carries the machine-readable echo. The
+    // `echoed` key is the contract a tool-using agent reads.
+    let structured = result
+        .structured_content
+        .expect("echo response must include structured_content");
+    assert_eq!(
+        structured.get("echoed").and_then(|v| v.as_str()),
+        Some("ping"),
+        "structuredContent.echoed must equal the echoed message",
+    );
+}
+
+/// Regression guard: an empty input string still produces a
+/// well-formed dual response. A future input gate that rejects empty
+/// messages would break the smoke-test promise.
+#[tokio::test]
+async fn echo_handles_empty_message_with_structured_block() {
+    let server = server();
+    let result = server
+        .echo(EchoArgs {
+            message: String::new(),
+        })
+        .await
+        .expect("echo must accept any UTF-8 string, including empty");
+
+    assert!(
+        !result.content.is_empty(),
+        "echo response must include at least one content block"
+    );
+    let structured = result
+        .structured_content
+        .expect("echo response must include structured_content for empty input too");
+    assert_eq!(
+        structured.get("echoed").and_then(|v| v.as_str()),
+        Some(""),
+        "structuredContent.echoed must round-trip the empty string",
     );
 }
 
