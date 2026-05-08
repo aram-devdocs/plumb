@@ -104,7 +104,9 @@ fn macos_candidates<P: FsProbe>(probe: &P) -> Vec<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::{FsProbe, detect_with, macos_candidates};
+    #[cfg(unix)]
+    use super::macos_candidates;
+    use super::{FsProbe, detect_with};
     use std::collections::HashSet;
     use std::path::{Path, PathBuf};
 
