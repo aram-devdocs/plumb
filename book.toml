@@ -13,6 +13,7 @@ edit-url-template = "https://github.com/aram-devdocs/plumb/edit/main/{path}"
 git-repository-url = "https://github.com/aram-devdocs/plumb"
 site-url = "/"
 cname = "plumb.aramhammoudeh.com"
+theme = "theme"
 
 [output.html.fold]
 enable = true

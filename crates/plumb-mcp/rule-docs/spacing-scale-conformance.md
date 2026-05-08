@@ -28,8 +28,8 @@ The rule MUST skip a property when:
 At most one violation is emitted per `(selector, property)` pair.
 
 The `margin` and `padding` shorthands are deliberately excluded — the
-Chromium driver returns longhands per PRD §10.3, and checking both
-shapes would emit two violations for the same logical issue.
+Chromium driver returns longhands, and checking both shapes would emit
+two violations for the same logical issue.
 
 ## Why it matters
 
@@ -108,4 +108,3 @@ applied at the formatter layer.
 
 - [`spacing/grid-conformance`](./spacing-grid-conformance.md) — the
   base-unit sibling check.
-- PRD §11.2 — spacing rules and the token model.

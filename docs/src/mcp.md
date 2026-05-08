@@ -99,3 +99,50 @@ above. `detail: "full"` keeps the same text block and switches
 <url> --format json`, including `plumb_version`, `run_id`, `stats`,
 `summary`, and full per-violation fields. Full mode is rejected when
 the serialized structured payload exceeds 50 KB.
+
+## Common issues
+
+These come up across every agent integration. Per-agent pages
+([Claude Code](./mcp/claude.md), [Cursor](./mcp/cursor.md),
+[Codex](./mcp/codex.md)) link here instead of repeating the list.
+
+**PATH resolution.** Many agents launch the MCP server from a GUI
+process that does not inherit your shell's full `PATH`. macOS GUI apps
+are the usual offender. If `plumb` is installed somewhere like
+`~/.cargo/bin` and the agent reports "command not found", use an
+absolute path in the agent config:
+
+```json
+{
+  "mcpServers": {
+    "plumb": {
+      "command": "/Users/you/.cargo/bin/plumb",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+For agents that register the server with a CLI (e.g. `codex mcp add`),
+pass the absolute binary path the same way.
+
+**Working directory.** The MCP server resolves `plumb.toml` from the
+working directory where the agent launches it — usually the project
+root. Place `plumb.toml` there, or call `get_config` with an explicit
+path argument.
+
+**Large responses.** `lint_url` defaults to `detail: "compact"`, which
+is the token-efficient payload. `detail: "full"` returns the canonical
+`--format json` envelope and is hard-capped at 50 KB of
+`structuredContent`; oversized responses are rejected with a JSON-RPC
+error. For pages with many violations, stay on `compact` and request
+`full` only for specific follow-ups.
+
+**Tool approval prompts.** Some agents prompt on first MCP tool use.
+Accept the prompt to allow Plumb tools.
+
+**Sandboxed network access.** Agents that run inside a sandbox (Codex
+is one) may restrict outbound network. `lint_url` against a real URL
+needs the sandbox to allow Chromium to reach the target host.
+`plumb-fake://hello` works without network access and is useful for
+verifying the tool chain end to end.

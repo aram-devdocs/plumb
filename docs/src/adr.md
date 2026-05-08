@@ -10,6 +10,9 @@ ADRs capture the why behind non-obvious choices. The index lives at
 - [`0002-chromium-version-range`](https://github.com/aram-devdocs/plumb/blob/main/docs/adr/0002-chromium-version-range.md)
   — exact-pin replaced by `MIN_SUPPORTED_CHROMIUM_MAJOR..=MAX_SUPPORTED_CHROMIUM_MAJOR`,
   with the contract for moving the upper bound.
+- [`0006-slsa-attestation-verification-path`](https://github.com/aram-devdocs/plumb/blob/main/docs/adr/0006-slsa-attestation-verification-path.md)
+  — by-digest `gh attestation verify` is the canonical path; the bare
+  `/attestations` endpoint is not a list endpoint and is expected to 404.
 
 ## When to write an ADR
 
