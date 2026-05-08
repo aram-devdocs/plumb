@@ -83,4 +83,3 @@ severity = "warning"
 
 - [`sibling/height-consistency`](./sibling-height-consistency.md) —
   the sibling rule for row-height drift.
-- PRD §11.6 — sibling-relationship rules.

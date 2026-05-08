@@ -43,7 +43,7 @@ the existing envelope:
 
 ```json
 {
-  "plumb_version": "0.0.1",
+  "plumb_version": "0.0.x",
   "run_id": "sha256:…",
   "stats": { … },
   "suggested_ignores": [

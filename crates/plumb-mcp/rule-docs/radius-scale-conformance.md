@@ -29,8 +29,8 @@ The rule MUST skip a property when:
 At most one violation is emitted per `(selector, property)` pair.
 
 The `border-radius` shorthand is deliberately excluded — the Chromium
-driver returns longhands per PRD §10.3, and checking both shapes would
-emit two violations for the same logical issue.
+driver returns longhands, and checking both shapes would emit two
+violations for the same logical issue.
 
 ## Why it matters
 
@@ -109,4 +109,3 @@ applied at the formatter layer.
   symmetric rule for margin / padding / gap.
 - [`type/scale-conformance`](./type-scale-conformance.md) — the
   symmetric rule for `font-size`.
-- PRD §11.3 — the radius spec.
