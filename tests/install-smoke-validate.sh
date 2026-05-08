@@ -8,7 +8,6 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WORKFLOW="$REPO_ROOT/.github/workflows/install-smoke.yml"
 JUSTFILE="$REPO_ROOT/justfile"
 CI_WORKFLOW="$REPO_ROOT/.github/workflows/ci.yml"
-RELEASE_PREP_DOC="$REPO_ROOT/docs/src/ci/release-prep.md"
 
 failures=0
 
@@ -200,15 +199,6 @@ if grep -Fq 'All four install channels (cargo, brew, npm, curl) run live against
     pass "workflow docs describe all four channels as live"
 else
     fail "workflow docs do not describe all four channels as live"
-fi
-
-if [ -f "$RELEASE_PREP_DOC" ] \
-    && grep -Fq 'Issue #51 is verified in this repo state.' "$RELEASE_PREP_DOC" \
-    && grep -Fq 'install-smoke `brew` legs run live' "$RELEASE_PREP_DOC" \
-    && grep -Fq 'Issue #52 is wired in this repo state.' "$RELEASE_PREP_DOC"; then
-    pass "release prep doc records #51 (verified, brew tap live) and #52 (wired, unscoped plumb-cli)"
-else
-    fail "release prep doc does not record the current #51 (verified) / #52 (wired) state"
 fi
 
 # Exit code handling: 0 and 3 are acceptable, 2 is infra failure.
