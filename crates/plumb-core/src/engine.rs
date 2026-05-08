@@ -183,15 +183,28 @@ fn run_rules(snapshot: &PlumbSnapshot, config: &Config, rules: &[Box<dyn Rule>])
     let mut buffer: Vec<Violation> = rules
         .par_iter()
         .filter(|rule| {
-            // Honor per-rule enable/disable. Severity overrides are not yet
-            // applied at engine level — a rule still emits with its default
-            // severity; the formatter layer remaps if the config asks.
+            // Honor per-rule enable/disable. Severity overrides are
+            // applied below, after each rule's local emissions are
+            // collected — rules are pure and emit with their
+            // `default_severity()`; the engine owns the remap so the
+            // CLI's exit-code logic and every formatter see a single
+            // post-override view.
             config.rules.get(rule.id()).is_none_or(|over| over.enabled)
         })
         .flat_map(|rule| {
             let mut local = Vec::new();
             let mut sink = ViolationSink::new(&mut local);
             rule.check(&ctx, config, &mut sink);
+            // Apply [rules."<id>"].severity, if set. Lookup is a single
+            // IndexMap probe per rule, regardless of how many
+            // violations it emitted.
+            if let Some(override_severity) =
+                config.rules.get(rule.id()).and_then(|over| over.severity)
+            {
+                for violation in &mut local {
+                    violation.severity = override_severity;
+                }
+            }
             local
         })
         .collect();
