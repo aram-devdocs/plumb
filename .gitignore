@@ -26,3 +26,7 @@ e2e-sites/*/.angular/
 e2e-sites/*/out/
 # Next.js build cache.
 e2e-sites/*/.next/
+
+# mdBook build outputs (book.toml build-dir = "book"; some workflows write to docs/book/).
+/book/
+/docs/book/
