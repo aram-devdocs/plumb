@@ -134,6 +134,12 @@ mod tests {
         }
     }
 
+    /// Static-ordering check that doesn't probe the filesystem. Gated
+    /// to `unix` because the assertions compare forward-slash literals
+    /// against `Path::display()`, which uses `\` separators on Windows
+    /// — and `macos_candidates` is only reached in production on macOS
+    /// (see `detect_with`), so Windows coverage adds no signal.
+    #[cfg(unix)]
     #[test]
     fn macos_candidate_order_lists_system_apps_then_user_apps() {
         let fs = FakeFs::new(&[], Some("/Users/example"));
