@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 From the first release onward, this file is maintained automatically by [`release-please`](https://github.com/googleapis/release-please) based on [Conventional Commits](https://www.conventionalcommits.org/) on `main`. Do not edit released sections by hand.
 
+## [0.0.12](https://github.com/aram-devdocs/plumb/compare/v0.0.11...v0.0.12) (2026-05-08)
+
+
+### Features
+
+* **core:** apply [rules.&lt;id&gt;].severity overrides at engine layer ([#278](https://github.com/aram-devdocs/plumb/issues/278)) ([b15ba41](https://github.com/aram-devdocs/plumb/commit/b15ba41b7e8fa0bb81ef978bd441052fb937371e))
+
+
+### Bug Fixes
+
+* **cdp,cli,mcp:** chrome detection, log noise, error chain, explain path leak, watch flag, echo response ([#280](https://github.com/aram-devdocs/plumb/issues/280)) ([0ca2744](https://github.com/aram-devdocs/plumb/commit/0ca2744b531fd240c6a91e51120a6225ceb7ab73))
+* **ci,docs:** repair install path and attestation references ([#279](https://github.com/aram-devdocs/plumb/issues/279)) ([51ea69c](https://github.com/aram-devdocs/plumb/commit/51ea69cc6c27898637df848e9b07b165de1ab0a6))
+
+
+### Documentation
+
+* add versioning policy, security link, contributing link, dedup MCP agent gotchas ([#281](https://github.com/aram-devdocs/plumb/issues/281)) ([dfbc922](https://github.com/aram-devdocs/plumb/commit/dfbc9225dc31868169471eea58e2c1aeff5fd235))
+* **cli:** npm-first README + flag wrong-arch Windows ARM64 mapping ([#277](https://github.com/aram-devdocs/plumb/issues/277)) ([6491b62](https://github.com/aram-devdocs/plumb/commit/6491b623d852c83277e57b8bea37a0d732e43390))
+* **readme:** demo, Intel Mac note, badges, fix walking-skeleton ref ([#282](https://github.com/aram-devdocs/plumb/issues/282)) ([f417055](https://github.com/aram-devdocs/plumb/commit/f417055e8cbb3153ecf79c06eac40498309b42a7))
+* remove stale blog, complete config reference, sweep dead PRD refs ([#276](https://github.com/aram-devdocs/plumb/issues/276)) ([04440da](https://github.com/aram-devdocs/plumb/commit/04440da6d403f8319470e6fd719ad42e712ad306))
+* **security:** document actual SLSA attestation verification path ([#285](https://github.com/aram-devdocs/plumb/issues/285)) ([a5626c3](https://github.com/aram-devdocs/plumb/commit/a5626c3bd93f28b43d4c7fc4c550e00ee67962d9))
+* **theme:** bump sidebar link min-height to 24px to satisfy a11y/touch-target ([#284](https://github.com/aram-devdocs/plumb/issues/284)) ([9a03f97](https://github.com/aram-devdocs/plumb/commit/9a03f97c686d078c71fbd460f4ba638e3e95930d))
+
 ## [0.0.11](https://github.com/aram-devdocs/plumb/compare/v0.0.10...v0.0.11) (2026-05-07)
 
 
