@@ -242,6 +242,37 @@ jobs:
           path: target/distrib/
           pattern: artifacts-installers
           merge-multiple: true
+      - name: Strip wrong-arch Windows ARM64 npm mapping
+        # cargo-dist 0.28.0 has no knob to filter `supportedPlatforms`. It
+        # emits an `aarch64-pc-windows-msvc` entry that points to the x86_64
+        # Windows zip, which would silently install the wrong arch on
+        # Windows ARM. Repack the tarball without that entry until either
+        # we ship a native Windows ARM64 target or cargo-dist exposes a
+        # filter knob upstream.
+        run: |
+          set -euo pipefail
+          tarball=target/distrib/plumb-cli-npm-package.tar.gz
+          if [ ! -f "$tarball" ]; then
+            echo "::error::$tarball not found"
+            exit 1
+          fi
+          work=$(mktemp -d)
+          tar -xzf "$tarball" -C "$work"
+          pkg_dir=$(find "$work" -maxdepth 2 -name package.json -printf '%h\n' | head -n1)
+          node -e '
+            const fs = require("fs");
+            const path = process.argv[1];
+            const data = JSON.parse(fs.readFileSync(path, "utf8"));
+            if (data.supportedPlatforms && data.supportedPlatforms["aarch64-pc-windows-msvc"]) {
+              delete data.supportedPlatforms["aarch64-pc-windows-msvc"];
+              fs.writeFileSync(path, JSON.stringify(data, null, 2) + "\n");
+              console.log("stripped aarch64-pc-windows-msvc from supportedPlatforms");
+            } else {
+              console.log("no aarch64-pc-windows-msvc entry to strip; leaving package.json untouched");
+            }
+          ' "$pkg_dir/package.json"
+          (cd "$(dirname "$pkg_dir")" && tar -czf "$GITHUB_WORKSPACE/$tarball" "$(basename "$pkg_dir")")
+          rm -rf "$work"
       - name: Publish plumb-cli to npm
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
