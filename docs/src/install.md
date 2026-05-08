@@ -160,45 +160,51 @@ gh attestation verify plumb-cli-x86_64-unknown-linux-gnu.tar.xz \
 ```
 
 Replace the filename with whichever archive you downloaded. The
-command exits 0 if the attestation is valid.
+command prints "Verification succeeded!" and exits 0 if the
+attestation is valid.
 
 ### What gets attested
 
 | Artifact kind | Attested? |
 |---------------|-----------|
-| Platform archives (`.tar.xz`, `.zip`) | Yes |
+| Platform archives (`plumb-cli-<target>.tar.xz`, `.zip`) | Yes |
 | Installer scripts (`plumb-cli-installer.sh`, `plumb-cli-installer.ps1`) | Yes |
+| Homebrew formula (`plumb-cli.rb`) | Yes |
+| npm package (`plumb-cli-npm-package.tar.gz`) | Yes |
 
 The attestation binds each file's SHA-256 digest to the GitHub Actions
-workflow run that produced it. You can inspect the full SLSA provenance
-bundle on the release page under **Attestations**, or query it
-programmatically:
+workflow run that produced it. Bundles are stored in GitHub's
+attestation API and indexed by digest — there is no list endpoint, so
+`gh attestation verify` (or the by-digest API) is the only public read
+path. Programmatic access:
 
 ```bash
 gh attestation verify plumb-cli-x86_64-unknown-linux-gnu.tar.xz \
   --repo aram-devdocs/plumb \
-  --format json | jq '.verificationResult.statement'
+  --format json | jq '.[0].verificationResult.statement'
 ```
 
 ### Offline verification
 
 GitHub attestations are stored in the GitHub attestation API, not as
-release assets. To verify offline, first export the attestation bundle
-while you have network access:
+release assets. To verify offline, first download the bundle while you
+have network access:
 
 ```bash
 gh attestation download plumb-cli-x86_64-unknown-linux-gnu.tar.xz \
-  --repo aram-devdocs/plumb \
-  --output-file bundle.jsonl
+  --repo aram-devdocs/plumb
 ```
 
-This saves the attestation bundle as `bundle.jsonl`. You can then verify
-the artifact offline with [`cosign`](https://github.com/sigstore/cosign):
+This writes the bundle to `sha256:<digest>.jsonl` in the current
+directory (the filename is fixed by `gh`; on Windows the colon becomes
+a dash). Verify offline with the same `gh` binary:
 
 ```bash
-cosign verify-blob \
-  --bundle bundle.jsonl \
-  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  --certificate-identity-regexp '^https://github\.com/aram-devdocs/plumb/' \
-  plumb-cli-x86_64-unknown-linux-gnu.tar.xz
+gh attestation verify plumb-cli-x86_64-unknown-linux-gnu.tar.xz \
+  --bundle 'sha256:<digest>.jsonl' \
+  --repo aram-devdocs/plumb
 ```
+
+If you prefer [`cosign`](https://github.com/sigstore/cosign), the
+JSONL file holds one sigstore bundle per line; pass a single-bundle
+file via `cosign verify-blob --bundle …`.
