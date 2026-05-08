@@ -83,4 +83,3 @@ severity = "info"
   rule for z-index tokens.
 - [`shadow/scale-conformance`](./shadow-scale-conformance.md) — the
   sibling rule for box-shadow tokens.
-- PRD §11 — rule catalog.

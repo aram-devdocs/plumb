@@ -97,4 +97,3 @@ applied at the formatter layer.
   sibling rule for spacing tokens.
 - [`spacing/grid-conformance`](./spacing-grid-conformance.md) — the
   base-unit check for spacing values.
-- PRD §11.3 — type rules.

@@ -164,9 +164,9 @@ else
     fail "cargo channel does not install a locked crates.io source release"
 fi
 
-if grep -Fq 'curl -LsSf -o plumb-installer.sh "$INSTALLER_URL"' "$WORKFLOW" \
-    && grep -Fq 'gh attestation verify plumb-installer.sh --repo "$REPO"' "$WORKFLOW" \
-    && grep -Fq 'sh plumb-installer.sh' "$WORKFLOW"; then
+if grep -Fq 'curl -LsSf -o plumb-cli-installer.sh "$INSTALLER_URL"' "$WORKFLOW" \
+    && grep -Fq 'gh attestation verify plumb-cli-installer.sh --repo "$REPO"' "$WORKFLOW" \
+    && grep -Fq 'sh plumb-cli-installer.sh' "$WORKFLOW"; then
     pass "curl unix channel verifies the fetched installer before execution"
 else
     fail "curl unix channel does not verify the fetched installer before execution"
