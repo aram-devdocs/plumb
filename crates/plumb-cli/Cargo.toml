@@ -10,7 +10,11 @@ homepage.workspace = true
 documentation.workspace = true
 repository.workspace = true
 readme = "README.md"
-keywords.workspace = true
+# Per-crate keywords override the workspace defaults so the npm package
+# (cargo-dist copies these into the npm `package.json` keywords field
+# alongside `categories`) leads with `cli` — the term npm searchers use.
+# crates.io caps at 5 keywords; alphanumeric + dash + underscore only.
+keywords = ["cli", "linter", "design-system", "mcp", "chromium"]
 categories.workspace = true
 exclude = ["AGENTS.md", "CLAUDE.md"]
 
