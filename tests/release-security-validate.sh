@@ -12,7 +12,6 @@ SECURITY_WORKFLOW="$REPO_ROOT/.github/workflows/security.yml"
 DIST_CONFIG="$REPO_ROOT/dist-workspace.toml"
 JUSTFILE="$REPO_ROOT/justfile"
 CI_WORKFLOW="$REPO_ROOT/.github/workflows/ci.yml"
-RELEASE_PREP_DOC="$REPO_ROOT/docs/src/ci/release-prep.md"
 
 failures=0
 
@@ -266,15 +265,6 @@ if grep -Fq 'npm install -g plumb-cli' "$INSTALL_SMOKE"; then
     pass "install-smoke installs unscoped plumb-cli"
 else
     fail "install-smoke does not install unscoped plumb-cli"
-fi
-
-if [ -f "$RELEASE_PREP_DOC" ] \
-    && grep -Fq 'Homebrew tap publish is verified live' "$RELEASE_PREP_DOC" \
-    && grep -Fq '## npm activation for `plumb-cli`' "$RELEASE_PREP_DOC" \
-    && grep -Fq 'Issue #52 is wired in this repo state.' "$RELEASE_PREP_DOC"; then
-    pass "release prep doc records current Homebrew (verified) + npm (wired) channel state"
-else
-    fail "release prep doc does not record current Homebrew/npm channel state"
 fi
 
 # ── 7. Security audit workflow exists ──────────────────────────────

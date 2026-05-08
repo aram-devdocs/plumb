@@ -6,7 +6,7 @@ name: Install smoke test
 # Matrix: {cargo, brew, npm, curl} x {ubuntu, macos, windows}.
 # All four install channels (cargo, brew, npm, curl) run live against
 # the latest published tag.
-# See dist-workspace.toml and docs/src/ci/release-prep.md for details.
+# See dist-workspace.toml for channel wiring details.
 #
 # Non-gated failures open or update a single tracking issue so the team
 # gets notified without duplicate noise.
