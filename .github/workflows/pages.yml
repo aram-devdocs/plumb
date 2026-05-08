@@ -1,8 +1,13 @@
 name: Deploy docs to GitHub Pages
 
+# Triggered on release so the docs site is versioned and never ahead of
+# the published binary. The deployed `install.sh` / `install.ps1` scripts
+# and the JSON Schema sidecar are pulled from the published release, so
+# the one-liners on the install page always resolve to the binary that
+# the rest of the page documents.
 on:
-  push:
-    branches: [main]
+  release:
+    types: [published]
   workflow_dispatch:
 
 permissions:
@@ -29,8 +34,64 @@ jobs:
         with:
           mdbook-version: "latest"
 
+      - name: Resolve latest release tag
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          tag="$(gh release view --repo "$REPO" --json tagName --jq .tagName 2>/dev/null || echo dev)"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "Resolved release tag: $tag"
+
+      - name: Stamp release version into book theme
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # Replace the build-time sentinel in theme/head.hbs so every
+          # page in the deployed book exposes the release tag as a meta
+          # tag (`<meta name="plumb-version" content="vX.Y.Z">`).
+          sed -i "s/__PLUMB_VERSION__/${TAG}/g" theme/head.hbs
+
       - name: mdbook build
         run: mdbook build
+
+      - name: Publish version stamp
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # Sibling resource for tooling that wants the deployed version
+          # without parsing HTML.
+          printf '%s\n' "$TAG" > book/version.txt
+
+      - name: Publish JSON schema with the book
+        run: |
+          set -euo pipefail
+          # The starter `plumb.toml` references this URL via `$schema`.
+          # Shipping the schema next to the book keeps that link live.
+          mkdir -p book/schemas
+          cp schemas/plumb.toml.json book/schemas/
+
+      - name: Fetch latest installer scripts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # The install page documents `https://plumb.aramhammoudeh.com/install.sh`
+          # and `install.ps1`. Pull the cargo-dist installers from the
+          # latest release and serve them under those paths so the
+          # documented one-liners work.
+          gh release download --repo "$REPO" \
+            --pattern 'plumb-cli-installer.sh' \
+            --output book/install.sh
+          gh release download --repo "$REPO" \
+            --pattern 'plumb-cli-installer.ps1' \
+            --output book/install.ps1
+          chmod +x book/install.sh
 
       - uses: extractions/setup-just@v4
 

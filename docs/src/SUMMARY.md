@@ -2,10 +2,6 @@
 
 [Introduction](./introduction.md)
 
-# Blog
-
-- [Plumb v0.6 is here](./blog/launch-v0.6.md)
-
 # Getting started
 
 - [Install](./install.md)
@@ -54,6 +50,12 @@
 
 - [Benchmarks](./performance.md)
 
+# Reference
+
+- [Versioning](./versioning.md)
+- [Security](./security.md)
+
 # Contributing
 
+- [Contributing guide](./contributing.md)
 - [Architecture decision records](./adr.md)

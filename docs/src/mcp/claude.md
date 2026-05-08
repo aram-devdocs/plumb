@@ -62,32 +62,15 @@ Claude Code calls `lint_url` and returns a compact summary of
 violations. Use `detail: "full"` when you need the complete JSON
 envelope (capped at 50 KB).
 
-## Gotchas
+## Common issues
 
-**PATH resolution.** Claude Code inherits the shell environment from
-the terminal that launched it. If `plumb` is installed in a directory
-not on your default `PATH` (e.g. `~/.cargo/bin`), either add it to
-your shell profile or use an absolute path in `.mcp.json`:
+> PATH resolution, working directory, large responses, and tool
+> approval prompts apply to every agent integration. See
+> [Common issues](../mcp.md#common-issues) for the consolidated list.
 
-```json
-{
-  "mcpServers": {
-    "plumb": {
-      "command": "/Users/you/.cargo/bin/plumb",
-      "args": ["mcp"]
-    }
-  }
-}
-```
-
-**Working directory.** The MCP server resolves `plumb.toml` from the
-directory where the command runs — which is the project root Claude
-Code is opened in. Place your `plumb.toml` there or pass an absolute
-path via `get_config`.
-
-**Large responses.** `lint_url` with `detail: "full"` is capped at
-50 KB. For pages with many violations, use the default `compact` mode
-and request `full` only for specific follow-ups.
+The Claude-specific note: when `plumb` is not on the GUI-process
+`PATH`, point `.mcp.json` at the absolute binary path (e.g.
+`/Users/you/.cargo/bin/plumb`) rather than the bare `plumb` command.
 
 ## See also
 

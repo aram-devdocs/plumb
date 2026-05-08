@@ -142,4 +142,3 @@ remapping is applied at the formatter layer.
   same allow-list shape applied to the spacing scale.
 - [`type/scale-conformance`](./type-scale-conformance.md) — the same
   shape for `font-size`.
-- PRD §11.3 — color rules and the token model.

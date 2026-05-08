@@ -128,4 +128,3 @@ applied at the formatter layer.
   size on the system scale.
 - [`a11y/touch-target`](./a11y-touch-target.md) — the other shipped
   accessibility rule.
-- PRD §11.2 — built-in rule catalog.
