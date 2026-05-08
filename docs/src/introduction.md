@@ -64,15 +64,9 @@ Pick the channel that fits your workflow:
 Then continue with the docs for your workflow:
 
 - [Quick start](./quickstart.md) for the first local run
+- [Configuration](./configuration.md) for the `plumb.toml` reference
+- [CLI](./cli.md) for commands, flags, and exit codes
 - [MCP server](./mcp.md) for agent setup
+- [Rules](./rules/overview.md) for the catalog
 - [GitHub Code Scanning](./ci/github-code-scanning.md) for SARIF in CI
 - [reviewdog](./ci/reviewdog.md) for PR feedback in CI
-
-## Next
-
-- [Install](./install.md) — pick a release channel.
-- [Quick start](./quickstart.md) — five minutes from install to first violation.
-- [Configuration](./configuration.md) — `plumb.toml` reference.
-- [CLI](./cli.md) — commands, flags, exit codes.
-- [MCP server](./mcp.md) — JSON-RPC surface, tool list.
-- [Rules](./rules/overview.md) — the catalog.

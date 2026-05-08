@@ -83,4 +83,3 @@ severity = "info"
   sibling rule for font-size tokens.
 - [`type/weight-conformance`](./type-weight-conformance.md) — the
   sibling rule for font-weight tokens.
-- PRD §11.3 — type rules.

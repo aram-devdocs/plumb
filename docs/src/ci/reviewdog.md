@@ -4,9 +4,11 @@ Plumb does not ship a built-in reviewdog formatter. The integration
 here converts `plumb lint --format json` output to reviewdog's
 `rdjson` format with `jq`.
 
-The committed runner config lives at `contrib/reviewdog-plumb.yaml`.
-Copy that file from the Plumb repo into your own project before using
-`-conf=contrib/reviewdog-plumb.yaml`.
+The committed runner config lives at `contrib/reviewdog-plumb.yaml` in
+the Plumb repo. Copy it into your own project's `contrib/` directory
+and replace the `plumb-fake://hello` placeholder with the URL you want
+to lint before passing `-conf=contrib/reviewdog-plumb.yaml` to
+reviewdog.
 
 ## What the config does
 
@@ -26,10 +28,6 @@ That makes the output usable for reviewdog reporters such as
 layer, not source mapping.
 
 ## Local run
-
-Before running this, copy `contrib/reviewdog-plumb.yaml` from this repo
-into your project's `contrib/` directory. Then edit the copied file and
-replace `plumb-fake://hello` with the real target URL.
 
 ```bash
 reviewdog \

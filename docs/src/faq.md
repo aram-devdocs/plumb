@@ -161,47 +161,10 @@ See: [CLI — exit codes](./cli.md).
 
 ## 12. How do I integrate Plumb into GitHub Actions CI?
 
-Use `plumb lint` in a workflow step and check the exit code:
-
-| Code | Meaning |
-|------|---------|
-| 0 | No violations. |
-| 1 | One or more `error`-severity violations. |
-| 2 | CLI or infrastructure failure (bad URL, missing config, etc.). |
-| 3 | Only `warning`-severity violations (no errors). |
-
-```yaml
-- name: Lint with Plumb
-  run: |
-    plumb lint https://staging.example.com \
-      --format sarif --output plumb.sarif
-    rc=$?
-    if [ "$rc" -eq 2 ]; then
-      echo "::error::Plumb infrastructure failure"
-      exit 1
-    fi
-    # rc 0 = clean, rc 1 = errors, rc 3 = warnings only
-    # Pass on warnings-only (exit 3) by default
-    if [ "$rc" -eq 3 ]; then exit 0; fi
-    exit "$rc"
-
-- name: Upload SARIF
-  if: always()
-  uses: github/codeql-action/upload-sarif@v3
-  with:
-    sarif_file: plumb.sarif
-```
-
-By default this step fails on exit code 1 (errors) and exit code 2
-(infrastructure failure), but passes on exit code 3 (warnings only).
-To also fail on warnings, remove the `if [ "$rc" -eq 3 ]; then exit 0; fi`
-guard so the step exits non-zero on code 3.
-
-SARIF output integrates with GitHub Code Scanning, so violations
-appear as annotations on the PR. The `if: always()` on the upload
-step ensures SARIF results reach Code Scanning even when lint finds
-errors. For other CI systems, use `--format json` and parse the
-output.
+Run `plumb lint --format sarif` in a workflow step and upload the
+artifact with `github/codeql-action/upload-sarif`; the
+[GitHub Code Scanning](./ci/github-code-scanning.md) chapter walks
+through a complete workflow and the exit-code handling.
 
 See: [GitHub Code Scanning](./ci/github-code-scanning.md),
 [CLI — exit codes](./cli.md).
