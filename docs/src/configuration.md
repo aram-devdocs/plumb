@@ -49,8 +49,13 @@ configuration fields.
 [color]               # named color tokens + ΔE tolerance
 [radius]              # allowed border-radius values
 [alignment]           # grid spec + near-alignment tolerance
+[shadow]              # allowed box-shadow values
+[z_index]             # allowed z-index values
+[opacity]             # allowed opacity values
+[rhythm]              # vertical-rhythm baseline and tolerance
 [a11y]                # contrast + touch target
 [rules."<id>"]        # per-rule overrides
+[[ignore]]            # selector-scoped runtime suppressions
 ```
 
 If `[viewports.*]` is omitted, Plumb defaults to a single `desktop`
@@ -159,6 +164,67 @@ tolerance_px = 3
 
 Consumed by `edge/near-alignment`.
 
+## `[shadow]`
+
+```toml
+[shadow]
+scale = [
+  "none",
+  "0 1px 2px rgba(0, 0, 0, 0.05)",
+  "0 4px 8px rgba(0, 0, 0, 0.08)",
+  "0 12px 24px rgba(0, 0, 0, 0.12)",
+]
+```
+
+| Field | Type | Default | Meaning |
+|-------|------|---------|---------|
+| `scale` | `[string]` | `[]` | Allowed `box-shadow` values. Each entry MUST match the exact string returned by `getComputedStyle`. Empty disables the rule. |
+
+Consumed by `shadow/scale-conformance`.
+
+## `[z_index]`
+
+```toml
+[z_index]
+scale = [0, 10, 100, 1000]
+```
+
+| Field | Type | Default | Meaning |
+|-------|------|---------|---------|
+| `scale` | `[i32]` | `[]` | Allowed `z-index` values. Negative integers are accepted. Empty disables the rule. |
+
+Consumed by `z/scale-conformance`.
+
+## `[opacity]`
+
+```toml
+[opacity]
+scale = [0.0, 0.5, 0.75, 1.0]
+```
+
+| Field | Type | Default | Meaning |
+|-------|------|---------|---------|
+| `scale` | `[f32]` | `[]` | Allowed `opacity` values in the closed range `[0.0, 1.0]`. Empty disables the rule. |
+
+Consumed by `opacity/scale-conformance`.
+
+## `[rhythm]`
+
+```toml
+[rhythm]
+base_line_px = 8
+tolerance_px = 2
+cap_height_fallback_px = 0
+```
+
+| Field | Type | Default | Meaning |
+|-------|------|---------|---------|
+| `base_line_px` | `u32` | `0` | Vertical-rhythm grid step in CSS pixels. `0` disables the rule. |
+| `tolerance_px` | `u32` | `2` | Pixels of drift allowed before a baseline is reported off-rhythm. |
+| `cap_height_fallback_px` | `u32` | `0` | Cap-height value to use when the snapshot lacks font metrics. `0` keeps the rule's built-in heuristic. |
+
+Consumed by `baseline/rhythm`.
+
 ## `[a11y]`
 
 ```toml
@@ -177,6 +243,39 @@ min_height_px = 24
 | `touch_target.min_height_px` | `u32` | `24` | Minimum touch-target height. |
 
 Consumed by `a11y/touch-target` and `color/contrast-aa`.
+
+## `[[ignore]]`
+
+Selector-scoped runtime suppressions. Each `[[ignore]]` block silences
+every violation whose CSS selector path matches `selector` exactly
+(string equality only — Plumb does not run a CSS engine over the
+snapshot). When `rule_id` is set, the suppression is constrained to
+that single rule; when `rule_id` is omitted, every rule fired at the
+selector is suppressed. Suppressed violations are partitioned out of
+the report and counted under `ignored` rather than silently dropped.
+
+```toml
+[[ignore]]
+selector = "html > body"
+rule_id = "spacing/grid-conformance"
+reason = "mdBook root padding is theme-controlled"
+
+[[ignore]]
+selector = "main > article"
+reason = "vendor widget styles its own column"
+```
+
+| Field | Type | Default | Meaning |
+|-------|------|---------|---------|
+| `selector` | `string` | required | Exact `SnapshotNode.selector` path to suppress. |
+| `rule_id` | `string?` | `null` | Optional rule id (e.g. `spacing/grid-conformance`). When omitted, all rules at `selector` are suppressed. |
+| `reason` | `string` | required | Human-readable justification. Documents why the exemption is intentional. |
+
+`plumb lint --suggest-ignores` emits one suggestion per active
+violation in the same shape — pipe its output into `[[ignore]]` blocks
+to converge on a clean baseline. See
+[`--suggest-ignores`](./cli/suggest-ignores.md) for the full footer
+format.
 
 ## `[rules."<category>/<id>"]`
 

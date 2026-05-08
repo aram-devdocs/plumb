@@ -48,27 +48,23 @@ Ask Codex:
 
 Codex calls `lint_url` and returns the violation summary.
 
-## Gotchas
+## Common issues
 
-**PATH resolution.** Codex runs commands in a sandboxed environment.
-If `plumb` is not on the default `PATH`, register the server with an
-absolute path:
+> PATH resolution, working directory, large responses, and sandboxed
+> network access apply to every agent integration. See
+> [Common issues](../mcp.md#common-issues) for the consolidated list.
+
+The Codex-specific note: register the server with an absolute path
+when the sandbox `PATH` does not include `plumb`:
 
 ```sh
 codex mcp add plumb -- /home/you/.cargo/bin/plumb mcp
 ```
 
-**Network access.** Codex sandboxes may restrict outbound network
-access. `lint_url` with real URLs requires the sandbox to allow
-Chromium to connect to the target site. `plumb-fake://hello` works
-without network access and is useful for verifying the tool chain.
-
-**Working directory.** The MCP server resolves `plumb.toml` from the
-working directory. Place your `plumb.toml` in the project root where
-Codex runs.
-
-**Large responses.** The same 50 KB cap on `detail: "full"` applies.
-Use `compact` mode for pages with many violations.
+Codex sandboxes may also block outbound network. Use
+`plumb-fake://hello` to verify the tool chain without granting
+network access; only `lint_url` against a real host needs the
+network allowance.
 
 ## See also
 

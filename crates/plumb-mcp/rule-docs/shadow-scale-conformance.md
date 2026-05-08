@@ -86,4 +86,3 @@ severity = "info"
 
 - [`opacity/scale-conformance`](./opacity-scale-conformance.md) —
   the sibling rule for opacity tokens.
-- PRD §11 — rule catalog.

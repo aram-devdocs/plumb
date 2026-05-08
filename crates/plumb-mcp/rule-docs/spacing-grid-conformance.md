@@ -19,8 +19,8 @@ residue so subpixel rounding from `getComputedStyle` does not produce
 spurious noise.
 
 The `margin` and `padding` shorthands are deliberately excluded — the
-Chromium driver returns longhands per PRD §10.3, and checking both
-shapes would emit two violations for the same logical issue.
+Chromium driver returns longhands, and checking both shapes would emit
+two violations for the same logical issue.
 
 The rule MUST skip a property when:
 
@@ -99,4 +99,3 @@ applied at the formatter layer.
 
 - [`spacing/scale-conformance`](./spacing-scale-conformance.md) — the
   discrete-token sibling check.
-- PRD §11.2 — spacing rules and the token model.
