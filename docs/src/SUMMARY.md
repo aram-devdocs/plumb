@@ -50,6 +50,12 @@
 
 - [Benchmarks](./performance.md)
 
+# Reference
+
+- [Versioning](./versioning.md)
+- [Security](./security.md)
+
 # Contributing
 
+- [Contributing guide](./contributing.md)
 - [Architecture decision records](./adr.md)

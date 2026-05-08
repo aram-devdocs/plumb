@@ -61,33 +61,16 @@ Ask Cursor's agent:
 The agent calls `lint_url` and returns the violation summary. Request
 `detail: "full"` for the complete JSON output.
 
-## Gotchas
+## Common issues
 
-**PATH resolution.** Cursor may not inherit your shell's full `PATH`,
-especially on macOS where GUI apps get a minimal environment. If
-`plumb` is not found, use the absolute path in the config:
+> PATH resolution, working directory, large responses, and tool
+> approval prompts apply to every agent integration. See
+> [Common issues](../mcp.md#common-issues) for the consolidated list.
 
-```json
-{
-  "mcpServers": {
-    "plumb": {
-      "command": "/Users/you/.cargo/bin/plumb",
-      "args": ["mcp"]
-    }
-  }
-}
-```
-
-**Working directory.** The MCP server resolves `plumb.toml` relative
-to the working directory where Cursor launches the command. This is
-usually your project root. Place `plumb.toml` there.
-
-**Tool approval.** Cursor may prompt you to approve MCP tool calls
-on first use. Accept the prompt to allow Plumb tools.
-
-**Large responses.** The 50 KB cap on `detail: "full"` applies here
-as well. Use `compact` mode (the default) for pages with many
-violations.
+The Cursor-specific note: macOS GUI Cursor often launches with a
+minimal `PATH`, so an absolute binary path in `.cursor/mcp.json` is
+the most reliable fix. Cursor also prompts to approve MCP tool calls
+on first use — accept the prompt to allow Plumb tools.
 
 ## See also
 
