@@ -44,7 +44,7 @@ indexmap = { workspace = true }
 # CSS selector matcher for `--selector` (PRD §15.4). `errors` exposes the
 # selector parser's error types; `deterministic` keeps internal hash maps
 # deterministic so filter output is byte-stable across runs.
-scraper = { version = "0.26", default-features = false, features = ["errors", "deterministic"] }
+scraper = { version = "0.27", default-features = false, features = ["errors", "deterministic"] }
 # Filesystem watcher for `plumb watch` (#83). The debouncer collapses
 # bursts (editor save → temp file dance → atomic rename) into a single
 # cycle so the lint inner call runs at most once per debounce window.
