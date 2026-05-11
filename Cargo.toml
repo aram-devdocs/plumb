@@ -109,7 +109,7 @@ rayon = "1"
 # `notify-debouncer-full` collapses bursts of related events into a single
 # debounced cycle.
 notify = "8"
-notify-debouncer-full = "0.6"
+notify-debouncer-full = "0.7"
 
 # Dev-only.
 insta = { version = "1", features = ["json", "yaml", "filters"] }
