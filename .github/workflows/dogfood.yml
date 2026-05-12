@@ -45,9 +45,19 @@ jobs:
       - name: Lint deployed docs
         env:
           CHROME_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
+        # `plumb lint` exits 3 on warnings-only — treat that as a
+        # success signal alongside 0. Anything else (errors, infra
+        # failure) still fails the job. Mirrors the test-sites leg
+        # below.
         run: |
+          set -euo pipefail
           target/release/plumb lint https://plumb.aramhammoudeh.com/ \
-            --executable-path "$CHROME_PATH"
+            --executable-path "$CHROME_PATH" || code=$?
+          : "${code:=0}"
+          if [ "$code" != "0" ] && [ "$code" != "3" ]; then
+            echo "::error::plumb lint exited $code"
+            exit "$code"
+          fi
 
   lint-deployed-test-sites:
     name: lint deployed test-sites
@@ -99,7 +109,13 @@ jobs:
 
       # Lint the local build via the harness — establishes the local
       # violation breakdown that the deployed copy must match.
+      #
+      # Next.js leg is advisory until upstream chromiumoxide handles
+      # the WebSocket "Invalid message" warnings that fire during
+      # Next.js's hydration phase on Linux Chromium — same gate as
+      # e2e-sites.yml. Tracking via re-opened #233.
       - name: Lint local copy via harness
+        continue-on-error: ${{ matrix.framework == 'nextjs' }}
         env:
           CHROME_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
         run: |
@@ -116,6 +132,7 @@ jobs:
       # promises. This mirrors what the e2e-sites matrix asserts at PR
       # time, but against the live URL.
       - name: Lint deployed copy and diff against expected.json
+        continue-on-error: ${{ matrix.framework == 'nextjs' }}
         env:
           CHROME_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
         run: |

@@ -104,7 +104,9 @@ fn macos_candidates<P: FsProbe>(probe: &P) -> Vec<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::{FsProbe, detect_with, macos_candidates};
+    #[cfg(unix)]
+    use super::macos_candidates;
+    use super::{FsProbe, detect_with};
     use std::collections::HashSet;
     use std::path::{Path, PathBuf};
 
@@ -134,6 +136,12 @@ mod tests {
         }
     }
 
+    /// Static-ordering check that doesn't probe the filesystem. Gated
+    /// to `unix` because the assertions compare forward-slash literals
+    /// against `Path::display()`, which uses `\` separators on Windows
+    /// — and `macos_candidates` is only reached in production on macOS
+    /// (see `detect_with`), so Windows coverage adds no signal.
+    #[cfg(unix)]
     #[test]
     fn macos_candidate_order_lists_system_apps_then_user_apps() {
         let fs = FakeFs::new(&[], Some("/Users/example"));
