@@ -116,7 +116,7 @@ jobs:
       - uses: taiki-e/install-action@cargo-llvm-cov
       - name: cargo llvm-cov
         run: cargo llvm-cov --workspace --all-features --lcov --output-path coverage.lcov
-      - uses: codecov/codecov-action@v6
+      - uses: codecov/codecov-action@v7
         with:
           files: coverage.lcov
           fail_ci_if_error: false
