@@ -155,13 +155,14 @@ async fn run_one_cycle(lint: &LintArgs, changed: usize) -> Result<ExitCode> {
 ///
 /// `lint::run` writes the rendered output to stdout itself; the
 /// process-level counter we care about for the status line is the
-/// PRD §13.3 exit-code bucket: errors / warnings-only / clean. We
-/// expose that as a 0-or-1 count today; a finer-grained number can
-/// land in a follow-up by threading the count out of `lint::run`.
+/// PRD §13.3 exit-code bucket: findings-at/above-threshold (exit 1) vs
+/// clean (exit 0). We expose that as a 0-or-1 count today; a
+/// finer-grained number can land in a follow-up by threading the count
+/// out of `lint::run`.
 async fn capture_lint_metrics(args: LintArgs) -> Result<(usize, ExitCode)> {
     let exit_code = run_lint(args).await?;
     let bucket = format!("{exit_code:?}");
-    let count = usize::from(bucket.contains('1') || bucket.contains('3'));
+    let count = usize::from(bucket.contains('1'));
     Ok((count, exit_code))
 }
 
@@ -312,6 +313,9 @@ fn clone_lint_args(src: &LintArgs) -> LintArgs {
         config_path: src.config_path.clone(),
         executable_path: src.executable_path.clone(),
         format: src.format,
+        min_severity: src.min_severity,
+        rule_ids: src.rule_ids.clone(),
+        max_findings: src.max_findings,
         output_path: src.output_path.clone(),
         viewports: src.viewports.clone(),
         selector: src.selector.clone(),

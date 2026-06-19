@@ -63,6 +63,28 @@ enum Command {
         /// Output format.
         #[arg(long, value_enum, default_value_t = Format::Pretty)]
         format: Format,
+        /// Minimum severity to show and count toward the exit code.
+        ///
+        /// One of `info`, `warn`, `error`, `off`. Ordering is
+        /// `error` > `warn` > `info`. The default `warn` shows warnings
+        /// and errors and hides info; `error` shows only errors; `info`
+        /// shows everything; `off` shows nothing and forces exit 0.
+        #[arg(long, value_enum, default_value_t = MinSeverity::Warn)]
+        min_severity: MinSeverity,
+        /// Show only violations from this rule id (repeatable).
+        ///
+        /// Applied on top of `--min-severity`. Unknown ids simply match
+        /// nothing, so a typo yields an empty, clean (exit 0) run.
+        #[arg(long = "rule", value_name = "RULE_ID", action = ArgAction::Append)]
+        rules: Vec<String>,
+        /// Cap the number of findings shown after severity/rule filtering
+        /// and the engine's deterministic sort.
+        ///
+        /// Pretty output gains a footer counting the hidden findings;
+        /// JSON sets a top-level `truncated` flag while `summary` keeps
+        /// counting the full filtered set. No cap when unset.
+        #[arg(long, value_name = "N")]
+        max_findings: Option<usize>,
         /// Write the rendered lint output to a file instead of stdout.
         #[arg(long, value_name = "PATH")]
         output: Option<PathBuf>,
@@ -207,6 +229,18 @@ enum Command {
         /// Output format.
         #[arg(long, value_enum, default_value_t = Format::Pretty)]
         format: Format,
+        /// Minimum severity to show and count toward the exit code.
+        /// Mirrors `plumb lint --min-severity`.
+        #[arg(long, value_enum, default_value_t = MinSeverity::Warn)]
+        min_severity: MinSeverity,
+        /// Show only violations from this rule id (repeatable). Mirrors
+        /// `plumb lint --rule`.
+        #[arg(long = "rule", value_name = "RULE_ID", action = ArgAction::Append)]
+        rules: Vec<String>,
+        /// Cap the number of findings shown per cycle. Mirrors
+        /// `plumb lint --max-findings`.
+        #[arg(long, value_name = "N")]
+        max_findings: Option<usize>,
         /// Restrict the run to the named viewports (repeatable).
         #[arg(long = "viewport", value_name = "NAME", action = ArgAction::Append)]
         viewports: Vec<String>,
@@ -290,6 +324,21 @@ enum Format {
     Sarif,
 }
 
+/// Minimum severity that `plumb lint` shows and counts toward the exit
+/// code. Ordering is `error` > `warn` > `info`: a violation is kept when
+/// its severity is at or above the selected level.
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum MinSeverity {
+    /// Show everything: info, warnings, and errors.
+    Info,
+    /// Show warnings and errors; hide info. The default.
+    Warn,
+    /// Show only errors.
+    Error,
+    /// Show nothing and always exit 0.
+    Off,
+}
+
 #[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
 enum McpTransport {
     /// Serve MCP over stdin/stdout.
@@ -331,6 +380,9 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 config,
                 executable_path,
                 format,
+                min_severity,
+                rules,
+                max_findings,
                 output,
                 viewports,
                 selector,
@@ -351,6 +403,9 @@ fn run(cli: Cli) -> Result<ExitCode> {
                     config_path: config,
                     executable_path,
                     format: format.into(),
+                    min_severity: min_severity.into(),
+                    rule_ids: rules,
+                    max_findings,
                     output_path: output,
                     viewports,
                     selector,
@@ -377,6 +432,9 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 config,
                 executable_path,
                 format,
+                min_severity,
+                rules,
+                max_findings,
                 viewports,
                 selector,
                 wait_for,
@@ -399,6 +457,9 @@ fn run(cli: Cli) -> Result<ExitCode> {
                         config_path: config,
                         executable_path,
                         format: format.into(),
+                        min_severity: min_severity.into(),
+                        rule_ids: rules,
+                        max_findings,
                         output_path: None,
                         viewports,
                         selector,

@@ -16,6 +16,9 @@ major version falls in Plumb's supported range (see
 | `-c`, `--config <path>` | Config file path. Defaults to `plumb.toml` in CWD. |
 | `--executable-path <path>` | Chrome or Chromium binary to use instead of auto-detection. |
 | `--format <pretty\|json\|sarif>` | Output format. Default: `pretty`. |
+| `--min-severity <info\|warn\|error\|off>` | Lowest severity to show and count toward the exit code. Default: `warn`. `off` shows nothing and exits 0. |
+| `--rule <id>` | Show only violations from this rule id. Repeatable. Unknown ids match nothing. |
+| `--max-findings <n>` | Cap the rendered findings after filtering and sorting. Pretty adds a footer; JSON sets a `truncated` flag while `summary` keeps the full count. |
 | `--output <path>` | Write rendered output to a file instead of stdout. |
 | `-v`, `--verbose` | Increase log verbosity. `-vv` for trace. |
 | `--viewport <name>` | Restrict the run to the named viewport. Repeatable. |
@@ -36,16 +39,17 @@ Exit codes:
 
 | Code | Meaning |
 |------|---------|
-| 0 | No violations, or only `info`-severity violations. |
-| 1 | One or more `error`-severity violations. |
+| 0 | No violations at or above `--min-severity` (default `warn`). |
+| 1 | One or more violations at or above the `--min-severity` threshold. |
 | 2 | CLI or infrastructure failure (bad URL, missing config, etc.). |
-| 3 | Only `warning`-severity violations (no errors). |
 
-`info`-severity violations are reported in the output but never fail
-the run on their own — the bucket is reserved for advisory checks
-(suggestions, low-confidence fixes) you might want surfaced without
-breaking CI. Use `[rules."<id>"] severity = "warning"` to promote a
-specific advisory rule into the CI-failing tier.
+`--min-severity` (`info` < `warn` < `error`, default `warn`) sets the
+threshold. The default hides `info`-severity violations from the output
+and the exit code, so advisory checks (suggestions, low-confidence fixes)
+never break CI on their own; run `--min-severity info` to surface them.
+`--min-severity off` shows nothing and always exits 0. Use
+`[rules."<id>"] severity = "warning"` to promote a specific advisory rule
+into the default CI-failing tier.
 
 ### `plumb init`
 

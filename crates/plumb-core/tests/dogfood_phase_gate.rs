@@ -6,6 +6,13 @@
 //! phase-gate failure. The fixture intentionally includes one clean
 //! control for each configured design-system scale so cross-rule noise
 //! shows up here instead of being hidden by per-rule filtering.
+//!
+//! `spacing/grid-conformance` defers to `spacing.scale`: a value the
+//! scale lists is never flagged off-grid. So a value that is off the
+//! base-unit grid is only reported when it is also off the scale, which
+//! means the same value also trips `spacing/scale-conformance`. The
+//! `#spacing-grid > .off-grid` control (`5px`, off both axes) therefore
+//! co-fires both spacing rules by design.
 
 use std::collections::BTreeMap;
 
@@ -234,7 +241,10 @@ fn dogfood_config() -> Config {
     Config {
         spacing: SpacingSpec {
             base_unit: 4,
-            scale: vec![0, 4, 5, 8, 12, 16, 24, 32, 48],
+            // `5` is deliberately absent so the `5px` off-grid control is
+            // also off-scale; grid-conformance now defers to the scale,
+            // so an on-scale value would no longer be flagged off-grid.
+            scale: vec![0, 4, 8, 12, 16, 24, 32, 48],
             tokens: IndexMap::new(),
         },
         type_scale: TypeScaleSpec {
@@ -317,7 +327,9 @@ fn phase_2_dogfood_fixture_exercises_all_mvp_rules_without_extra_findings() {
         ("radius/scale-conformance".to_owned(), 1),
         ("sibling/height-consistency".to_owned(), 1),
         ("spacing/grid-conformance".to_owned(), 1),
-        ("spacing/scale-conformance".to_owned(), 1),
+        // The `5px` off-grid control is also off-scale, so it co-fires
+        // scale-conformance alongside the `20px` on-grid/off-scale control.
+        ("spacing/scale-conformance".to_owned(), 2),
         ("type/scale-conformance".to_owned(), 1),
     ]);
 

@@ -242,6 +242,91 @@ fn spacing_grid_conformance_tolerance_band() {
     );
 }
 
+/// Build a one-node snapshot carrying a single spacing property and
+/// count `spacing/grid-conformance` violations under `config`. Lets the
+/// scale-deferral tests vary both the property value and the configured
+/// `spacing.scale`.
+fn grid_violations_with(prop: &str, value: &str, config: &Config) -> usize {
+    let only = node(
+        2,
+        "html > body > div:nth-child(1)",
+        &[(prop, value)],
+        Some(Rect {
+            x: 0,
+            y: 0,
+            width: 200,
+            height: 100,
+        }),
+    );
+    let snapshot = PlumbSnapshot {
+        url: "plumb-fake://spacing-grid-scale".into(),
+        viewport: ViewportKey::new("desktop"),
+        viewport_width: 1280,
+        viewport_height: 800,
+        nodes: vec![root_html_with_body(), body_node(), only],
+        text_boxes: Vec::new(),
+    };
+    run(&snapshot, config)
+        .into_iter()
+        .filter(|v| v.rule_id == "spacing/grid-conformance")
+        .count()
+}
+
+/// Config with an explicit `base_unit` and `spacing.scale`, everything
+/// else default. Used by the scale-deferral tests.
+fn config_with_scale(base_unit: u32, scale: Vec<u32>) -> Config {
+    Config {
+        spacing: SpacingSpec {
+            base_unit,
+            scale,
+            tokens: IndexMap::new(),
+        },
+        ..Config::default()
+    }
+}
+
+#[test]
+fn spacing_grid_conformance_defers_to_configured_scale() {
+    // Tailwind-style scale with 2px half-steps. `base_unit` stays 4, so
+    // 10px is off the base-4 grid yet explicitly on the design system's
+    // scale — it must NOT fire.
+    let config = config_with_scale(4, vec![0, 2, 4, 6, 8, 10, 12, 14, 16]);
+
+    assert_eq!(
+        grid_violations_with("padding-top", "10px", &config),
+        0,
+        "10px is on the configured scale (off base-4 grid) — no violation"
+    );
+    assert_eq!(
+        grid_violations_with("padding-top", "13px", &config),
+        1,
+        "13px is neither on the scale nor on the base-4 grid — off-grid"
+    );
+    assert_eq!(
+        grid_violations_with("padding-top", "10.4px", &config),
+        0,
+        "10.4px is within 0.5 of the scale member 10 — on-scale"
+    );
+    assert_eq!(
+        grid_violations_with("padding-top", "10.6px", &config),
+        1,
+        "10.6px is more than 0.5 from every scale member — off-grid"
+    );
+}
+
+#[test]
+fn spacing_grid_conformance_empty_scale_uses_base_unit() {
+    // Default-style config: an empty scale means the rule falls back to
+    // the pure base-unit grid. 10px is off the base-4 grid and there is
+    // no scale member to defer to.
+    let config = config_with_scale(4, Vec::new());
+    assert_eq!(
+        grid_violations_with("padding-top", "10px", &config),
+        1,
+        "empty scale → pure base-4 grid; 10px is off-grid"
+    );
+}
+
 #[test]
 fn spacing_grid_conformance_run_is_deterministic() -> Result<(), serde_json::Error> {
     let snapshot = fixture_snapshot();

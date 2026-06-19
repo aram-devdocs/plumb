@@ -45,16 +45,18 @@ jobs:
       - name: Lint deployed docs
         env:
           CHROME_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
-        # `plumb lint` exits 3 on warnings-only — treat that as a
-        # success signal alongside 0. Anything else (errors, infra
-        # failure) still fails the job. Mirrors the test-sites leg
-        # below.
+        # `--min-severity error` keeps warnings off the exit code, so a
+        # warnings-only run (the steady state for the deployed docs)
+        # exits 0. An `error`-severity violation exits 1 and an infra
+        # failure exits 2 — both still fail the job. Mirrors the
+        # test-sites leg below.
         run: |
           set -euo pipefail
           target/release/plumb lint https://plumb.aramhammoudeh.com/ \
-            --executable-path "$CHROME_PATH" || code=$?
+            --executable-path "$CHROME_PATH" \
+            --min-severity error || code=$?
           : "${code:=0}"
-          if [ "$code" != "0" ] && [ "$code" != "3" ]; then
+          if [ "$code" != "0" ]; then
             echo "::error::plumb lint exited $code"
             exit "$code"
           fi
@@ -143,11 +145,12 @@ jobs:
             --config e2e-sites/plumb.toml \
             --format json \
             > deployed.json || code=$?
-          # `plumb lint` exits 3 on warnings-only — that is the expected
-          # steady state for every fixture. Anything else is an infra
-          # failure that bubbles up.
+          # `plumb lint` exits 1 when any violation is at/above the
+          # default `warn` threshold — the expected steady state for
+          # every fixture. The JSON breakdown below is the real gate;
+          # exit 2 (infra failure) still bubbles up here.
           : "${code:=0}"
-          if [ "$code" != "0" ] && [ "$code" != "3" ]; then
+          if [ "$code" != "0" ] && [ "$code" != "1" ]; then
             echo "::error::plumb lint exited $code"
             exit "$code"
           fi

@@ -5,6 +5,15 @@
 //! per side, plus `gap` / `row-gap` / `column-gap`) and emits one
 //! violation per offending property when the parsed pixel value isn't
 //! a multiple of `config.spacing.base_unit`.
+//!
+//! The rule defers to the configured spacing scale. When
+//! `config.spacing.scale` is non-empty and the parsed value sits within
+//! `GRID_TOLERANCE_PX` of one of its members, the value is treated as
+//! on the design system and skipped — even when it's off the base-unit
+//! grid. This matters for Tailwind, whose scale includes 2px half-steps
+//! (6/10/14px, …) that a pure "multiple of `base_unit`" test would flag.
+//! An empty scale (the default config) restores the plain base-unit
+//! grid behavior.
 
 use indexmap::IndexMap;
 
@@ -12,7 +21,7 @@ use crate::config::Config;
 use crate::report::{Confidence, Fix, FixKind, Severity, Violation, ViolationSink};
 use crate::rules::Rule;
 use crate::rules::spacing::SPACING_PROPERTIES;
-use crate::rules::util::{nearest_multiple, parse_px};
+use crate::rules::util::{nearest_in_scale, nearest_multiple, parse_px};
 use crate::snapshot::SnapshotCtx;
 
 /// Tolerance for the off-grid test, in CSS pixels. A value within this
@@ -23,6 +32,12 @@ use crate::snapshot::SnapshotCtx;
 const GRID_TOLERANCE_PX: f64 = 0.5;
 
 /// Flags spacing values that aren't multiples of `spacing.base_unit`.
+///
+/// Values explicitly listed in `config.spacing.scale` are exempt: when
+/// the parsed value is within `GRID_TOLERANCE_PX` of a scale member it
+/// is treated as on the design system and never flagged, even if it
+/// falls off the base-unit grid. When the scale is empty the rule checks
+/// against the base unit alone.
 #[derive(Debug, Clone, Copy)]
 pub struct GridConformance;
 
@@ -53,6 +68,19 @@ impl Rule for GridConformance {
                     continue;
                 };
                 let Some(value) = parse_px(raw) else { continue };
+                // Defer to the configured spacing scale. When the design
+                // system explicitly lists a value — Tailwind populates
+                // `spacing.scale` with its tokens, including 2px
+                // half-steps like 6/10/14px — that value belongs even
+                // though it's off the `base_unit` grid. Skip the off-grid
+                // test when `value` is within `GRID_TOLERANCE_PX` of its
+                // nearest scale member. An empty scale (default config)
+                // yields `None` here, preserving the pure base-unit grid.
+                if let Some(on_scale) = nearest_in_scale(value, &config.spacing.scale)
+                    && (value.abs() - f64::from(on_scale)).abs() <= GRID_TOLERANCE_PX
+                {
+                    continue;
+                }
                 let suggested = nearest_multiple(value, base_unit);
                 #[allow(clippy::cast_precision_loss)]
                 let nearest = suggested as f64;

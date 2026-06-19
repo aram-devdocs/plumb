@@ -22,10 +22,14 @@ This is the ONLY crate allowed to:
 
 | Code | Meaning |
 |------|---------|
-| 0 | No violations. |
-| 1 | One or more `error`-severity violations. |
+| 0 | No violations at or above `--min-severity` (default `warn`). |
+| 1 | One or more violations at or above the `--min-severity` threshold. |
 | 2 | CLI / infrastructure failure (bad URL, missing config, driver error). |
-| 3 | Only `warning`-severity violations. |
+
+`--min-severity` (`info` < `warn` < `error`, default `warn`) decides which
+severities count toward the exit code; `--min-severity off` always exits 0.
+Code 3 is reserved by PRD §13.3 for user-facing input errors and is owned
+by clap's own usage-error path, not `exit_code_for`.
 
 ## Non-negotiable invariants
 
