@@ -52,12 +52,12 @@ serde_json = { workspace = true }
 url = { workspace = true }
 # SHA-256 verification of auto-fetched Chromium binaries (issue #78).
 sha2 = { workspace = true }
+tempfile = { workspace = true }
 
 [dev-dependencies]
 plumb-core = { workspace = true, features = ["test-fake"] }
 tokio = { workspace = true, features = ["test-util"] }
 serde_json = { workspace = true }
-tempfile = { workspace = true }
 tracing-subscriber = { workspace = true }
 criterion = { workspace = true }
 

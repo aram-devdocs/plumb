@@ -60,21 +60,25 @@ use plumb_core::{PlumbSnapshot, ViewportKey};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use tempfile::TempDir;
 
 use chromiumoxide::Page;
+use chromiumoxide::browser::BrowserConfigBuilder;
 use chromiumoxide::cdp::browser_protocol::browser::CloseParams as BrowserCloseParams;
 use chromiumoxide::cdp::browser_protocol::dom_snapshot::{
     CaptureSnapshotParams, CaptureSnapshotReturns, DocumentSnapshot,
 };
 use chromiumoxide::cdp::browser_protocol::emulation::SetDeviceMetricsOverrideParams;
 use chromiumoxide::cdp::browser_protocol::network::{
-    CookieParam, Headers, SetCookiesParams, SetExtraHttpHeadersParams,
+    CookieParam, EnableParams as NetworkEnableParams, EventLoadingFailed, Headers, ResourceType,
+    SetCookiesParams, SetExtraHttpHeadersParams,
 };
 use chromiumoxide::cdp::browser_protocol::page::AddScriptToEvaluateOnNewDocumentParams;
 use chromiumoxide::cdp::browser_protocol::target::{
     CreateBrowserContextParams, CreateTargetParams,
 };
 use chromiumoxide::detection::DetectionOptions;
+use chromiumoxide::listeners::EventStream;
 use chromiumoxide::{Browser, BrowserConfig, Handler};
 use futures_util::StreamExt;
 use serde::Deserialize;
@@ -777,11 +781,9 @@ pub struct ChromiumOptions {
     /// Explicit Chrome or Chromium executable path. When unset, Plumb asks
     /// `chromiumoxide` to detect stable Chrome/Chromium installations.
     pub executable_path: Option<PathBuf>,
-    /// Override the Chromium profile directory. When unset, `chromiumoxide`
-    /// reuses a single temp directory across all launches — which is fine
-    /// for sequential CLI invocations but causes profile-singleton lock
-    /// contention when multiple drivers run concurrently (e.g. the e2e
-    /// test suite). Tests pass per-thread tempdirs here.
+    /// Override the Chromium profile directory. When unset, Plumb creates an
+    /// isolated temporary profile per browser launch so concurrent or
+    /// back-to-back drivers never contend on Chromium's SingletonLock.
     ///
     /// Profile contents do not flow into [`PlumbSnapshot`] output, so
     /// varying this path does not violate the determinism invariant.
@@ -821,6 +823,11 @@ pub struct ChromiumDriver {
     options: ChromiumOptions,
 }
 
+struct ChromiumLaunch {
+    config: BrowserConfig,
+    profile_dir: Option<TempDir>,
+}
+
 impl ChromiumDriver {
     /// Build a driver with explicit options.
     #[must_use]
@@ -832,7 +839,7 @@ impl ChromiumDriver {
         &self,
         target: &Target,
         resolved_executable: Option<&Path>,
-    ) -> Result<BrowserConfig, CdpError> {
+    ) -> Result<ChromiumLaunch, CdpError> {
         // PRD §16: pinning launch args removes a class of nondeterminism
         // (scrollbar overlay differences across DPRs, OS-level scaling).
         let scale_factor_arg = format!("--force-device-scale-factor={}", target.device_pixel_ratio);
@@ -865,13 +872,14 @@ impl ChromiumDriver {
             builder
         };
 
-        let builder = if let Some(profile) = &self.options.user_data_dir {
-            builder.user_data_dir(profile)
-        } else {
-            builder
-        };
+        let (builder, profile_dir) =
+            apply_user_data_dir(builder, self.options.user_data_dir.as_deref())?;
 
-        builder.build().map_err(|_| chromium_not_found())
+        let config = builder.build().map_err(|_| chromium_not_found())?;
+        Ok(ChromiumLaunch {
+            config,
+            profile_dir,
+        })
     }
 }
 
@@ -901,8 +909,8 @@ impl BrowserDriver for ChromiumDriver {
         // factor for every page after the first.
         let first = &targets[0];
         let resolved_executable = resolve_auto_fetch(&self.options).await?;
-        let config = self.browser_config(first, resolved_executable.as_deref())?;
-        let mut session = ChromiumSession::launch(config).await?;
+        let launch = self.browser_config(first, resolved_executable.as_deref())?;
+        let mut session = ChromiumSession::launch(launch).await?;
 
         let result: Result<Vec<PlumbSnapshot>, CdpError> = async {
             validate_browser_version(&session.browser).await?;
@@ -961,7 +969,7 @@ async fn capture_on_page(
     // cookie installation and localStorage replay.
     let storage_state = pre_navigate(page, target, options).await?;
 
-    page.goto(target.url.as_str()).await.map_err(driver_error)?;
+    navigate_page(page, target.url.as_str()).await?;
 
     apply_post_navigate_waits(page, target).await?;
     apply_storage_state_local_storage(page, target, storage_state.as_ref()).await?;
@@ -1002,6 +1010,7 @@ pub struct PersistentBrowser {
 struct PersistentBrowserInner {
     browser: Browser,
     handler_task: Mutex<Option<JoinHandle<()>>>,
+    _profile_dir: Option<TempDir>,
     options: ChromiumOptions,
 }
 
@@ -1021,8 +1030,10 @@ impl PersistentBrowser {
     /// range, or [`CdpError::Driver`] for any other launch failure.
     pub async fn launch(options: ChromiumOptions) -> Result<Self, CdpError> {
         let resolved_executable = resolve_auto_fetch(&options).await?;
-        let config = persistent_browser_config(&options, resolved_executable.as_deref())?;
-        let (browser, handler) = Browser::launch(config).await.map_err(map_launch_error)?;
+        let launch = persistent_browser_config(&options, resolved_executable.as_deref())?;
+        let (browser, handler) = Browser::launch(launch.config)
+            .await
+            .map_err(map_launch_error)?;
         let handler_task = poll_handler(handler);
 
         // Validate the version before stashing the browser in `Arc` —
@@ -1038,6 +1049,7 @@ impl PersistentBrowser {
             inner: Arc::new(PersistentBrowserInner {
                 browser,
                 handler_task: Mutex::new(Some(handler_task)),
+                _profile_dir: launch.profile_dir,
                 options,
             }),
         })
@@ -1163,10 +1175,30 @@ impl BrowserDriver for PersistentBrowser {
     }
 }
 
+fn apply_user_data_dir(
+    builder: BrowserConfigBuilder,
+    user_data_dir: Option<&Path>,
+) -> Result<(BrowserConfigBuilder, Option<TempDir>), CdpError> {
+    if let Some(profile) = user_data_dir {
+        return Ok((builder.user_data_dir(profile), None));
+    }
+
+    let profile = tempfile::Builder::new()
+        .prefix("plumb-chromium-")
+        .tempdir()
+        .map_err(|err| {
+            CdpError::Driver(Box::new(io::Error::other(format!(
+                "create isolated Chromium profile: {err}"
+            ))))
+        })?;
+    let builder = builder.user_data_dir(profile.path());
+    Ok((builder, Some(profile)))
+}
+
 fn persistent_browser_config(
     options: &ChromiumOptions,
     resolved_executable: Option<&Path>,
-) -> Result<BrowserConfig, CdpError> {
+) -> Result<ChromiumLaunch, CdpError> {
     // PRD §16: pinning launch args removes a class of nondeterminism
     // (scrollbar overlay differences across DPRs, OS-level scaling).
     // `PersistentBrowser` does not fix a launch-time DPR — every
@@ -1194,13 +1226,13 @@ fn persistent_browser_config(
         builder
     };
 
-    let builder = if let Some(profile) = &options.user_data_dir {
-        builder.user_data_dir(profile)
-    } else {
-        builder
-    };
+    let (builder, profile_dir) = apply_user_data_dir(builder, options.user_data_dir.as_deref())?;
 
-    builder.build().map_err(|_| chromium_not_found())
+    let config = builder.build().map_err(|_| chromium_not_found())?;
+    Ok(ChromiumLaunch {
+        config,
+        profile_dir,
+    })
 }
 
 /// When auto-fetch is enabled and the user didn't pin an
@@ -1293,6 +1325,139 @@ async fn pre_navigate(
         None
     };
     Ok(storage_state)
+}
+
+#[derive(Debug, Deserialize)]
+struct NavigationState {
+    href: String,
+    #[serde(rename = "readyState")]
+    ready_state: String,
+    #[serde(rename = "isChromeErrorPage", default)]
+    is_chrome_error_page: bool,
+}
+
+async fn navigate_page(page: &Page, url: &str) -> Result<(), CdpError> {
+    if uses_chromiumoxide_goto(url) {
+        page.goto(url).await.map_err(driver_error)?;
+        return Ok(());
+    }
+
+    let mut navigation_failures = page
+        .event_listener::<EventLoadingFailed>()
+        .await
+        .map_err(driver_error)?;
+    page.execute(NetworkEnableParams::default())
+        .await
+        .map_err(driver_error)?;
+
+    let script = navigation_assignment_script(url)?;
+    let initial_result = page.evaluate(script.as_str()).await.map_err(driver_error);
+
+    wait_for_document_ready(page, url, initial_result.err(), &mut navigation_failures).await
+}
+
+fn uses_chromiumoxide_goto(url: &str) -> bool {
+    url.starts_with("file://")
+}
+
+fn navigation_assignment_script(url: &str) -> Result<String, CdpError> {
+    let quoted_url = serde_json::to_string(url).map_err(|err| {
+        CdpError::Driver(Box::new(io::Error::other(format!(
+            "serialize navigation URL: {err}"
+        ))))
+    })?;
+    Ok(format!("window.location.assign({quoted_url});"))
+}
+
+async fn wait_for_document_ready(
+    page: &Page,
+    display_url: &str,
+    initial_error: Option<CdpError>,
+    navigation_failures: &mut EventStream<EventLoadingFailed>,
+) -> Result<(), CdpError> {
+    let attempt = async {
+        loop {
+            tokio::select! {
+                biased;
+
+                failure = navigation_failures.next() => {
+                    if let Some(failure) = failure
+                        && document_navigation_failed(&failure)
+                    {
+                        return Err(navigation_failed_error(display_url, &failure.error_text));
+                    }
+                }
+                () = tokio::time::sleep(std::time::Duration::from_millis(50)) => {
+                    match read_navigation_state(page).await {
+                        Ok(state) if state.is_chrome_error_page => {
+                            return Err(chrome_error_page_error(display_url, &state.href));
+                        }
+                        Ok(state) if document_is_loaded(&state) => return Ok(()),
+                        Ok(_) | Err(_) => {}
+                    }
+                }
+            }
+        }
+    };
+
+    if let Ok(result) = tokio::time::timeout(std::time::Duration::from_secs(10), attempt).await {
+        return result;
+    }
+
+    let mut reason = format!("navigation to `{display_url}` exhausted 10s ready-state budget");
+    if let Some(err) = initial_error {
+        reason.push_str(" after initial location assignment failed: ");
+        reason.push_str(&err.to_string());
+    }
+    Err(CdpError::Driver(Box::new(io::Error::other(reason))))
+}
+
+fn document_navigation_failed(failure: &EventLoadingFailed) -> bool {
+    failure.r#type == ResourceType::Document && failure.canceled != Some(true)
+}
+
+fn navigation_failed_error(display_url: &str, error_text: &str) -> CdpError {
+    CdpError::Driver(Box::new(io::Error::other(format!(
+        "navigation to `{display_url}` failed: {error_text}"
+    ))))
+}
+
+fn chrome_error_page_error(display_url: &str, error_href: &str) -> CdpError {
+    CdpError::Driver(Box::new(io::Error::other(format!(
+        "navigation to `{display_url}` failed: Chrome rendered error page `{error_href}`"
+    ))))
+}
+
+fn document_is_loaded(state: &NavigationState) -> bool {
+    state.href != "about:blank" && state.ready_state == "complete" && !state.is_chrome_error_page
+}
+
+async fn read_navigation_state(page: &Page) -> Result<NavigationState, CdpError> {
+    let result = page
+        .evaluate(
+            "JSON.stringify({
+                href: window.location.href,
+                readyState: document.readyState,
+                isChromeErrorPage: window.location.protocol === 'chrome-error:'
+                    || document.getElementById('main-frame-error') !== null
+            })",
+        )
+        .await
+        .map_err(driver_error)?;
+    let raw: String = result.into_value().map_err(|err| {
+        CdpError::Driver(Box::new(io::Error::other(format!(
+            "read navigation state: {err}"
+        ))))
+    })?;
+    parse_navigation_state(&raw)
+}
+
+fn parse_navigation_state(raw: &str) -> Result<NavigationState, CdpError> {
+    serde_json::from_str(raw).map_err(|err| {
+        CdpError::Driver(Box::new(io::Error::other(format!(
+            "parse navigation state `{raw}`: {err}"
+        ))))
+    })
 }
 
 /// Wait stages that must run *after* navigation. PRD §15 — `--wait-for`
@@ -1646,15 +1811,19 @@ fn chromium_install_hint() -> String {
 struct ChromiumSession {
     browser: Browser,
     handler_task: JoinHandle<()>,
+    profile_dir: Option<TempDir>,
 }
 
 impl ChromiumSession {
-    async fn launch(config: BrowserConfig) -> Result<Self, CdpError> {
-        let (browser, handler) = Browser::launch(config).await.map_err(map_launch_error)?;
+    async fn launch(launch: ChromiumLaunch) -> Result<Self, CdpError> {
+        let (browser, handler) = Browser::launch(launch.config)
+            .await
+            .map_err(map_launch_error)?;
         let handler_task = poll_handler(handler);
         Ok(Self {
             browser,
             handler_task,
+            profile_dir: launch.profile_dir,
         })
     }
 
@@ -1665,6 +1834,7 @@ impl ChromiumSession {
                 tracing::debug!(error = %kill_err, "failed to kill Chromium after close error");
             }
             self.abort_handler().await;
+            let _profile_dir = self.profile_dir.take();
             return Err(close_err);
         }
 
@@ -1674,10 +1844,12 @@ impl ChromiumSession {
                 tracing::debug!(error = %kill_err, "failed to kill Chromium after wait error");
             }
             self.abort_handler().await;
+            let _profile_dir = self.profile_dir.take();
             return Err(cleanup_err);
         }
 
         self.abort_handler().await;
+        let _profile_dir = self.profile_dir.take();
         Ok(())
     }
 
@@ -2360,6 +2532,8 @@ fn rect_from_bounds(inner: &[f64]) -> Rect {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use super::{
         COMPUTED_STYLE_WHITELIST, CdpError, MAX_SUPPORTED_CHROMIUM_MAJOR,
         MIN_SUPPORTED_CHROMIUM_MAJOR,
@@ -2762,6 +2936,142 @@ mod tests {
         assert!((t.effective_dpr() - 1.0).abs() < f64::EPSILON);
         t.pin_dpr = Some(3.0);
         assert!((t.effective_dpr() - 3.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn browser_config_creates_isolated_profile_by_default() {
+        let driver = super::ChromiumDriver::new(super::ChromiumOptions {
+            executable_path: Some(PathBuf::from("/bin/echo")),
+            ..super::ChromiumOptions::default()
+        });
+        let launch = match driver.browser_config(&super::Target::default(), None) {
+            Ok(launch) => launch,
+            Err(err) => panic!("browser config failed: {err}"),
+        };
+
+        assert!(launch.profile_dir.is_some());
+        let Some(configured) = launch.config.user_data_dir.as_deref() else {
+            panic!("expected generated user data dir");
+        };
+        assert!(configured.exists());
+    }
+
+    #[test]
+    fn browser_config_preserves_explicit_profile() {
+        let profile = match tempfile::tempdir() {
+            Ok(profile) => profile,
+            Err(err) => panic!("tempdir failed: {err}"),
+        };
+        let driver = super::ChromiumDriver::new(super::ChromiumOptions {
+            executable_path: Some(PathBuf::from("/bin/echo")),
+            user_data_dir: Some(profile.path().to_path_buf()),
+            ..super::ChromiumOptions::default()
+        });
+        let launch = match driver.browser_config(&super::Target::default(), None) {
+            Ok(launch) => launch,
+            Err(err) => panic!("browser config failed: {err}"),
+        };
+
+        assert!(launch.profile_dir.is_none());
+        assert_eq!(launch.config.user_data_dir.as_deref(), Some(profile.path()));
+    }
+
+    #[test]
+    fn navigation_assignment_script_json_escapes_url() {
+        let script = match super::navigation_assignment_script("https://example.com/a\"b\nc") {
+            Ok(script) => script,
+            Err(err) => panic!("script generation failed: {err}"),
+        };
+        assert_eq!(
+            script,
+            "window.location.assign(\"https://example.com/a\\\"b\\nc\");"
+        );
+    }
+
+    #[test]
+    fn file_urls_keep_chromiumoxide_goto_path() {
+        assert!(super::uses_chromiumoxide_goto("file:///tmp/static.html"));
+        assert!(!super::uses_chromiumoxide_goto("http://127.0.0.1:49197/"));
+        assert!(!super::uses_chromiumoxide_goto("https://example.com/"));
+    }
+
+    #[test]
+    fn document_load_wait_accepts_redirected_complete_document_only() {
+        assert!(super::document_is_loaded(&super::NavigationState {
+            href: "https://example.com/login".to_string(),
+            ready_state: "complete".to_string(),
+            is_chrome_error_page: false,
+        }));
+        assert!(!super::document_is_loaded(&super::NavigationState {
+            href: "https://example.com/login".to_string(),
+            ready_state: "interactive".to_string(),
+            is_chrome_error_page: false,
+        }));
+        assert!(!super::document_is_loaded(&super::NavigationState {
+            href: "about:blank".to_string(),
+            ready_state: "complete".to_string(),
+            is_chrome_error_page: false,
+        }));
+        assert!(!super::document_is_loaded(&super::NavigationState {
+            href: "chrome-error://chromewebdata/".to_string(),
+            ready_state: "complete".to_string(),
+            is_chrome_error_page: true,
+        }));
+    }
+
+    #[test]
+    fn document_navigation_failed_rejects_only_uncanceled_documents() {
+        let document_failure = parse_loading_failed(
+            r#"{"requestId":"1","timestamp":1.0,"type":"Document","errorText":"net::ERR_CONNECTION_REFUSED"}"#,
+        );
+        assert!(super::document_navigation_failed(&document_failure));
+
+        let canceled_document = parse_loading_failed(
+            r#"{"requestId":"1","timestamp":1.0,"type":"Document","errorText":"net::ERR_ABORTED","canceled":true}"#,
+        );
+        assert!(!super::document_navigation_failed(&canceled_document));
+
+        let stylesheet_failure = parse_loading_failed(
+            r#"{"requestId":"1","timestamp":1.0,"type":"Stylesheet","errorText":"net::ERR_CONNECTION_REFUSED"}"#,
+        );
+        assert!(!super::document_navigation_failed(&stylesheet_failure));
+    }
+
+    #[test]
+    fn parse_navigation_state_reads_href_and_ready_state() {
+        let state = match super::parse_navigation_state(
+            r#"{"href":"http://127.0.0.1:49197/","readyState":"complete"}"#,
+        ) {
+            Ok(state) => state,
+            Err(err) => panic!("navigation state parse failed: {err}"),
+        };
+        assert_eq!(state.href, "http://127.0.0.1:49197/");
+        assert_eq!(state.ready_state, "complete");
+        assert!(!state.is_chrome_error_page);
+    }
+
+    #[test]
+    fn parse_navigation_state_reads_chrome_error_page_marker() {
+        let state = match super::parse_navigation_state(
+            r#"{"href":"chrome-error://chromewebdata/","readyState":"complete","isChromeErrorPage":true}"#,
+        ) {
+            Ok(state) => state,
+            Err(err) => panic!("navigation state parse failed: {err}"),
+        };
+        assert!(state.is_chrome_error_page);
+    }
+
+    #[test]
+    fn parse_navigation_state_rejects_malformed_json() {
+        let err = super::parse_navigation_state("not json");
+        assert!(matches!(err, Err(CdpError::Driver(_))));
+    }
+
+    fn parse_loading_failed(raw: &str) -> super::EventLoadingFailed {
+        match serde_json::from_str(raw) {
+            Ok(event) => event,
+            Err(err) => panic!("loading failed event parse failed: {err}"),
+        }
     }
 
     #[test]
