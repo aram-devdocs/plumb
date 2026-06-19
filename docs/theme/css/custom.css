@@ -79,3 +79,37 @@
 .rust blockquote {
     border-inline-start: 4px solid var(--plumb-brand);
 }
+
+/* ──────────────────────────────────────────────────────────────────
+ * Brand hero on the landing page + a mark in the menu bar.
+ * mdBook toggles themes via a class on <html> (.light/.rust = light,
+ * .coal/.navy/.ayu = dark), so the light/dark lockups are swapped by
+ * class rather than prefers-color-scheme.
+ * ────────────────────────────────────────────────────────────────── */
+.plumb-hero {
+    margin: 0.5rem 0 2rem;
+}
+.plumb-hero img {
+    max-width: min(300px, 70%);
+    height: auto;
+}
+.plumb-hero-dark { display: none; }
+.coal .plumb-hero-light,
+.navy .plumb-hero-light,
+.ayu  .plumb-hero-light { display: none; }
+.coal .plumb-hero-dark,
+.navy .plumb-hero-dark,
+.ayu  .plumb-hero-dark { display: inline; }
+
+/* A small brand mark to the left of the book title in the menu bar. */
+.menu-title::before {
+    content: "";
+    display: inline-block;
+    width: 1.15em;
+    height: 1.15em;
+    margin-right: 0.5em;
+    vertical-align: -0.22em;
+    background-image: url(/plumb-icon.svg);
+    background-size: contain;
+    background-repeat: no-repeat;
+}
