@@ -548,7 +548,7 @@ pub fn mcp_compact(violations: &[Violation]) -> (String, Value) {
 /// the node's own selector, numeric literals, and hex color codes — so
 /// that the same defect across many elements collapses into one finding.
 /// Each finding carries the representative message, an `instances`
-/// count, up to [`MCP_COMPACT_EXAMPLE_CAP`] example selectors, the
+/// count, up to `MCP_COMPACT_EXAMPLE_CAP` example selectors, the
 /// representative fix description, and the doc URL.
 ///
 /// # Structured payload
