@@ -288,7 +288,6 @@ fn run_command_with_timeout(
     cmd: &mut Command,
     timeout: Duration,
 ) -> Result<ChildOutput, std::io::Error> {
-    configure_child_process(cmd);
     let mut child = cmd
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -326,20 +325,16 @@ fn run_command_with_timeout(
 }
 
 #[cfg(unix)]
-fn configure_child_process(cmd: &mut Command) {
-    use std::os::unix::process::CommandExt as _;
-
-    cmd.process_group(0);
-}
-
-#[cfg(not(unix))]
-fn configure_child_process(_cmd: &mut Command) {}
-
-#[cfg(unix)]
 fn kill_child_process_tree(child: &mut std::process::Child, pid: u32) {
-    signal_process_group(pid, "TERM");
+    let mut pids = child_process_tree(pid);
+    pids.push(pid);
+    signal_pids(&pids, "TERM");
     wait_for_child_exit(child, Duration::from_millis(500));
-    signal_process_group(pid, "KILL");
+
+    pids.extend(child_process_tree(pid));
+    pids.sort_unstable();
+    pids.dedup();
+    signal_pids(&pids, "KILL");
     let _ = child.kill();
     let _ = child.wait();
 }
@@ -351,11 +346,53 @@ fn kill_child_process_tree(child: &mut std::process::Child, _pid: u32) {
 }
 
 #[cfg(unix)]
-fn signal_process_group(pid: u32, signal: &str) {
-    let group = format!("-{pid}");
+fn child_process_tree(root: u32) -> Vec<u32> {
+    let mut seen = std::collections::BTreeSet::new();
+    collect_child_processes(root, &mut seen);
+    seen.into_iter().collect()
+}
+
+#[cfg(unix)]
+fn collect_child_processes(parent: u32, seen: &mut std::collections::BTreeSet<u32>) {
+    for child in direct_child_pids(parent) {
+        if seen.insert(child) {
+            collect_child_processes(child, seen);
+        }
+    }
+}
+
+#[cfg(unix)]
+fn direct_child_pids(parent: u32) -> Vec<u32> {
+    let Ok(output) = Command::new("pgrep")
+        .arg("-P")
+        .arg(parent.to_string())
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+    else {
+        return Vec::new();
+    };
+    if !output.status.success() {
+        return Vec::new();
+    }
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| line.trim().parse::<u32>().ok())
+        .collect()
+}
+
+#[cfg(unix)]
+fn signal_pids(pids: &[u32], signal: &str) {
+    for pid in pids.iter().rev() {
+        signal_pid(*pid, signal);
+    }
+}
+
+#[cfg(unix)]
+fn signal_pid(pid: u32, signal: &str) {
     let _ = Command::new("kill")
         .arg(format!("-{signal}"))
-        .arg(group)
+        .arg(pid.to_string())
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -655,14 +692,14 @@ mod tests {
 
     #[test]
     #[cfg(unix)]
-    fn command_timeout_kills_process_group() {
+    fn command_timeout_kills_descendant_processes() {
         use std::time::Duration;
 
         use super::{ChildOutput, run_command_with_timeout};
 
         let mut cmd = Command::new("sh");
         cmd.arg("-c")
-            .arg("(trap '' TERM; printf child-ready; sleep 1; printf late) & wait");
+            .arg("(trap '' TERM; printf child-ready; while :; do sleep 10; done) & wait");
 
         let output =
             run_command_with_timeout(&mut cmd, Duration::from_millis(50)).expect("run command");
