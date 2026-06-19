@@ -102,7 +102,7 @@ const BROWSER_KILL_TIMEOUT: Duration = Duration::from_secs(5);
 const CHROMIUMOXIDE_REQUEST_TIMEOUT: Duration = Duration::from_mins(1);
 const CDP_CONTROL_TIMEOUT: Duration = Duration::from_secs(10);
 const TARGET_CREATE_TIMEOUT: Duration = Duration::from_secs(30);
-const TARGET_ATTACH_TIMEOUT: Duration = Duration::from_secs(30);
+const TARGET_ATTACH_TIMEOUT: Duration = Duration::from_secs(75);
 const NAVIGATION_ASSIGNMENT_TIMEOUT: Duration = Duration::from_secs(2);
 const DOCUMENT_READY_TIMEOUT: Duration = Duration::from_secs(30);
 const NAVIGATION_STATE_READ_TIMEOUT: Duration = Duration::from_secs(2);
@@ -1980,9 +1980,30 @@ where
     F: Future<Output = Result<T, CdpError>>,
 {
     match tokio::time::timeout(timeout, future).await {
-        Ok(result) => result,
+        Ok(result) => result.map_err(|err| contextualize_request_timeout(operation, err)),
         Err(_) => Err(timeout_error(operation, timeout)),
     }
+}
+
+fn contextualize_request_timeout(operation: &str, err: CdpError) -> CdpError {
+    let CdpError::Driver(source) = &err else {
+        return err;
+    };
+
+    if matches!(
+        source.downcast_ref::<chromiumoxide::error::CdpError>(),
+        Some(chromiumoxide::error::CdpError::Timeout)
+    ) {
+        return CdpError::Driver(Box::new(io::Error::new(
+            io::ErrorKind::TimedOut,
+            format!(
+                "{operation} hit Chromiumoxide request budget ({})",
+                timeout_budget_label(CHROMIUMOXIDE_REQUEST_TIMEOUT)
+            ),
+        )));
+    }
+
+    err
 }
 
 fn timeout_error(operation: &str, timeout: Duration) -> CdpError {
@@ -3259,6 +3280,18 @@ mod tests {
         assert!(reason.contains("exhausted 30s ready-state budget"));
         assert!(reason.contains("after initial location assignment failed"));
         assert!(reason.contains("last navigation state read failed"));
+    }
+
+    #[test]
+    fn contextualize_request_timeout_labels_operation() {
+        let err = super::contextualize_request_timeout(
+            "Target.attachToTarget",
+            CdpError::Driver(Box::new(chromiumoxide::error::CdpError::Timeout)),
+        );
+
+        let message = err.to_string();
+        assert!(message.contains("Target.attachToTarget"));
+        assert!(message.contains("Chromiumoxide request budget"));
     }
 
     fn parse_loading_failed(raw: &str) -> super::EventLoadingFailed {
