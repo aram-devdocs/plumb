@@ -18,6 +18,10 @@
 //! See `docs/local/prd.md` §9 for the full invariant list.
 
 #![forbid(unsafe_code)]
+#![doc(
+    html_logo_url = "https://raw.githubusercontent.com/aram-devdocs/plumb/main/assets/brand/plumb-mark.svg",
+    html_favicon_url = "https://raw.githubusercontent.com/aram-devdocs/plumb/main/theme/favicon.svg"
+)]
 #![deny(missing_docs)]
 #![deny(clippy::print_stdout, clippy::print_stderr)]
 #![deny(clippy::unwrap_used, clippy::expect_used)]

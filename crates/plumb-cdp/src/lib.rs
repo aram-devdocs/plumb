@@ -43,6 +43,10 @@
 //! leak into call N+1.
 
 #![deny(unsafe_op_in_unsafe_fn)]
+#![doc(
+    html_logo_url = "https://raw.githubusercontent.com/aram-devdocs/plumb/main/assets/brand/plumb-mark.svg",
+    html_favicon_url = "https://raw.githubusercontent.com/aram-devdocs/plumb/main/theme/favicon.svg"
+)]
 #![deny(missing_docs)]
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 

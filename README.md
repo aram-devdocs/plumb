@@ -1,14 +1,21 @@
-# Plumb
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/brand/plumb-lockup-white.svg">
+    <img alt="Plumb" src="assets/brand/plumb-lockup.svg" width="340">
+  </picture>
+</p>
 
-[![CI](https://github.com/aram-devdocs/plumb/actions/workflows/ci.yml/badge.svg)](https://github.com/aram-devdocs/plumb/actions/workflows/ci.yml)
-[![crates.io](https://img.shields.io/crates/v/plumb-cli.svg)](https://crates.io/crates/plumb-cli)
-[![docs.rs](https://img.shields.io/docsrs/plumb-core)](https://docs.rs/plumb-core)
-[![npm](https://img.shields.io/npm/v/plumb-cli.svg)](https://www.npmjs.com/package/plumb-cli)
-[![Codecov](https://codecov.io/gh/aram-devdocs/plumb/graph/badge.svg)](https://codecov.io/gh/aram-devdocs/plumb)
-[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
-[![Rust 1.95+](https://img.shields.io/badge/rust-1.95%2B-orange.svg)](https://www.rust-lang.org)
+<p align="center"><strong>A deterministic design-system linter for rendered websites, not the code behind it.</strong></p>
 
-**A deterministic design-system linter for rendered websites, not the code behind it.**
+<p align="center">
+<a href="https://github.com/aram-devdocs/plumb/actions/workflows/ci.yml"><img src="https://github.com/aram-devdocs/plumb/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+<a href="https://crates.io/crates/plumb-cli"><img src="https://img.shields.io/crates/v/plumb-cli.svg?color=1a4faa" alt="crates.io"></a>
+<a href="https://docs.rs/plumb-core"><img src="https://img.shields.io/docsrs/plumb-core?color=1a4faa" alt="docs.rs"></a>
+<a href="https://www.npmjs.com/package/plumb-cli"><img src="https://img.shields.io/npm/v/plumb-cli.svg?color=1a4faa" alt="npm"></a>
+<a href="https://codecov.io/gh/aram-devdocs/plumb"><img src="https://codecov.io/gh/aram-devdocs/plumb/graph/badge.svg" alt="Codecov"></a>
+<a href="#license"><img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg" alt="License: MIT OR Apache-2.0"></a>
+<a href="https://www.rust-lang.org"><img src="https://img.shields.io/badge/rust-1.95%2B-orange.svg" alt="Rust 1.95+"></a>
+</p>
 
 Plumb opens a web page in a headless browser at multiple viewports, extracts the computed DOM, and measures it against a declarative design-system spec. It emits structured, pixel-precise violations an AI coding agent can fix in one shot — "ESLint for rendered websites."
 
