@@ -22,7 +22,7 @@ use crate::config::Config;
 use crate::report::{Confidence, Fix, FixKind, Severity, Violation, ViolationSink};
 use crate::rules::Rule;
 use crate::rules::color::COLOR_PROPERTIES;
-use crate::rules::util::{CssColor, parse_css_color};
+use crate::rules::util::{CssColor, parse_css_color, parse_px};
 use crate::snapshot::{SnapshotCtx, SnapshotNode};
 
 /// Background assumed when no opaque ancestor declares a
@@ -78,6 +78,29 @@ impl Rule for PaletteConformance {
 
         for node in ctx.nodes() {
             for prop in COLOR_PROPERTIES {
+                // A zero-width (or absent) border paints no color; its
+                // computed `border-*-color` resolves to `currentColor`,
+                // which is not a deliberate author choice. Skip those
+                // side colors. (`color`, `background-color`, and
+                // `outline-color` are always judged.)
+                if let Some(width_prop) = border_width_for_color(prop)
+                    && !border_side_is_painted(node, width_prop)
+                {
+                    continue;
+                }
+                // `color` only paints when the node owns a non-empty text
+                // run. A textless container inherits a `color` it never
+                // renders, so judging it against the palette is noise.
+                // `background-color` and `outline-color` paint regardless
+                // of text, so they are always judged.
+                if *prop == "color"
+                    && ctx
+                        .text_boxes_for(node.dom_order)
+                        .iter()
+                        .all(|tb| tb.length == 0)
+                {
+                    continue;
+                }
                 let Some(raw) = node.computed_styles.get(*prop) else {
                     continue;
                 };
@@ -106,64 +129,116 @@ impl Rule for PaletteConformance {
                 }
 
                 let entry = &palette[nearest.index];
-                let mut metadata = IndexMap::new();
-                metadata.insert((*prop).to_owned(), serde_json::Value::String(raw.clone()));
-                metadata.insert(
-                    "nearest_token".to_owned(),
-                    serde_json::Value::String(entry.name.clone()),
-                );
-                metadata.insert(
-                    "nearest_token_hex".to_owned(),
-                    serde_json::Value::String(entry.hex.clone()),
-                );
-                metadata.insert(
-                    "delta_e".to_owned(),
-                    delta_e_metadata(nearest.delta).unwrap_or(serde_json::Value::Null),
-                );
-                metadata.insert(
-                    "delta_e_tolerance".to_owned(),
-                    delta_e_metadata(tolerance).unwrap_or(serde_json::Value::Null),
-                );
-
-                sink.push(Violation {
-                    rule_id: self.id().to_owned(),
-                    severity: self.default_severity(),
-                    message: format!(
-                        "`{selector}` has off-palette {prop} {raw}; nearest token is `{token}` ({hex}).",
-                        selector = node.selector,
-                        token = entry.name,
-                        hex = entry.hex,
-                    ),
-                    selector: node.selector.clone(),
-                    viewport: ctx.snapshot().viewport.clone(),
-                    rect: ctx.rect_for(node.dom_order),
-                    dom_order: node.dom_order,
-                    fix: Some(Fix {
-                        kind: FixKind::CssPropertyReplace {
-                            property: (*prop).to_owned(),
-                            from: raw.clone(),
-                            to: entry.hex.clone(),
-                        },
-                        description: format!(
-                            "Snap `{prop}` to the nearest palette token `{token}` ({hex}).",
-                            token = entry.name,
-                            hex = entry.hex,
-                        ),
-                        confidence: if (parsed.a - 1.0).abs() < f32::EPSILON {
-                            Confidence::Medium
-                        } else {
-                            // Translucent source: the nearest token was picked against
-                            // the composited appearance, so swapping the literal value
-                            // changes more than the rendered color.
-                            Confidence::Low
-                        },
-                    }),
-                    doc_url: "https://plumb.aramhammoudeh.com/rules/color-palette-conformance"
-                        .to_owned(),
-                    metadata,
-                });
+                sink.push(build_violation(
+                    ctx,
+                    node,
+                    prop,
+                    raw,
+                    parsed.a,
+                    entry,
+                    nearest.delta,
+                    tolerance,
+                ));
             }
         }
+    }
+}
+
+/// Build the off-palette violation for one `(node, property)` pair.
+///
+/// `parsed_alpha` is the source color's alpha — a fully-opaque value
+/// yields a `Medium`-confidence literal swap, a translucent one drops to
+/// `Low` because the nearest token was chosen against the composited
+/// appearance.
+#[allow(clippy::too_many_arguments)]
+fn build_violation(
+    ctx: &SnapshotCtx<'_>,
+    node: &SnapshotNode,
+    prop: &str,
+    raw: &str,
+    parsed_alpha: f32,
+    entry: &PaletteEntry,
+    delta: f32,
+    tolerance: f32,
+) -> Violation {
+    let mut metadata = IndexMap::new();
+    metadata.insert(prop.to_owned(), serde_json::Value::String(raw.to_owned()));
+    metadata.insert(
+        "nearest_token".to_owned(),
+        serde_json::Value::String(entry.name.clone()),
+    );
+    metadata.insert(
+        "nearest_token_hex".to_owned(),
+        serde_json::Value::String(entry.hex.clone()),
+    );
+    metadata.insert(
+        "delta_e".to_owned(),
+        delta_e_metadata(delta).unwrap_or(serde_json::Value::Null),
+    );
+    metadata.insert(
+        "delta_e_tolerance".to_owned(),
+        delta_e_metadata(tolerance).unwrap_or(serde_json::Value::Null),
+    );
+
+    Violation {
+        rule_id: "color/palette-conformance".to_owned(),
+        severity: Severity::Warning,
+        message: format!(
+            "`{selector}` has off-palette {prop} {raw}; nearest token is `{token}` ({hex}).",
+            selector = node.selector,
+            token = entry.name,
+            hex = entry.hex,
+        ),
+        selector: node.selector.clone(),
+        viewport: ctx.snapshot().viewport.clone(),
+        rect: ctx.rect_for(node.dom_order),
+        dom_order: node.dom_order,
+        fix: Some(Fix {
+            kind: FixKind::CssPropertyReplace {
+                property: prop.to_owned(),
+                from: raw.to_owned(),
+                to: entry.hex.clone(),
+            },
+            description: format!(
+                "Snap `{prop}` to the nearest palette token `{token}` ({hex}).",
+                token = entry.name,
+                hex = entry.hex,
+            ),
+            confidence: if (parsed_alpha - 1.0).abs() < f32::EPSILON {
+                Confidence::Medium
+            } else {
+                // Translucent source: the nearest token was picked against
+                // the composited appearance, so swapping the literal value
+                // changes more than the rendered color.
+                Confidence::Low
+            },
+        }),
+        doc_url: "https://plumb.aramhammoudeh.com/rules/color-palette-conformance".to_owned(),
+        metadata,
+    }
+}
+
+/// Whether the matching `border-{side}-width` longhand resolves to a
+/// positive width. A zero-width or absent border paints no color, so its
+/// `border-{side}-color` (which defaults to `currentColor`) is a phantom
+/// value that MUST NOT be judged against the palette.
+fn border_side_is_painted(node: &SnapshotNode, width_prop: &str) -> bool {
+    node.computed_styles
+        .get(width_prop)
+        .and_then(|raw| parse_px(raw))
+        .is_some_and(|w| w > 0.0)
+}
+
+/// Map a `border-{side}-color` longhand to its matching
+/// `border-{side}-width` longhand, or `None` for non-border color
+/// properties (`color`, `background-color`, `outline-color`).
+fn border_width_for_color(prop: &str) -> Option<&'static str> {
+    match prop {
+        "border-top-color" => Some("border-top-width"),
+        "border-right-color" => Some("border-right-width"),
+        "border-bottom-color" => Some("border-bottom-width"),
+        "border-left-color" => Some("border-left-width"),
+        _ => None,
     }
 }
 

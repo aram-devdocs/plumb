@@ -2,13 +2,15 @@
 //!
 //! Two parents under `<html> > <body>`:
 //!
-//! - A row of three cards spaced 220px apart (no rect overlap, so
-//!   row clustering yields singletons and the DOM-sibling fallback
-//!   triggers). The unit test
-//!   `cluster_groups_siblings_with_close_tops` covers the primary
-//!   row-clustering path.
-//! - A vertical stack of three buttons (no row pairs) — also
-//!   exercises the DOM-sibling fallback.
+//! - A row of three `<div>` cards spaced 220px apart. They are
+//!   non-interactive, so the interactivity gate (PRD §6/§11.3) drops
+//!   them before grouping — proving the rule no longer flags generic
+//!   layout boxes. The unit test
+//!   `cluster_groups_siblings_with_close_tops` still covers the
+//!   row-clustering path directly.
+//! - A vertical stack of three `<button>`s (no row pairs) — interactive
+//!   peers that the rule keeps. The third is 16px taller than the row
+//!   median, so it is the only violation.
 
 use indexmap::IndexMap;
 use plumb_core::report::Rect;
@@ -26,23 +28,29 @@ const fn rect(x: i32, y: i32, width: u32, height: u32) -> Rect {
 
 fn fixture_snapshot() -> PlumbSnapshot {
     // Row container at dom_order=2, three card siblings at 3..=5.
-    // Card heights 100, 100, 130 — last one drifts by 30px.
+    // Card heights 100, 100, 130 — last one drifts by 30px. The cards
+    // are plain `<div>`s, so the interactivity gate (PRD §6/§11.3)
+    // correctly drops them: height-consistency only judges interactive
+    // button-like peers, not generic layout boxes.
     let row_card_a = node(
         3,
         2,
         "html > body > div.row > div:nth-child(1)",
+        "div",
         rect(0, 0, 200, 100),
     );
     let row_card_b = node(
         4,
         2,
         "html > body > div.row > div:nth-child(2)",
+        "div",
         rect(220, 0, 200, 100),
     );
     let row_card_c = node(
         5,
         2,
         "html > body > div.row > div:nth-child(3)",
+        "div",
         rect(440, 1, 200, 130),
     );
     let row_container = SnapshotNode {
@@ -56,24 +64,28 @@ fn fixture_snapshot() -> PlumbSnapshot {
         children: vec![3, 4, 5],
     };
 
-    // Stacked buttons at dom_order 6, 7, 8 — no row pairs, so the
+    // Stacked buttons at dom_order 7, 8, 9 — no row pairs, so the
     // fallback fires. Heights 32, 32, 48 — the third is 16px taller.
+    // These are real `<button>`s, so the interactivity gate keeps them.
     let stack_btn_a = node(
         7,
         6,
         "html > body > div.stack > button:nth-child(1)",
+        "button",
         rect(0, 200, 120, 32),
     );
     let stack_btn_b = node(
         8,
         6,
         "html > body > div.stack > button:nth-child(2)",
+        "button",
         rect(0, 240, 120, 32),
     );
     let stack_btn_c = node(
         9,
         6,
         "html > body > div.stack > button:nth-child(3)",
+        "button",
         rect(0, 280, 120, 48),
     );
     let stack_container = SnapshotNode {
@@ -134,11 +146,11 @@ fn body_node() -> SnapshotNode {
     }
 }
 
-fn node(dom_order: u64, parent: u64, selector: &str, rect_value: Rect) -> SnapshotNode {
+fn node(dom_order: u64, parent: u64, selector: &str, tag: &str, rect_value: Rect) -> SnapshotNode {
     SnapshotNode {
         dom_order,
         selector: selector.to_owned(),
-        tag: "div".into(),
+        tag: tag.to_owned(),
         attrs: IndexMap::new(),
         computed_styles: IndexMap::new(),
         rect: Some(rect_value),

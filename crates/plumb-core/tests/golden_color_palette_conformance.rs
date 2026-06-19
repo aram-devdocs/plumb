@@ -17,7 +17,7 @@
 use indexmap::IndexMap;
 use plumb_core::config::{ColorSpec, Config};
 use plumb_core::report::Rect;
-use plumb_core::snapshot::SnapshotNode;
+use plumb_core::snapshot::{SnapshotNode, TextBox};
 use plumb_core::{PlumbSnapshot, ViewportKey, run};
 
 fn fixture_snapshot() -> PlumbSnapshot {
@@ -75,6 +75,22 @@ fn fixture_snapshot() -> PlumbSnapshot {
         }),
     );
 
+    // A textless container that inherits the same off-palette `color` as
+    // `off_palette` but paints no glyphs. With no text box, the real
+    // text-run guard MUST skip its `color` — proving the guard does not
+    // flag empty wrappers.
+    let textless_container = node(
+        6,
+        "html > body > div:nth-child(5)",
+        &[("color", "rgb(255, 0, 153)")],
+        Some(Rect {
+            x: 0,
+            y: 96,
+            width: 200,
+            height: 24,
+        }),
+    );
+
     PlumbSnapshot {
         url: "plumb-fake://color-palette".into(),
         viewport: ViewportKey::new("desktop"),
@@ -87,8 +103,26 @@ fn fixture_snapshot() -> PlumbSnapshot {
             within_tolerance,
             off_palette,
             translucent,
+            textless_container,
         ],
-        text_boxes: Vec::new(),
+        // One text box per text-bearing node. The textless container
+        // (dom_order 6) deliberately has none. Sorted by (dom_order,
+        // start) per the snapshot invariant.
+        text_boxes: vec![text_box(2), text_box(3), text_box(4), text_box(5)],
+    }
+}
+
+fn text_box(dom_order: u64) -> TextBox {
+    TextBox {
+        dom_order,
+        bounds: Rect {
+            x: 0,
+            y: 0,
+            width: 200,
+            height: 24,
+        },
+        start: 0,
+        length: 8,
     }
 }
 
@@ -129,7 +163,7 @@ fn body_node() -> SnapshotNode {
             height: 800,
         }),
         parent: Some(0),
-        children: vec![2, 3, 4, 5],
+        children: vec![2, 3, 4, 5, 6],
     }
 }
 
@@ -192,6 +226,112 @@ fn color_palette_conformance_run_is_deterministic() -> Result<(), serde_json::Er
     assert_eq!(a, b);
     assert_eq!(b, c);
     Ok(())
+}
+
+#[test]
+fn color_palette_conformance_color_guard_is_color_only() {
+    // The text-run guard is scoped to the `color` property: a textless
+    // node's off-palette `color` is skipped, but its off-palette
+    // `background-color` (which paints regardless of text) still fires.
+    let color_only_container = node(
+        2,
+        "html > body > div:nth-child(1)",
+        &[("color", "rgb(255, 0, 153)")],
+        None,
+    );
+    let mut bg_container = node(
+        3,
+        "html > body > div:nth-child(2)",
+        &[("background-color", "rgb(255, 0, 153)")],
+        None,
+    );
+    bg_container.computed_styles.swap_remove("color");
+
+    let snapshot = PlumbSnapshot {
+        url: "plumb-fake://color-palette-guard".into(),
+        viewport: ViewportKey::new("desktop"),
+        viewport_width: 1280,
+        viewport_height: 800,
+        nodes: vec![root_html(), body_node(), color_only_container, bg_container],
+        // Neither container owns a text box.
+        text_boxes: Vec::new(),
+    };
+
+    let selectors: Vec<String> = run(&snapshot, &fixture_config())
+        .into_iter()
+        .filter(|v| v.rule_id == "color/palette-conformance")
+        .map(|v| v.selector)
+        .collect();
+
+    assert!(
+        !selectors.contains(&"html > body > div:nth-child(1)".to_owned()),
+        "textless `color` must be skipped: {selectors:?}"
+    );
+    assert!(
+        selectors.contains(&"html > body > div:nth-child(2)".to_owned()),
+        "textless `background-color` must still be judged: {selectors:?}"
+    );
+}
+
+#[test]
+fn color_palette_conformance_skips_zero_width_border_color() {
+    // A `border-{side}-color` is only a deliberate author choice when
+    // the matching `border-{side}-width` is positive. A zero-width
+    // border resolves its color to `currentColor` — a phantom value the
+    // page never paints — so the rule MUST skip it. The same off-palette
+    // color on a 1px border paints, so it MUST still fire.
+    let zero_width = node(
+        2,
+        "html > body > div:nth-child(1)",
+        &[
+            ("border-top-color", "rgb(255, 0, 153)"),
+            ("border-top-width", "0"),
+        ],
+        Some(Rect {
+            x: 0,
+            y: 0,
+            width: 200,
+            height: 24,
+        }),
+    );
+    let painted = node(
+        3,
+        "html > body > div:nth-child(2)",
+        &[
+            ("border-top-color", "rgb(255, 0, 153)"),
+            ("border-top-width", "1px"),
+        ],
+        Some(Rect {
+            x: 0,
+            y: 24,
+            width: 200,
+            height: 24,
+        }),
+    );
+
+    let snapshot = PlumbSnapshot {
+        url: "plumb-fake://color-palette-border".into(),
+        viewport: ViewportKey::new("desktop"),
+        viewport_width: 1280,
+        viewport_height: 800,
+        nodes: vec![root_html(), body_node(), zero_width, painted],
+        text_boxes: Vec::new(),
+    };
+
+    let selectors: Vec<String> = run(&snapshot, &fixture_config())
+        .into_iter()
+        .filter(|v| v.rule_id == "color/palette-conformance")
+        .map(|v| v.selector)
+        .collect();
+
+    assert!(
+        !selectors.contains(&"html > body > div:nth-child(1)".to_owned()),
+        "zero-width `border-top-color` must be skipped: {selectors:?}"
+    );
+    assert!(
+        selectors.contains(&"html > body > div:nth-child(2)".to_owned()),
+        "painted `border-top-color` must still fire: {selectors:?}"
+    );
 }
 
 #[test]

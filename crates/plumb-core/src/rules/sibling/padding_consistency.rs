@@ -39,11 +39,25 @@ impl Rule for PaddingConsistency {
     }
 
     fn check(&self, ctx: &SnapshotCtx<'_>, _config: &Config, sink: &mut ViolationSink<'_>) {
-        // Group nodes by parent dom_order.
-        let mut groups: IndexMap<u64, Vec<usize>> = IndexMap::new();
+        // Group nodes by `(parent, tag)` so padding is only compared
+        // across same-tag component peers. Comparing a `<p>`, a
+        // `<section>`, and a `<button>` that share a parent is noise —
+        // those elements have unrelated padding budgets.
+        let mut groups: IndexMap<(u64, String), Vec<usize>> = IndexMap::new();
         for (idx, node) in ctx.snapshot().nodes.iter().enumerate() {
             let Some(parent) = node.parent else { continue };
-            groups.entry(parent).or_default().push(idx);
+            // Skip invisible nodes: no rect, or a zero-area rect paints
+            // no box, so its padding can't drift visibly.
+            let Some(rect) = ctx.rect_for(node.dom_order) else {
+                continue;
+            };
+            if rect.width == 0 || rect.height == 0 {
+                continue;
+            }
+            groups
+                .entry((parent, node.tag.clone()))
+                .or_default()
+                .push(idx);
         }
 
         let nodes = &ctx.snapshot().nodes;

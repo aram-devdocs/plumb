@@ -93,6 +93,15 @@ impl Rule for NearAlignment {
             let Some(rect) = ctx.rect_for(node.dom_order) else {
                 continue;
             };
+            // Skip zero-area boxes (`<br>`, collapsed inlines) and SVG
+            // paint primitives — their edges form spurious clusters that
+            // never represent design-system alignment.
+            if rect.width == 0 || rect.height == 0 {
+                continue;
+            }
+            if !crate::rules::util::is_layout_relevant(node) {
+                continue;
+            }
             groups
                 .entry(parent)
                 .or_default()

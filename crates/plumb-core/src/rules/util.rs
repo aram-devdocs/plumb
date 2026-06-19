@@ -13,6 +13,103 @@
 use palette::Srgb;
 use std::str::FromStr;
 
+use crate::snapshot::SnapshotNode;
+
+/// Tags that are always interactive without further inspection.
+const ALWAYS_INTERACTIVE_TAGS: &[&str] = &["button", "select", "textarea"];
+
+/// `<input type="…">` values that produce a button-shaped control.
+const BUTTON_INPUT_TYPES: &[&str] = &["button", "submit", "reset", "image", "checkbox", "radio"];
+
+/// Tags whose box never participates in design-system layout: SVG paint
+/// primitives and non-rendered / metadata elements. A node with one of
+/// these tags paints no design-system-relevant box, so geometry rules
+/// (alignment, sibling sizing) MUST ignore it.
+const NON_LAYOUT_TAGS: &[&str] = &[
+    "path",
+    "g",
+    "defs",
+    "use",
+    "symbol",
+    "circle",
+    "ellipse",
+    "rect",
+    "line",
+    "polyline",
+    "polygon",
+    "clippath",
+    "mask",
+    "lineargradient",
+    "radialgradient",
+    "stop",
+    "filter",
+    "marker",
+    "pattern",
+    "tspan",
+    "textpath",
+    "foreignobject",
+    "br",
+    "wbr",
+    "script",
+    "style",
+    "head",
+    "meta",
+    "link",
+    "title",
+    "noscript",
+    "template",
+    "source",
+    "track",
+    "param",
+    "col",
+    "colgroup",
+];
+
+/// Whether a node is an interactive control.
+///
+/// Shared by `a11y/touch-target` and `sibling/height-consistency` (PRD
+/// §6/§11.3 scopes the height check to interactive button-like peers).
+/// Interactive nodes are: the always-interactive tags
+/// (`button`/`select`/`textarea`), an `<a>` with an `href`, an
+/// `<input>` whose `type` is button-shaped (default `text` is not), and
+/// any node with `role="button"`.
+#[must_use]
+pub(crate) fn is_interactive(node: &SnapshotNode) -> bool {
+    let tag = node.tag.as_str();
+
+    if ALWAYS_INTERACTIVE_TAGS.contains(&tag) {
+        return true;
+    }
+
+    if tag == "a" && node.attrs.contains_key("href") {
+        return true;
+    }
+
+    if tag == "input" {
+        // Default `<input>` (no `type`) is `text`, which is not a
+        // button-shaped target.
+        let kind = node.attrs.get("type").map_or("text", String::as_str);
+        if BUTTON_INPUT_TYPES.contains(&kind) {
+            return true;
+        }
+    }
+
+    // Role-based interactivity: `role="button"` is the canonical case.
+    // Other roles (link, switch, etc.) are intentionally out of scope to
+    // keep the contract narrow.
+    node.attrs.get("role").map(String::as_str) == Some("button")
+}
+
+/// Whether a node's box participates in design-system layout.
+///
+/// Returns `false` for SVG paint primitives and non-rendered tags in
+/// [`NON_LAYOUT_TAGS`]; `true` for everything else. Geometry rules use
+/// this to skip clusters of SVG sub-elements and line-break boxes.
+#[must_use]
+pub(crate) fn is_layout_relevant(node: &SnapshotNode) -> bool {
+    !NON_LAYOUT_TAGS.contains(&node.tag.as_str())
+}
+
 /// Parsed CSS color in the (gamma-encoded) sRGB color space.
 ///
 /// Components are non-linear sRGB in `[0.0, 1.0]`, matching the
@@ -304,7 +401,62 @@ pub(crate) fn nearest_in_scale(value: f64, scale: &[u32]) -> Option<u32> {
 
 #[cfg(test)]
 mod tests {
-    use super::{nearest_in_scale, nearest_multiple, parse_css_color, parse_px};
+    use super::{
+        is_interactive, is_layout_relevant, nearest_in_scale, nearest_multiple, parse_css_color,
+        parse_px,
+    };
+    use crate::snapshot::SnapshotNode;
+    use indexmap::IndexMap;
+
+    fn node_with(tag: &str, attrs: &[(&str, &str)]) -> SnapshotNode {
+        let mut attr_map = IndexMap::new();
+        for (k, v) in attrs {
+            attr_map.insert((*k).to_owned(), (*v).to_owned());
+        }
+        SnapshotNode {
+            dom_order: 0,
+            selector: tag.to_owned(),
+            tag: tag.to_owned(),
+            attrs: attr_map,
+            computed_styles: IndexMap::new(),
+            rect: None,
+            parent: None,
+            children: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn is_interactive_matches_controls() {
+        for tag in ["button", "select", "textarea"] {
+            assert!(is_interactive(&node_with(tag, &[])), "{tag}");
+        }
+        assert!(is_interactive(&node_with("a", &[("href", "/x")])));
+        assert!(is_interactive(&node_with("input", &[("type", "submit")])));
+        assert!(is_interactive(&node_with("div", &[("role", "button")])));
+    }
+
+    #[test]
+    fn is_interactive_rejects_non_controls() {
+        assert!(!is_interactive(&node_with("a", &[])));
+        assert!(!is_interactive(&node_with("input", &[])));
+        assert!(!is_interactive(&node_with("input", &[("type", "text")])));
+        assert!(!is_interactive(&node_with("div", &[])));
+        assert!(!is_interactive(&node_with("div", &[("role", "link")])));
+    }
+
+    #[test]
+    fn is_layout_relevant_keeps_rendered_boxes() {
+        for tag in ["div", "button", "p"] {
+            assert!(is_layout_relevant(&node_with(tag, &[])), "{tag}");
+        }
+    }
+
+    #[test]
+    fn is_layout_relevant_skips_svg_and_metadata_tags() {
+        for tag in ["path", "g", "circle", "br", "script"] {
+            assert!(!is_layout_relevant(&node_with(tag, &[])), "{tag}");
+        }
+    }
 
     #[test]
     fn parse_px_accepts_supported_shapes() {

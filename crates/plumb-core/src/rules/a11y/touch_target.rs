@@ -17,13 +17,8 @@ use indexmap::IndexMap;
 use crate::config::Config;
 use crate::report::{Confidence, Fix, FixKind, Severity, Violation, ViolationSink};
 use crate::rules::Rule;
-use crate::snapshot::{SnapshotCtx, SnapshotNode};
-
-/// Tags that are always interactive without further inspection.
-const ALWAYS_INTERACTIVE_TAGS: &[&str] = &["button", "select", "textarea"];
-
-/// `<input type="…">` values that produce a button-shaped control.
-const BUTTON_INPUT_TYPES: &[&str] = &["button", "submit", "reset", "image", "checkbox", "radio"];
+use crate::rules::util::is_interactive;
+use crate::snapshot::SnapshotCtx;
 
 /// Flags interactive elements smaller than `a11y.touch_target`.
 #[derive(Debug, Clone, Copy)]
@@ -52,6 +47,15 @@ impl Rule for TouchTarget {
 
         for node in ctx.nodes() {
             if !is_interactive(node) {
+                continue;
+            }
+            // WCAG 2.5.8 inline exception: targets whose size is
+            // constrained by the line-height of surrounding text are
+            // exempt. Inline prose links (`<a>` with computed
+            // `display: inline`) are the canonical case.
+            if node.tag == "a"
+                && node.computed_styles.get("display").map(String::as_str) == Some("inline")
+            {
                 continue;
             }
             let Some(rect) = ctx.rect_for(node.dom_order) else {
@@ -96,96 +100,5 @@ impl Rule for TouchTarget {
                 metadata,
             });
         }
-    }
-}
-
-/// Whether a node represents an interactive control for the purpose of
-/// the touch-target check.
-fn is_interactive(node: &SnapshotNode) -> bool {
-    let tag = node.tag.as_str();
-
-    if ALWAYS_INTERACTIVE_TAGS.contains(&tag) {
-        return true;
-    }
-
-    if tag == "a" && node.attrs.contains_key("href") {
-        return true;
-    }
-
-    if tag == "input" {
-        // Default `<input>` (no `type`) is `text`, which is not a
-        // button-shaped target.
-        let kind = node.attrs.get("type").map_or("text", String::as_str);
-        if BUTTON_INPUT_TYPES.contains(&kind) {
-            return true;
-        }
-    }
-
-    if let Some(role) = node.attrs.get("role") {
-        // Role-based interactivity: `role="button"` is the canonical
-        // case. Other roles (link, switch, etc.) are not enforced
-        // here to keep the rule's contract narrow.
-        if role == "button" {
-            return true;
-        }
-    }
-
-    false
-}
-
-#[cfg(test)]
-mod tests {
-    use super::is_interactive;
-    use crate::snapshot::SnapshotNode;
-    use indexmap::IndexMap;
-
-    fn make_node(tag: &str, attrs: &[(&str, &str)]) -> SnapshotNode {
-        let mut attr_map = IndexMap::new();
-        for (k, v) in attrs {
-            attr_map.insert((*k).to_owned(), (*v).to_owned());
-        }
-        SnapshotNode {
-            dom_order: 0,
-            selector: tag.to_owned(),
-            tag: tag.to_owned(),
-            attrs: attr_map,
-            computed_styles: IndexMap::new(),
-            rect: None,
-            parent: None,
-            children: Vec::new(),
-        }
-    }
-
-    #[test]
-    fn always_interactive_tags_match() {
-        for tag in ["button", "select", "textarea"] {
-            assert!(is_interactive(&make_node(tag, &[])), "{tag}");
-        }
-    }
-
-    #[test]
-    fn anchor_requires_href() {
-        assert!(!is_interactive(&make_node("a", &[])));
-        assert!(is_interactive(&make_node("a", &[("href", "/x")])));
-    }
-
-    #[test]
-    fn input_button_types_match() {
-        for kind in ["button", "submit", "reset", "image", "checkbox", "radio"] {
-            assert!(
-                is_interactive(&make_node("input", &[("type", kind)])),
-                "{kind}"
-            );
-        }
-        // Bare <input> defaults to text — not interactive for this rule.
-        assert!(!is_interactive(&make_node("input", &[])));
-        assert!(!is_interactive(&make_node("input", &[("type", "text")])));
-    }
-
-    #[test]
-    fn role_button_matches() {
-        assert!(is_interactive(&make_node("div", &[("role", "button")])));
-        // Other roles are out of scope for the rule.
-        assert!(!is_interactive(&make_node("div", &[("role", "link")])));
     }
 }
