@@ -7,6 +7,7 @@
 
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::time::Duration;
 
 use anyhow::Context as _;
 use clap::Parser;
@@ -45,6 +46,10 @@ struct Cli {
     /// Number of lint runs to compare for byte-equality. Defaults to 3.
     #[arg(long, default_value_t = 3)]
     determinism_runs: usize,
+
+    /// Timeout, in seconds, for each child `plumb lint` invocation.
+    #[arg(long, default_value_t = 120, value_parser = clap::value_parser!(u64).range(1..))]
+    lint_timeout_secs: u64,
 }
 
 fn main() -> ExitCode {
@@ -74,6 +79,7 @@ fn real_main() -> Result<(), anyhow::Error> {
     config.chrome_path = cli.chrome_path;
     config.build_first = !cli.no_build;
     config.determinism_runs = cli.determinism_runs;
+    config.lint_timeout = Duration::from_secs(cli.lint_timeout_secs);
 
     let sites: Vec<String> = if cli.all || cli.site.is_empty() {
         SITES.iter().map(|s| s.name.to_owned()).collect()
