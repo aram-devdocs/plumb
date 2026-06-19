@@ -61,8 +61,8 @@ bind address, not the token value.
 | Tool | Description |
 |------|-------------|
 | `echo` | Smoke-test the transport. Echoes the `message` arg back. |
-| `lint_url` | Lint a URL. Args: `{ "url": "...", "detail": "compact" | "full" }`, where `detail` is optional and defaults to `compact`. Accepts `http(s)://` URLs (driven by the bundled Chromium driver) and `plumb-fake://hello` (canned snapshot for tests). On a Chromium launch failure the response is returned with `isError: true` and a single text block carrying the typed driver error. |
-| `lint_page_html` | Lint a static HTML string without launching Chromium. Args: `{ "html": "...", "base_url": "https://example.com/" }`. Returns the same compact MCP response shape as `lint_url`. Hard-capped at 1 MiB of input and 10 000 elements; oversized inputs surface as JSON-RPC `invalid_params` (-32602). No JavaScript execution, no resource fetching — `computed_styles` is empty and `rect` is `None`, so this path catches structural rules but not rendering-dependent ones. |
+| `lint_url` | Lint a URL. Args: `{ "url": "...", "detail": "compact" | "full", "working_dir"?: "/abs/path" }`. `detail` is optional and defaults to `compact`; `working_dir` is optional and names the directory whose `plumb.toml` configures the lint (the server's own working directory is used when omitted). Accepts `http(s)://` URLs (driven by the bundled Chromium driver) and `plumb-fake://hello` (canned snapshot for tests). The compact payload aggregates duplicate violations into capped findings under a 10 KB `structuredContent` budget. On a Chromium launch failure the response is returned with `isError: true` and a single text block carrying the typed driver error. |
+| `lint_page_html` | Lint a self-contained HTML string by rendering it in the same Chromium as `lint_url`, loaded as a `data:` URL so embedded `<style>` blocks and inline `style` attributes produce real computed styles and geometry. Args: `{ "html": "...", "base_url": "https://example.com/", "working_dir"?: "/abs/path" }`. External stylesheets and resources are not fetched — a relative `<link>` or `<img>` will not load, so use `lint_url` for a full page. Same aggregated compact response shape as `lint_url`. Hard-capped at 1 MiB of input and 10 000 elements, checked before rendering; oversized inputs surface as JSON-RPC `invalid_params` (-32602). When Chromium is unavailable the response carries `isError: true` with the driver error, never a misleading empty result. |
 | `explain_rule` | Return canonical documentation and metadata for a Plumb rule by id. Args: `{ "rule_id": "<category>/<id>" }`. |
 | `list_rules` | List every built-in Plumb rule with id, default severity, and one-line summary. No args. |
 | `get_config` | Return resolved `plumb.toml` for a working directory as JSON. Memoized per `(path, mtime)`. |
@@ -82,23 +82,40 @@ convention:
   "content": [
     {
       "type": "text",
-      "text": "warning spacing/grid-conformance @ html > body [desktop]: …"
+      "text": "warning spacing/grid-conformance ×1: `html > body` has off-grid padding-top 13px; …"
     }
   ],
   "isError": false,
   "structuredContent": {
-    "violations": [ /* … */ ],
-    "counts": { "error": 0, "warning": 1, "info": 0, "total": 1 }
+    "by_rule": { "spacing/grid-conformance": 1 },
+    "counts": { "error": 0, "info": 0, "total": 1, "warning": 1 },
+    "findings": [
+      {
+        "rule_id": "spacing/grid-conformance",
+        "severity": "warning",
+        "message": "`html > body` has off-grid padding-top 13px; …",
+        "instances": 1,
+        "examples": ["html > body"],
+        "fix": "Snap `padding-top` to the nearest spacing-grid value (12px).",
+        "doc_url": "https://plumb.aramhammoudeh.com/rules/spacing-grid-conformance"
+      }
+    ],
+    "truncated": false
   }
 }
 ```
 
-`detail: "compact"` returns the existing token-efficient payload shown
-above. `detail: "full"` keeps the same text block and switches
-`structuredContent` to the canonical JSON envelope from `plumb lint
-<url> --format json`, including `plumb_version`, `run_id`, `stats`,
-`summary`, and full per-violation fields. Full mode is rejected when
-the serialized structured payload exceeds 50 KB.
+`detail: "compact"` returns the token-efficient payload shown above:
+violations are grouped by rule and message shape into `findings`, each
+with an `instances` count and up to three example selectors, so 600
+identical low-contrast rows collapse to one entry instead of 600.
+`counts` and `by_rule` always reflect every violation, and `truncated`
+is `true` when groups were dropped to fit the 10 KB budget. `detail:
+"full"` keeps the same text block and switches `structuredContent` to
+the canonical JSON envelope from `plumb lint <url> --format json`,
+including `plumb_version`, `run_id`, `stats`, `summary`, and full
+per-violation fields. Full mode is rejected when the serialized
+structured payload exceeds 50 KB.
 
 ## Common issues
 

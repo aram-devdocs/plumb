@@ -2,5 +2,5 @@
 source: crates/plumb-format/tests/format_snapshots.rs
 expression: text
 ---
-warning spacing/grid-conformance @ html > body [desktop]: `html > body` has off-grid padding-top 13px; expected a multiple of 4px.
-1 violations (0 error, 1 warning, 0 info)
+warning spacing/grid-conformance ×1: `html > body` has off-grid padding-top 13px; expected a multiple of 4px.
+1 violations (0 error, 1 warning, 0 info) in 1/1 group

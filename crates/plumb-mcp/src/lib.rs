@@ -9,10 +9,16 @@
 //! - `lint_url` — lints a URL and returns violations in the MCP-compact
 //!   shape from `docs/local/prd.md` §14.2. Accepts `http(s)://` URLs
 //!   (driven by `plumb_cdp::ChromiumDriver`) and `plumb-fake://` URLs
-//!   (served from the canned snapshot).
-//! - `lint_page_html` — lints a static HTML string without launching
-//!   Chromium. Same response shape as `lint_url` (compact). Capped at
-//!   1 MiB of input and 10 000 elements.
+//!   (served from the canned snapshot). Resolves the project's
+//!   `plumb.toml` from `working_dir` (or the server CWD) so the lint
+//!   honors the caller's design tokens. Output is aggregated and capped
+//!   at 10 KB of `structuredContent`.
+//! - `lint_page_html` — lints a self-contained HTML string by rendering
+//!   it through the same persistent Chromium as `lint_url` (via a
+//!   `data:` URL) so embedded `<style>`/inline styles produce real
+//!   computed styles. External stylesheets and resources are not
+//!   fetched. Same aggregated, capped response shape as `lint_url`.
+//!   Capped at 1 MiB of input and 10 000 elements.
 //! - `explain_rule` — returns the canonical markdown documentation and
 //!   metadata for a built-in rule by id.
 //! - `list_rules` — enumerates every built-in rule with id, default
@@ -53,7 +59,7 @@ use axum::{
     middleware::{self, Next},
     response::{IntoResponse, Response},
 };
-use plumb_cdp::{ChromiumOptions, PersistentBrowser, Target, is_fake_url, snapshot_from_html};
+use plumb_cdp::{ChromiumOptions, PersistentBrowser, Target, is_fake_url};
 use plumb_config::ConfigError;
 use plumb_core::{Config, PlumbSnapshot, ViewportKey, Violation, register_builtin, run};
 use plumb_format::{json as full_json, mcp_compact};
@@ -127,6 +133,13 @@ pub struct LintUrlArgs {
     /// Response detail level. Defaults to the compact MCP payload.
     #[serde(default)]
     pub detail: LintUrlDetail,
+    /// Optional working directory whose `plumb.toml` configures the
+    /// lint. When omitted, the server resolves `plumb.toml` from its
+    /// own current working directory; when neither exists, the built-in
+    /// `Config::default()` is used. Resolution shares the `get_config`
+    /// cache.
+    #[serde(default)]
+    pub working_dir: Option<String>,
 }
 
 /// Structured response detail level for `lint_url`.
@@ -142,22 +155,27 @@ pub enum LintUrlDetail {
 
 /// Arguments to the `lint_page_html` tool.
 ///
-/// `lint_page_html` lints a static HTML string with Plumb without
-/// launching Chromium. The agent supplies the document and a base URL;
-/// the server parses with [`plumb_cdp::snapshot_from_html`], runs the
-/// rule engine, and returns the same MCP-compact shape as
-/// [`LintUrlArgs`]. There is no `detail` knob — the static-HTML path
-/// has no rendered styles or geometry, so the full JSON envelope adds
-/// no useful information beyond the compact one.
+/// `lint_page_html` lints a self-contained HTML string by rendering it
+/// through the same persistent Chromium as [`LintUrlArgs`]: the document
+/// is loaded as a `data:` URL, so embedded `<style>` blocks and inline
+/// `style="…"` attributes produce real computed styles and geometry.
+/// External stylesheets and resources are **not** fetched (a relative
+/// `<link>` or `<img>` will not load) — for a full page use `lint_url`.
+/// The response uses the same aggregated, capped MCP-compact shape.
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct LintPageHtmlArgs {
     /// Raw HTML source for the page. Hard-capped at 1 MiB and 10 000
-    /// elements; oversized inputs return a JSON-RPC error.
+    /// elements; oversized inputs return a JSON-RPC error before any
+    /// rendering happens.
     pub html: String,
     /// Base URL recorded as the snapshot's `url`. The function does not
     /// fetch this URL or validate it — callers pass whatever URL the
     /// downstream report should attribute the document to.
     pub base_url: String,
+    /// Optional working directory whose `plumb.toml` configures the
+    /// lint. Resolved exactly like [`LintUrlArgs::working_dir`].
+    #[serde(default)]
+    pub working_dir: Option<String>,
 }
 
 /// Arguments to the `explain_rule` tool.
@@ -290,11 +308,15 @@ impl PlumbServer {
     ///
     /// # Errors
     ///
-    /// Driver failures (Chromium not found, version out of range,
-    /// CDP error, malformed snapshot) are returned as a successful
-    /// JSON-RPC response with `isError = true` and a single text
-    /// content block — never as a JSON-RPC error.
+    /// Returns a JSON-RPC error (`ErrorData`) when the resolved
+    /// `plumb.toml` cannot be loaded or parsed. Driver failures
+    /// (Chromium not found, version out of range, CDP error, malformed
+    /// snapshot) are returned as a successful JSON-RPC response with
+    /// `isError = true` and a single text content block — never as a
+    /// JSON-RPC error.
     pub async fn lint_url(&self, args: LintUrlArgs) -> Result<CallToolResult, ErrorData> {
+        let config = self.resolve_config_object(args.working_dir.as_deref())?;
+
         let snapshot = if is_fake_url(&args.url) {
             PlumbSnapshot::canned()
         } else {
@@ -306,50 +328,41 @@ impl PlumbServer {
                 device_pixel_ratio: 1.0,
                 ..Target::default()
             };
-            match self
-                .browser
-                .get_or_try_init(|| PersistentBrowser::launch(ChromiumOptions::default()))
-                .await
-            {
-                Ok(browser) => match browser.snapshot(target).await {
-                    Ok(snap) => snap,
-                    Err(err) => {
-                        return Ok(CallToolResult::error(vec![Content::text(format!(
-                            "lint_url failed: {err}"
-                        ))]));
-                    }
-                },
-                Err(err) => {
-                    return Ok(CallToolResult::error(vec![Content::text(format!(
-                        "lint_url failed: {err}"
-                    ))]));
-                }
+            match self.snapshot_via_browser(target, "lint_url").await {
+                Ok(snap) => snap,
+                Err(result) => return Ok(result),
             }
         };
-        let config = Config::default();
         let violations = run(&snapshot, &config);
         build_lint_url_result(&violations, args.detail)
     }
 
-    /// Lint a static HTML string without launching Chromium.
+    /// Lint a self-contained HTML string by rendering it in Chromium.
     ///
-    /// The HTML is parsed with [`plumb_cdp::snapshot_from_html`] (a pure
-    /// parser pass — no JavaScript execution, no resource fetching) and
-    /// the resulting [`PlumbSnapshot`] flows through the same rule
-    /// engine that powers [`Self::lint_url`]. The response uses the
-    /// MCP-compact shape ([`mcp_compact`]) and is bounded by the same
-    /// ~10 KB structured-content budget.
+    /// The HTML is loaded as a `data:text/html;base64,…` URL through the
+    /// same persistent browser that powers [`Self::lint_url`], so
+    /// embedded `<style>` blocks and inline `style="…"` attributes
+    /// produce real computed styles and geometry — the spacing, color,
+    /// typography, contrast, and touch-target rules all see what the
+    /// browser actually rendered. External stylesheets and resources are
+    /// not fetched; a relative `<link>` or `<img>` will not load. For a
+    /// full page (with its real stylesheet cascade) use
+    /// [`Self::lint_url`].
     ///
-    /// The tool's input cap is enforced by `snapshot_from_html`: 1 MiB
-    /// of HTML and 10 000 elements. Oversized inputs map to a JSON-RPC
-    /// `invalid_params` error so the agent can react without parsing
-    /// the underlying `CdpError`.
+    /// The response uses the aggregated, capped MCP-compact shape
+    /// ([`mcp_compact`]). Input is hard-capped at 1 MiB and 10 000
+    /// opening tags, validated before the document is rendered.
     ///
     /// # Errors
     ///
     /// Returns [`ErrorData::invalid_params`] (JSON-RPC `-32602`) when
-    /// `args.html` is empty, when `args.base_url` is empty, or when
-    /// `snapshot_from_html` refuses the input as oversized.
+    /// `args.html` is empty, when `args.base_url` is empty, or when the
+    /// input exceeds the byte or element cap. Returns a JSON-RPC error
+    /// when the resolved `plumb.toml` cannot be loaded. Driver failures
+    /// (including Chromium being unavailable) surface as a successful
+    /// response with `isError = true` and a single text content block,
+    /// exactly as [`Self::lint_url`] does — never a misleading clean
+    /// result.
     pub async fn lint_page_html(
         &self,
         args: LintPageHtmlArgs,
@@ -366,12 +379,100 @@ impl PlumbServer {
                 None,
             ));
         }
+        if args.html.len() > LINT_PAGE_HTML_INPUT_BYTE_CAP {
+            return Err(ErrorData::invalid_params(
+                format!(
+                    "html is {} bytes, exceeds the {LINT_PAGE_HTML_INPUT_BYTE_CAP}-byte cap",
+                    args.html.len()
+                ),
+                None,
+            ));
+        }
+        let element_estimate = count_open_tags(&args.html);
+        if element_estimate > LINT_PAGE_HTML_ELEMENT_CAP {
+            return Err(ErrorData::invalid_params(
+                format!(
+                    "html has roughly {element_estimate} elements, exceeds the {LINT_PAGE_HTML_ELEMENT_CAP}-element cap"
+                ),
+                None,
+            ));
+        }
 
-        let snapshot = snapshot_from_html(&args.html, &args.base_url)
-            .map_err(|err| ErrorData::invalid_params(format!("snapshot_from_html: {err}"), None))?;
-        let config = Config::default();
+        let config = self.resolve_config_object(args.working_dir.as_deref())?;
+
+        let data_url = format!(
+            "data:text/html;base64,{}",
+            base64_encode(args.html.as_bytes())
+        );
+        let target = Target {
+            url: data_url,
+            viewport: ViewportKey::new("desktop"),
+            width: 1280,
+            height: 800,
+            device_pixel_ratio: 1.0,
+            ..Target::default()
+        };
+        let mut snapshot = match self.snapshot_via_browser(target, "lint_page_html").await {
+            Ok(snap) => snap,
+            Err(result) => return Ok(result),
+        };
+        // Attribute the snapshot to the caller-supplied base URL rather
+        // than the opaque (and huge) data: URL it was rendered from.
+        snapshot.url.clone_from(&args.base_url);
+
         let violations = run(&snapshot, &config);
         build_lint_url_result(&violations, LintUrlDetail::Compact)
+    }
+
+    /// Warm the persistent browser (if needed) and capture a snapshot.
+    ///
+    /// On any driver failure — Chromium unavailable, version out of
+    /// range, CDP error, malformed snapshot — returns `Err` carrying the
+    /// `isError = true` [`CallToolResult`] the caller should hand back,
+    /// so a missing browser never masquerades as a clean lint.
+    async fn snapshot_via_browser(
+        &self,
+        target: Target,
+        tool: &str,
+    ) -> Result<PlumbSnapshot, CallToolResult> {
+        match self
+            .browser
+            .get_or_try_init(|| PersistentBrowser::launch(ChromiumOptions::default()))
+            .await
+        {
+            Ok(browser) => browser.snapshot(target).await.map_err(|err| {
+                CallToolResult::error(vec![Content::text(format!("{tool} failed: {err}"))])
+            }),
+            Err(err) => Err(CallToolResult::error(vec![Content::text(format!(
+                "{tool} failed: {err}"
+            ))])),
+        }
+    }
+
+    /// Resolve the [`Config`] the lint tools should run with.
+    ///
+    /// Resolution order: the explicit `working_dir` argument, else the
+    /// server's own current working directory, else `Config::default()`
+    /// when no `plumb.toml` is found. Delegates to
+    /// [`Self::resolve_config_for_dir`] so the `(path, mtime)` cache and
+    /// default fallback are shared with the `get_config` tool.
+    ///
+    /// # Errors
+    ///
+    /// Propagates the [`ErrorData`] from [`Self::resolve_config_for_dir`]
+    /// when an existing `plumb.toml` cannot be read or parsed.
+    fn resolve_config_object(&self, working_dir: Option<&str>) -> Result<Config, ErrorData> {
+        let dir = match working_dir {
+            Some(raw) if !raw.trim().is_empty() => PathBuf::from(raw),
+            _ => self.cwd.clone(),
+        };
+        let resolved = self.resolve_config_for_dir(&dir)?;
+        let config_value = resolved.value.get("config").cloned().ok_or_else(|| {
+            ErrorData::internal_error("resolved config payload missing `config` field", None)
+        })?;
+        serde_json::from_value(config_value).map_err(|err| {
+            ErrorData::internal_error(format!("deserialize resolved config: {err}"), None)
+        })
     }
 
     /// Gracefully shut down the persistent browser, if any.
@@ -708,6 +809,58 @@ impl PlumbServer {
 
 const LINT_URL_FULL_RESPONSE_CAP_BYTES: usize = 50 * 1024;
 
+/// Hard byte cap on `lint_page_html` input (1 MiB). Validated before the
+/// document is rendered so a pathological payload never reaches the
+/// browser or inflates into an oversized `data:` URL.
+const LINT_PAGE_HTML_INPUT_BYTE_CAP: usize = 1024 * 1024;
+
+/// Hard cap on the number of opening tags `lint_page_html` will render
+/// (10 000), estimated cheaply from the raw HTML before rendering.
+const LINT_PAGE_HTML_ELEMENT_CAP: usize = 10_000;
+
+/// Conservative pre-render estimate of an HTML document's element count:
+/// the number of `<` bytes immediately followed by an ASCII letter (an
+/// opening tag). Closing tags (`</`), comments (`<!--`), and the doctype
+/// (`<!`) are excluded. This is a guardrail, not an exact parse — the
+/// real element count after rendering can only be lower (the browser
+/// drops malformed tags), so the estimate never under-counts a genuine
+/// blow-up.
+fn count_open_tags(html: &str) -> usize {
+    html.as_bytes()
+        .windows(2)
+        .filter(|w| w[0] == b'<' && w[1].is_ascii_alphabetic())
+        .count()
+}
+
+/// Standard (RFC 4648) base64 encoding for the
+/// `data:text/html;base64,…` URL `lint_page_html` navigates. Kept local
+/// to avoid pulling a base64 crate into this layer for ~20 lines of
+/// pure, deterministic code.
+fn base64_encode(input: &[u8]) -> String {
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(input.len().div_ceil(3) * 4);
+    for chunk in input.chunks(3) {
+        let b0 = chunk[0];
+        let b1 = chunk.get(1).copied();
+        let b2 = chunk.get(2).copied();
+        let triple =
+            (u32::from(b0) << 16) | (u32::from(b1.unwrap_or(0)) << 8) | u32::from(b2.unwrap_or(0));
+        out.push(char::from(TABLE[((triple >> 18) & 0x3f) as usize]));
+        out.push(char::from(TABLE[((triple >> 12) & 0x3f) as usize]));
+        out.push(if b1.is_some() {
+            char::from(TABLE[((triple >> 6) & 0x3f) as usize])
+        } else {
+            '='
+        });
+        out.push(if b2.is_some() {
+            char::from(TABLE[(triple & 0x3f) as usize])
+        } else {
+            '='
+        });
+    }
+    out
+}
+
 fn build_lint_url_result(
     violations: &[Violation],
     detail: LintUrlDetail,
@@ -884,7 +1037,8 @@ impl ServerHandler for PlumbServer {
         info.server_info = Implementation::new("plumb", env!("CARGO_PKG_VERSION"));
         info.instructions = Some(
             "Deterministic design-system linter. Call `lint_url` with a URL to get violations; \
-             use `lint_page_html` to lint a static HTML string without launching Chromium; \
+             use `lint_page_html` to lint a self-contained HTML string (rendered in Chromium; \
+             external stylesheets are not fetched); \
              use `compare_viewports` to diff a URL across mobile/desktop; \
              use `explain_rule` for canonical rule documentation; use `list_rules` to enumerate \
              every built-in rule; use `get_config` to fetch the resolved `plumb.toml` for a \
@@ -925,11 +1079,11 @@ impl ServerHandler for PlumbServer {
             tool_descriptor::<EchoArgs>("echo", "Echo a message — smoke test the MCP transport."),
             tool_descriptor::<LintUrlArgs>(
                 "lint_url",
-                "Lint a URL with Plumb. Accepts http(s):// and plumb-fake:// URLs.",
+                "Lint a URL with Plumb. Accepts http(s):// and plumb-fake:// URLs. Resolves plumb.toml from working_dir (or the server CWD). Output is aggregated and capped at \u{2264} 10 KB structuredContent.",
             ),
             tool_descriptor::<LintPageHtmlArgs>(
                 "lint_page_html",
-                "Lint a static HTML string with Plumb without launching Chromium. Token budget: \u{2264} 10 KB structuredContent. Capped at 1 MiB input and 10000 elements.",
+                "Lint a self-contained HTML string by rendering it in Chromium (via a data: URL) so embedded <style>/inline styles produce real computed styles. External stylesheets/resources are NOT fetched \u{2014} use lint_url for full pages. Resolves plumb.toml from working_dir (or the server CWD). Aggregated, \u{2264} 10 KB structuredContent. Capped at 1 MiB input and 10000 elements.",
             ),
             tool_descriptor::<ExplainRuleArgs>(
                 "explain_rule",

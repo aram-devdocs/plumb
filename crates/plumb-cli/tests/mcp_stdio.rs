@@ -210,7 +210,11 @@ fn mcp_initialize_and_tools_list() {
         .unwrap_or_else(|| panic!("lint_url tool missing: got {tools:?}"));
     assert_eq!(
         lint_url["description"],
-        "Lint a URL with Plumb. Accepts http(s):// and plumb-fake:// URLs."
+        "Lint a URL with Plumb. Accepts http(s):// and plumb-fake:// URLs. Resolves plumb.toml from working_dir (or the server CWD). Output is aggregated and capped at \u{2264} 10 KB structuredContent."
+    );
+    assert!(
+        lint_url["inputSchema"]["properties"]["working_dir"].is_object(),
+        "lint_url must expose an optional working_dir property: {lint_url:?}"
     );
     assert_eq!(
         lint_url["inputSchema"]["properties"]["url"]["type"],
@@ -308,7 +312,7 @@ fn mcp_lint_url_returns_structured_content() {
     assert_eq!(content[0]["type"].as_str(), Some("text"));
     let text = content[0]["text"].as_str().expect("text content");
     assert!(
-        text.contains("warning spacing/grid-conformance @ html > body [desktop]"),
+        text.contains("warning spacing/grid-conformance"),
         "unexpected lint_url text: {text}"
     );
 
@@ -316,9 +320,15 @@ fn mcp_lint_url_returns_structured_content() {
         .as_object()
         .expect("structuredContent object");
     assert_eq!(structured["counts"]["total"].as_u64(), Some(1));
+    assert_eq!(structured["truncated"].as_bool(), Some(false));
     assert_eq!(
-        structured["violations"][0]["rule_id"].as_str(),
+        structured["findings"][0]["rule_id"].as_str(),
         Some("spacing/grid-conformance")
+    );
+    assert_eq!(structured["findings"][0]["instances"].as_u64(), Some(1));
+    assert_eq!(
+        structured["by_rule"]["spacing/grid-conformance"].as_u64(),
+        Some(1)
     );
 }
 
@@ -360,7 +370,7 @@ fn mcp_lint_url_full_returns_json_envelope() {
         result["content"][0]["text"]
             .as_str()
             .expect("text content")
-            .contains("warning spacing/grid-conformance @ html > body [desktop]")
+            .contains("warning spacing/grid-conformance")
     );
 
     let structured = result["structuredContent"]

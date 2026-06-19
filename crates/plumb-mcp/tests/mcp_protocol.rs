@@ -269,6 +269,7 @@ async fn fake_url_lint_does_not_warm_chromium_and_shutdown_is_noop() {
         .lint_url(LintUrlArgs {
             url: "plumb-fake://hello".to_owned(),
             detail: LintUrlDetail::default(),
+            working_dir: None,
         })
         .await
         .expect("fake-url lint must succeed without a browser");
@@ -281,8 +282,11 @@ async fn fake_url_lint_does_not_warm_chromium_and_shutdown_is_noop() {
         .structured_content
         .expect("fake-url lint must return structured content");
     assert!(
-        structured.get("violations").is_some() && structured.get("counts").is_some(),
-        "structured payload follows the mcp_compact shape (violations + counts)"
+        structured.get("findings").is_some()
+            && structured.get("counts").is_some()
+            && structured.get("by_rule").is_some()
+            && structured.get("truncated").is_some(),
+        "structured payload follows the aggregated mcp_compact shape (findings + counts + by_rule + truncated)"
     );
 
     server
@@ -306,6 +310,7 @@ async fn many_fake_url_lints_share_one_server_without_warming_chromium() {
             .lint_url(LintUrlArgs {
                 url: "plumb-fake://hello".to_owned(),
                 detail: LintUrlDetail::default(),
+                working_dir: None,
             })
             .await
             .expect("fake-url lint must succeed without a browser");
@@ -320,57 +325,100 @@ async fn many_fake_url_lints_share_one_server_without_warming_chromium() {
         .expect("shutdown must be a no-op after only fake-url calls");
 }
 
-/// `lint_page_html` happy path: a small HTML literal round-trips to the
-/// MCP-compact response shape — `content[0].text` exists and
-/// `structuredContent.violations` is an array. This pins the response
-/// contract and the no-Chromium guarantee at the same time.
+/// Self-contained defect HTML — an embedded `<style>` setting off-grid
+/// padding — must never produce a false "clean" result. The static
+/// parser this tool used to call found nothing, so it always returned
+/// zero violations on defect-filled HTML; now the document is rendered
+/// in Chromium.
+///
+/// This test is environment-robust by design: with Chromium present the
+/// render produces non-empty `findings`; without it the tool returns a
+/// clear `isError = true` driver error. The one outcome it forbids is a
+/// successful response with zero findings.
 #[tokio::test]
-async fn lint_page_html_round_trips_static_html_to_compact_payload() {
+async fn lint_page_html_defect_html_never_returns_false_clean() {
     let server = server();
+    let html = r"<!doctype html><html><head><style>div { padding: 13px }</style></head><body><div>x</div></body></html>";
     let result = server
         .lint_page_html(LintPageHtmlArgs {
-            html: "<!doctype html><html><body><p>hi</p></body></html>".to_owned(),
+            html: html.to_owned(),
             base_url: "https://example.com/".to_owned(),
+            working_dir: None,
         })
         .await
-        .expect("lint_page_html must succeed for a small valid document");
+        .expect("lint_page_html must not raise a JSON-RPC error for valid input");
 
-    assert!(
-        !result.is_error.unwrap_or(false),
-        "lint_page_html must not surface a driver error"
-    );
-    let text = result
-        .content
-        .iter()
-        .find_map(|content| content.as_text().map(|text| text.text.clone()))
-        .expect("response must include a text content block");
-    assert!(!text.is_empty(), "compact text block must not be empty");
+    if result.is_error.unwrap_or(false) {
+        // Chromium unavailable (or another driver failure): the response
+        // must be a clear error, not a misleading clean.
+        let text = result
+            .content
+            .iter()
+            .find_map(|content| content.as_text().map(|text| text.text.clone()))
+            .expect("error response must include a text content block");
+        assert!(
+            text.contains("lint_page_html failed"),
+            "driver failure must be explicit, got: {text}"
+        );
+    } else {
+        let structured = result
+            .structured_content
+            .expect("successful response must include structured_content");
+        let findings = structured
+            .get("findings")
+            .and_then(serde_json::Value::as_array)
+            .expect("structuredContent.findings must be an array");
+        assert!(
+            !findings.is_empty(),
+            "rendered defect HTML must produce at least one finding, not a false clean: {structured}",
+        );
+    }
+
+    server.shutdown().await.expect("shutdown must succeed");
+}
+
+/// With Chromium present, the embedded `<style>` off-grid padding renders
+/// into real computed styles and surfaces a `spacing/grid-conformance`
+/// finding. Gated behind `e2e-chromium`, mirroring the plumb-cdp suite;
+/// on a host where the launch fails the test skips rather than failing.
+#[cfg(feature = "e2e-chromium")]
+#[tokio::test]
+async fn lint_page_html_renders_embedded_style_into_grid_finding() {
+    let server = server();
+    let html = r"<!doctype html><html><head><style>div { padding: 13px }</style></head><body><div>x</div></body></html>";
+    let result = server
+        .lint_page_html(LintPageHtmlArgs {
+            html: html.to_owned(),
+            base_url: "https://example.com/".to_owned(),
+            working_dir: None,
+        })
+        .await
+        .expect("lint_page_html must not raise a JSON-RPC error for valid input");
+
+    if result.is_error.unwrap_or(false) {
+        // No usable Chromium on this host — skip, same as the cdp e2e suite.
+        return;
+    }
 
     let structured = result
         .structured_content
-        .expect("response must include structured_content");
-    let violations = structured
-        .get("violations")
-        .and_then(serde_json::Value::as_array)
-        .expect("structuredContent.violations must be an array");
-    // No rendering pass means no spacing/color/typography violations
-    // for the static-HTML path; the array exists but is empty here.
-    assert!(violations.is_empty());
+        .expect("successful response must include structured_content");
+    let by_rule = structured
+        .get("by_rule")
+        .and_then(serde_json::Value::as_object)
+        .expect("structuredContent.by_rule must be an object");
     assert!(
-        structured.get("counts").is_some(),
-        "structuredContent must carry the mcp_compact counts block"
+        by_rule.contains_key("spacing/grid-conformance"),
+        "embedded off-grid padding must render into a grid-conformance finding: {structured}",
     );
 
-    // No browser was warmed — shutdown must remain a no-op.
-    server
-        .shutdown()
-        .await
-        .expect("shutdown must be a no-op after only lint_page_html calls");
+    server.shutdown().await.expect("shutdown must succeed");
 }
 
 /// `lint_page_html` rejects empty `html` with a JSON-RPC `invalid_params`
 /// error so the agent gets a clear contract failure rather than a
-/// silently-empty snapshot.
+/// silently-empty snapshot. Validated before any rendering, so it runs
+/// without Chromium.
 #[tokio::test]
 async fn lint_page_html_empty_html_returns_invalid_params() {
     let server = server();
@@ -378,77 +426,51 @@ async fn lint_page_html_empty_html_returns_invalid_params() {
         .lint_page_html(LintPageHtmlArgs {
             html: String::new(),
             base_url: "https://example.com/".to_owned(),
+            working_dir: None,
         })
         .await
         .expect_err("empty html must fail");
     assert_eq!(err.code, ErrorCode::INVALID_PARAMS);
 }
 
-/// `lint_page_html` flags an inline off-grid padding value as a
-/// `spacing/grid-conformance` violation. This is the end-to-end
-/// proof that inline `style="…"` attributes flow through
-/// `snapshot_from_html` into `computed_styles` and on into the rule
-/// engine — without warming Chromium.
-#[tokio::test]
-async fn lint_page_html_flags_inline_padding() {
-    let server = server();
-    let result = server
-        .lint_page_html(LintPageHtmlArgs {
-            html: r#"<!doctype html><html><body><div style="padding: 13px">x</div></body></html>"#
-                .to_owned(),
-            base_url: "https://example.com/".to_owned(),
-        })
-        .await
-        .expect("lint_page_html must succeed for the off-grid fixture");
-
-    assert!(
-        !result.is_error.unwrap_or(false),
-        "lint_page_html must not surface a driver error for valid HTML"
-    );
-
-    let structured = result
-        .structured_content
-        .expect("response must include structured_content");
-    let violations = structured
-        .get("violations")
-        .and_then(serde_json::Value::as_array)
-        .expect("structuredContent.violations must be an array");
-    assert!(
-        !violations.is_empty(),
-        "expected at least one violation for `padding: 13px`, got {violations:?}",
-    );
-    let has_grid = violations
-        .iter()
-        .any(|v| v.get("rule_id").and_then(|r| r.as_str()) == Some("spacing/grid-conformance"));
-    assert!(
-        has_grid,
-        "expected a `spacing/grid-conformance` violation in {violations:?}",
-    );
-
-    server
-        .shutdown()
-        .await
-        .expect("shutdown must remain a no-op for static-HTML calls");
-}
-
-/// `lint_page_html` rejects oversized HTML at the parser cap (1 MiB).
-/// The cap surfaces as `invalid_params` so a chatty agent can react
-/// without parsing the underlying `CdpError` variant.
+/// `lint_page_html` rejects oversized HTML at the 1 MiB input cap. The
+/// cap is validated before rendering and surfaces as `invalid_params`,
+/// so a chatty agent can react without warming Chromium.
 #[tokio::test]
 async fn lint_page_html_above_byte_cap_returns_invalid_params() {
     let server = server();
-    // 1 MiB + 1 byte. Most of it is body text inside a single <p> so
-    // the element-count cap stays out of the way and the byte cap is
-    // the variant that fires first.
     let big_body = "x".repeat(1024 * 1024 + 1);
     let html = format!("<!doctype html><html><body><p>{big_body}</p></body></html>");
     let err = server
         .lint_page_html(LintPageHtmlArgs {
             html,
             base_url: "https://example.com/".to_owned(),
+            working_dir: None,
         })
         .await
         .expect_err("oversized html must fail");
+    assert_eq!(err.code, ErrorCode::INVALID_PARAMS);
+}
+
+/// `lint_page_html` rejects HTML past the 10 000-element cap before
+/// rendering, mirroring the byte-cap guard. Built from many empty
+/// elements so the element estimate — not the byte count — trips first.
+#[tokio::test]
+async fn lint_page_html_above_element_cap_returns_invalid_params() {
+    let server = server();
+    let mut html = String::from("<!doctype html><html><body>");
+    for _ in 0..10_001 {
+        html.push_str("<i></i>");
+    }
+    html.push_str("</body></html>");
+    let err = server
+        .lint_page_html(LintPageHtmlArgs {
+            html,
+            base_url: "https://example.com/".to_owned(),
+            working_dir: None,
+        })
+        .await
+        .expect_err("over-element-cap html must fail");
     assert_eq!(err.code, ErrorCode::INVALID_PARAMS);
 }
 
