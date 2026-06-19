@@ -3,37 +3,27 @@ source: crates/plumb-format/tests/format_snapshots.rs
 expression: structured
 ---
 {
-  "violations": [
-    {
-      "rule_id": "spacing/grid-conformance",
-      "severity": "warning",
-      "message": "`html > body` has off-grid padding-top 13px; expected a multiple of 4px.",
-      "selector": "html > body",
-      "viewport": "desktop",
-      "rect": {
-        "x": 0,
-        "y": 0,
-        "width": 1280,
-        "height": 800
-      },
-      "dom_order": 2,
-      "fix": {
-        "kind": {
-          "kind": "css_property_replace",
-          "property": "padding-top",
-          "from": "13px",
-          "to": "12px"
-        },
-        "description": "Snap `padding-top` to the nearest spacing-grid value (12px).",
-        "confidence": "medium"
-      },
-      "doc_url": "https://plumb.aramhammoudeh.com/rules/spacing-grid-conformance"
-    }
-  ],
+  "by_rule": {
+    "spacing/grid-conformance": 1
+  },
   "counts": {
     "error": 0,
     "info": 0,
     "total": 1,
     "warning": 1
-  }
+  },
+  "findings": [
+    {
+      "doc_url": "https://plumb.aramhammoudeh.com/rules/spacing-grid-conformance",
+      "examples": [
+        "html > body"
+      ],
+      "fix": "Snap `padding-top` to the nearest spacing-grid value (12px).",
+      "instances": 1,
+      "message": "`html > body` has off-grid padding-top 13px; expected a multiple of 4px.",
+      "rule_id": "spacing/grid-conformance",
+      "severity": "warning"
+    }
+  ],
+  "truncated": false
 }

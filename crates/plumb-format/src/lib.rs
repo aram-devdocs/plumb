@@ -12,8 +12,10 @@
 //! - [`pretty`] — human-readable TTY output.
 //! - [`json()`] — canonical machine-readable format.
 //! - [`sarif_with_rules`] — SARIF 2.1.0 for GitHub code-scanning and IDEs.
-//! - [`mcp_compact`] — token-efficient output for the MCP server; returns
-//!   a `(text, structured)` pair matching PRD §14.2.
+//! - [`mcp_compact`] / [`mcp_compact_capped`] — token-efficient output
+//!   for the MCP server; returns a `(text, structured)` pair matching
+//!   PRD §14.2. Duplicate violations are aggregated server-side into
+//!   capped findings under a hard 10 KB `structuredContent` budget.
 //!
 //! [`pretty_with_suggested_ignores`] and [`json_with_suggested_ignores`]
 //! extend the `pretty` and `json` shapes with a `.plumbignore` proposal
@@ -24,7 +26,7 @@
 #![deny(missing_docs)]
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 
 use plumb_core::{RuleMetadata, Severity, Violation};
@@ -506,38 +508,334 @@ pub fn sarif_with_rules(
     serde_json::to_string_pretty(&doc)
 }
 
+/// Default cap on the number of aggregated findings [`mcp_compact`]
+/// returns. The hard 10 KB byte budget ([`MCP_COMPACT_RESPONSE_CAP_BYTES`])
+/// may drop additional groups beyond this when messages are unusually
+/// long.
+const MCP_COMPACT_DEFAULT_MAX_FINDINGS: usize = 20;
+
+/// Hard byte cap on the serialized `structuredContent` payload, per
+/// `.agents/rules/mcp-tool-patterns.md` and PRD §14.2. The aggregation
+/// pass guarantees [`mcp_compact_capped`] never returns a payload whose
+/// compact JSON serialization exceeds this size.
+const MCP_COMPACT_RESPONSE_CAP_BYTES: usize = 10 * 1024;
+
+/// Maximum example selectors carried per aggregated finding. The full
+/// per-element list is intentionally never echoed back — it burns the
+/// agent's token budget for no decision value.
+const MCP_COMPACT_EXAMPLE_CAP: usize = 3;
+
 /// Render a slice of violations as MCP-compact output — a token-efficient
 /// text block plus a structured JSON sidecar.
 ///
-/// This matches PRD §14.2. AI coding agents consume the structured block
-/// for machine-readable decisions and surface the text block to the user.
+/// Aggregates with [`mcp_compact_capped`] at the default finding cap of
+/// 20. This matches PRD §14.2: AI coding agents consume the structured
+/// block for machine-readable decisions and surface the text block to
+/// the user.
 #[must_use]
 pub fn mcp_compact(violations: &[Violation]) -> (String, Value) {
-    let mut text = String::new();
-    for v in violations {
-        let _ = writeln!(
-            text,
-            "{severity} {rule} @ {selector} [{viewport}]: {message}",
-            severity = v.severity.label(),
-            rule = v.rule_id,
-            selector = v.selector,
-            viewport = v.viewport.as_str(),
-            message = v.message,
+    mcp_compact_capped(violations, MCP_COMPACT_DEFAULT_MAX_FINDINGS)
+}
+
+/// Aggregate violations into capped findings and render the MCP-compact
+/// `(text, structured)` pair under a hard 10 KB `structuredContent`
+/// budget.
+///
+/// # Aggregation
+///
+/// Violations are grouped by `(rule_id, normalized_message)`, where the
+/// normalized message erases the element-specific parts of the text —
+/// the node's own selector, numeric literals, and hex color codes — so
+/// that the same defect across many elements collapses into one finding.
+/// Each finding carries the representative message, an `instances`
+/// count, up to `MCP_COMPACT_EXAMPLE_CAP` example selectors, the
+/// representative fix description, and the doc URL.
+///
+/// # Structured payload
+///
+/// The returned `structuredContent` object has four keys, in alphabetical
+/// order:
+///
+/// - `by_rule` — `rule_id` → instance count across every violation.
+/// - `counts` — `{ error, info, total, warning }` across every violation.
+/// - `findings` — at most `max_findings` aggregated groups, sorted by
+///   `(severity desc, rule_id, representative selector)`.
+/// - `truncated` — `true` when groups were dropped to fit either the
+///   finding cap or the 10 KB byte budget.
+///
+/// `counts` and `by_rule` always reflect **all** input violations, even
+/// when findings are dropped. The byte budget is enforced by first
+/// dropping example selectors, then dropping the lowest-severity groups,
+/// until the payload fits — the function never returns more than 10 KB.
+///
+/// # Determinism
+///
+/// Output is a pure function of the input slice. Violations are sorted
+/// defensively before grouping, groups are sorted by a total order, and
+/// every map is emitted in sorted-key order.
+#[must_use]
+pub fn mcp_compact_capped(violations: &[Violation], max_findings: usize) -> (String, Value) {
+    let sorted = canonical_sorted(violations);
+
+    // Group by (rule_id, normalized message). A BTreeMap keeps the build
+    // deterministic; the representative fields are seeded on first
+    // insertion, and because `sorted` is in sort-key order the
+    // representative is always the lowest-sort-key violation of the group.
+    let mut groups: BTreeMap<(String, String), FindingGroup> = BTreeMap::new();
+    for v in &sorted {
+        let key = (
+            v.rule_id.clone(),
+            normalize_message(&v.message, &v.selector),
         );
-    }
-    if violations.is_empty() {
-        text.push_str("ok: 0 violations\n");
-    } else {
-        text.push_str(&summary_line(violations));
-        text.push('\n');
+        let group = groups.entry(key).or_insert_with(|| FindingGroup {
+            rule_id: v.rule_id.clone(),
+            severity: v.severity,
+            message: v.message.clone(),
+            selector: v.selector.clone(),
+            fix: v.fix.as_ref().map(|f| f.description.clone()),
+            doc_url: v.doc_url.clone(),
+            instances: 0,
+            examples: Vec::new(),
+        });
+        group.instances += 1;
+        if group.examples.len() < MCP_COMPACT_EXAMPLE_CAP
+            && !group.examples.iter().any(|s| s == &v.selector)
+        {
+            group.examples.push(v.selector.clone());
+        }
     }
 
-    let structured = json!({
-        "violations": violations,
-        "counts": counts_json(violations),
+    let mut findings: Vec<FindingGroup> = groups.into_values().collect();
+    findings.sort_by(|a, b| {
+        severity_rank(a.severity)
+            .cmp(&severity_rank(b.severity))
+            .then_with(|| a.rule_id.cmp(&b.rule_id))
+            .then_with(|| a.selector.cmp(&b.selector))
     });
 
+    let total_groups = findings.len();
+    if findings.len() > max_findings {
+        findings.truncate(max_findings);
+    }
+
+    let counts = counts_json(violations);
+    let by_rule = by_rule_json(&sorted);
+
+    let (structured, kept) = fit_structured_payload(&findings, total_groups, &counts, &by_rule);
+    let text = compact_text(&findings[..kept], violations, total_groups);
     (text, structured)
+}
+
+/// One aggregated finding: a representative violation plus the counts and
+/// examples that collapse a group of element-specific duplicates.
+struct FindingGroup {
+    rule_id: String,
+    severity: Severity,
+    message: String,
+    /// Representative selector — the lowest-sort-key member of the group.
+    /// Used both as the final tie-breaker in the group sort and as the
+    /// first example.
+    selector: String,
+    fix: Option<String>,
+    doc_url: String,
+    instances: usize,
+    examples: Vec<String>,
+}
+
+/// Severity sort rank: errors first, then warnings, then info. Used to
+/// order findings (most severe first) and to decide drop order when the
+/// byte budget is exceeded (least severe dropped first).
+fn severity_rank(severity: Severity) -> u8 {
+    match severity {
+        Severity::Error => 0,
+        Severity::Warning => 1,
+        Severity::Info => 2,
+    }
+}
+
+/// Collapse a violation message into a grouping key by erasing the
+/// element-specific parts: the node's own selector (rule messages embed
+/// it in backticks, e.g. `` `html > body` has off-grid padding… ``),
+/// numeric literals, and hex color codes. Two violations that differ
+/// only by which element they point at — or by a slightly different
+/// measured value — normalize to the same key.
+fn normalize_message(message: &str, selector: &str) -> String {
+    // Drop the selector verbatim. Guard the empty case: `str::replace`
+    // with an empty pattern splices the replacement between every char.
+    let without_selector = if selector.is_empty() {
+        std::borrow::Cow::Borrowed(message)
+    } else {
+        std::borrow::Cow::Owned(message.replace(selector, "<sel>"))
+    };
+
+    let mut out = String::with_capacity(without_selector.len());
+    let mut chars = without_selector.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '#' {
+            // Gather the following hex run. A run of 3/4/6/8 hex digits is
+            // a CSS color and collapses to a single placeholder; anything
+            // else (e.g. an id selector fragment) is left intact.
+            let mut hex = String::new();
+            while let Some(&next) = chars.peek() {
+                if next.is_ascii_hexdigit() {
+                    hex.push(next);
+                    chars.next();
+                } else {
+                    break;
+                }
+            }
+            if matches!(hex.len(), 3 | 4 | 6 | 8) {
+                out.push_str("<#>");
+            } else {
+                out.push('#');
+                out.push_str(&hex);
+            }
+        } else if c.is_ascii_digit() {
+            // Consume the rest of the number (digits + decimal point) and
+            // collapse it. Trailing units (`px`, `rem`, `:1`) survive and
+            // keep distinct shapes apart.
+            while let Some(&next) = chars.peek() {
+                if next.is_ascii_digit() || next == '.' {
+                    chars.next();
+                } else {
+                    break;
+                }
+            }
+            out.push_str("<n>");
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// `rule_id` → instance count across every violation, emitted in sorted
+/// `rule_id` order for byte-stable output.
+fn by_rule_json(sorted: &[&Violation]) -> Value {
+    let mut tally: BTreeMap<&str, usize> = BTreeMap::new();
+    for v in sorted {
+        *tally.entry(v.rule_id.as_str()).or_insert(0) += 1;
+    }
+    let mut map = serde_json::Map::new();
+    for (rule_id, count) in tally {
+        map.insert(rule_id.to_owned(), json!(count));
+    }
+    Value::Object(map)
+}
+
+/// Build the `structuredContent` object from a finding slice. Keys are
+/// inserted alphabetically so the output is stable regardless of
+/// `serde_json`'s `preserve_order` feature toggle.
+fn build_structured(
+    findings: &[FindingGroup],
+    counts: &Value,
+    by_rule: &Value,
+    include_examples: bool,
+    truncated: bool,
+) -> Value {
+    let findings_json: Vec<Value> = findings
+        .iter()
+        .map(|f| {
+            let mut map = serde_json::Map::new();
+            map.insert("doc_url".to_owned(), Value::String(f.doc_url.clone()));
+            if include_examples {
+                map.insert(
+                    "examples".to_owned(),
+                    Value::Array(f.examples.iter().cloned().map(Value::String).collect()),
+                );
+            }
+            map.insert(
+                "fix".to_owned(),
+                f.fix.clone().map_or(Value::Null, Value::String),
+            );
+            map.insert("instances".to_owned(), json!(f.instances));
+            map.insert("message".to_owned(), Value::String(f.message.clone()));
+            map.insert("rule_id".to_owned(), Value::String(f.rule_id.clone()));
+            map.insert(
+                "severity".to_owned(),
+                Value::String(f.severity.label().to_owned()),
+            );
+            Value::Object(map)
+        })
+        .collect();
+
+    let mut map = serde_json::Map::new();
+    map.insert("by_rule".to_owned(), by_rule.clone());
+    map.insert("counts".to_owned(), counts.clone());
+    map.insert("findings".to_owned(), Value::Array(findings_json));
+    map.insert("truncated".to_owned(), Value::Bool(truncated));
+    Value::Object(map)
+}
+
+/// Enforce the 10 KB `structuredContent` budget. Returns the final
+/// payload plus the number of findings kept (so the text block matches).
+///
+/// The shrink order is: (1) drop example selectors, (2) drop the
+/// lowest-severity groups one at a time. `counts` and `by_rule` are
+/// small and fixed, so the loop always terminates with a payload under
+/// the cap.
+fn fit_structured_payload(
+    findings: &[FindingGroup],
+    total_groups: usize,
+    counts: &Value,
+    by_rule: &Value,
+) -> (Value, usize) {
+    let mut include_examples = true;
+    let mut kept = findings.len();
+    loop {
+        let truncated = total_groups > kept;
+        let structured = build_structured(
+            &findings[..kept],
+            counts,
+            by_rule,
+            include_examples,
+            truncated,
+        );
+        let size = serde_json::to_string(&structured).map_or(usize::MAX, |s| s.len());
+        if size <= MCP_COMPACT_RESPONSE_CAP_BYTES {
+            return (structured, kept);
+        }
+        if include_examples {
+            include_examples = false;
+            continue;
+        }
+        if kept == 0 {
+            // counts + by_rule alone exceed the cap — pathological, but
+            // still return the smallest payload we can rather than panic.
+            return (structured, 0);
+        }
+        kept -= 1;
+    }
+}
+
+/// Render the compact text block: one line per kept finding, then a
+/// summary line. Bounded by the finding cap, so it never grows with the
+/// raw violation count.
+fn compact_text(findings: &[FindingGroup], all: &[Violation], total_groups: usize) -> String {
+    let mut text = String::new();
+    if all.is_empty() {
+        text.push_str("ok: 0 violations\n");
+        return text;
+    }
+    for f in findings {
+        let _ = writeln!(
+            text,
+            "{severity} {rule} \u{d7}{instances}: {message}",
+            severity = f.severity.label(),
+            rule = f.rule_id,
+            instances = f.instances,
+            message = f.message,
+        );
+    }
+    let _ = writeln!(
+        text,
+        "{summary} in {shown}/{groups} group{plural}",
+        summary = summary_line(all),
+        shown = findings.len(),
+        groups = total_groups,
+        plural = if total_groups == 1 { "" } else { "s" },
+    );
+    text
 }
 
 #[derive(Clone, Copy)]
@@ -670,10 +968,10 @@ fn append_pretty_stats(out: &mut String, violations: &[Violation], run_id: &str)
 #[cfg(test)]
 mod tests {
     use super::{
-        json, json_with_ignored, json_with_suggested_ignores,
-        json_with_suggested_ignores_and_ignored, pretty, pretty_with_ignored,
-        pretty_with_suggested_ignores, pretty_with_suggested_ignores_and_ignored,
-        suggested_ignores,
+        MCP_COMPACT_RESPONSE_CAP_BYTES, json, json_with_ignored, json_with_suggested_ignores,
+        json_with_suggested_ignores_and_ignored, mcp_compact, mcp_compact_capped, pretty,
+        pretty_with_ignored, pretty_with_suggested_ignores,
+        pretty_with_suggested_ignores_and_ignored, suggested_ignores,
     };
     use indexmap::IndexMap;
     use plumb_core::{Severity, ViewportKey, Violation};
@@ -694,6 +992,156 @@ mod tests {
             ),
             metadata: IndexMap::new(),
         }
+    }
+
+    fn contrast_violation(selector: &str, ratio: &str, dom_order: u64) -> Violation {
+        Violation {
+            rule_id: "color/contrast-aa".to_owned(),
+            severity: Severity::Error,
+            message: format!(
+                "`{selector}` has contrast ratio {ratio}:1; WCAG 2.1 AA requires at least 4.5:1 for normal text."
+            ),
+            selector: selector.to_owned(),
+            viewport: ViewportKey::new("desktop"),
+            rect: None,
+            dom_order,
+            fix: None,
+            doc_url: "https://plumb.aramhammoudeh.com/rules/color-contrast-aa".to_owned(),
+            metadata: IndexMap::new(),
+        }
+    }
+
+    fn structured_byte_len(structured: &serde_json::Value) -> usize {
+        serde_json::to_string(structured)
+            .expect("structured payload serializes")
+            .len()
+    }
+
+    #[test]
+    fn mcp_compact_collapses_element_specific_duplicates() {
+        // 700 low-contrast rows on distinct elements with slightly
+        // different measured ratios — the HN meta-text case. Aggregation
+        // MUST collapse them into a single finding while the counts still
+        // reflect all 700.
+        let violations: Vec<Violation> = (0..700)
+            .map(|i| {
+                let ratio = format!("{}.{}", 2 + i % 3, i % 10);
+                contrast_violation(&format!("tr.athing > td.subtext-{i} > span"), &ratio, i)
+            })
+            .collect();
+
+        let (_text, structured) = mcp_compact(&violations);
+
+        assert_eq!(structured["counts"]["total"].as_u64(), Some(700));
+        assert_eq!(structured["counts"]["error"].as_u64(), Some(700));
+        let findings = structured["findings"].as_array().expect("findings array");
+        assert_eq!(
+            findings.len(),
+            1,
+            "700 element-specific duplicates collapse to one finding"
+        );
+        assert_eq!(findings[0]["instances"].as_u64(), Some(700));
+        assert_eq!(
+            findings[0]["examples"].as_array().map(Vec::len),
+            Some(3),
+            "examples are capped at three selectors"
+        );
+        assert_eq!(structured["truncated"].as_bool(), Some(false));
+        assert!(
+            structured_byte_len(&structured) <= MCP_COMPACT_RESPONSE_CAP_BYTES,
+            "aggregated payload must stay under the 10 KB budget"
+        );
+    }
+
+    #[test]
+    fn mcp_compact_caps_findings_and_stays_under_budget() {
+        // 700 violations spread across 40 distinct rule shapes — more
+        // groups than the default cap, so findings are truncated, the
+        // flag flips, counts still total 700, and the payload stays under
+        // 10 KB.
+        let violations: Vec<Violation> = (0..700)
+            .map(|i| {
+                let rule = format!("spacing/rule-{:02}", i % 40);
+                let mut v = violation(&rule, &format!("div.item-{i}"), "desktop", i);
+                v.message = "spacing drifts off the eight-pixel grid".to_owned();
+                v
+            })
+            .collect();
+
+        let (_text, structured) = mcp_compact(&violations);
+
+        assert_eq!(structured["counts"]["total"].as_u64(), Some(700));
+        let findings = structured["findings"].as_array().expect("findings array");
+        assert!(
+            findings.len() <= 20,
+            "findings must be capped at the default of 20, got {}",
+            findings.len()
+        );
+        assert_eq!(
+            structured["truncated"].as_bool(),
+            Some(true),
+            "40 groups exceed the cap of 20, so truncated must be true"
+        );
+        // `by_rule` still accounts for every rule shape.
+        assert_eq!(
+            structured["by_rule"].as_object().map(serde_json::Map::len),
+            Some(40)
+        );
+        assert!(
+            structured_byte_len(&structured) <= MCP_COMPACT_RESPONSE_CAP_BYTES,
+            "capped payload must stay under the 10 KB budget"
+        );
+    }
+
+    #[test]
+    fn mcp_compact_drops_groups_to_honor_hard_budget() {
+        // Each group carries a ~1 KB message, so even a handful of groups
+        // blow past 10 KB. The fit loop must drop example selectors and
+        // then whole groups until the payload fits — never returning more
+        // than 10 KB.
+        let big = "x".repeat(1024);
+        let violations: Vec<Violation> = (0..30)
+            .map(|i| {
+                let mut v = violation(&format!("spacing/rule-{i:02}"), "div", "desktop", i);
+                v.message = format!("{big}-{i}");
+                v
+            })
+            .collect();
+
+        let (_text, structured) = mcp_compact_capped(&violations, 30);
+
+        assert!(
+            structured_byte_len(&structured) <= MCP_COMPACT_RESPONSE_CAP_BYTES,
+            "payload with oversized messages must still be capped at 10 KB"
+        );
+        assert_eq!(structured["truncated"].as_bool(), Some(true));
+        assert_eq!(structured["counts"]["total"].as_u64(), Some(30));
+    }
+
+    #[test]
+    fn mcp_compact_empty_is_clean() {
+        let (text, structured) = mcp_compact(&[]);
+        assert_eq!(text, "ok: 0 violations\n");
+        assert_eq!(structured["counts"]["total"].as_u64(), Some(0));
+        assert_eq!(
+            structured["findings"].as_array().map(Vec::is_empty),
+            Some(true)
+        );
+        assert_eq!(structured["truncated"].as_bool(), Some(false));
+    }
+
+    #[test]
+    fn mcp_compact_is_byte_identical_regardless_of_input_order() {
+        let forward: Vec<Violation> = (0..50)
+            .map(|i| contrast_violation(&format!("span.row-{i}"), "3.1", i))
+            .collect();
+        let mut reversed = forward.clone();
+        reversed.reverse();
+
+        let (ta, sa) = mcp_compact(&forward);
+        let (tb, sb) = mcp_compact(&reversed);
+        assert_eq!(ta, tb, "text must not depend on input order");
+        assert_eq!(sa, sb, "structured payload must not depend on input order");
     }
 
     #[test]

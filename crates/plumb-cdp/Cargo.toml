@@ -50,15 +50,6 @@ serde_json = { workspace = true }
 # and stripping of userinfo / path / query / fragment so the
 # storage-state origin compare matches Playwright's stored format.
 url = { workspace = true }
-# HTML5-spec parser used by `snapshot_from_html` to materialize a
-# `PlumbSnapshot` from a static HTML string without launching Chromium.
-# Pure: no I/O, no script execution, no resource fetching. The
-# `deterministic` feature pins internal hash-map iteration so byte-stable
-# output holds across runs.
-scraper = { version = "0.26", default-features = false, features = ["errors", "deterministic"] }
-# Tree storage backing `scraper::Html::tree`. Used by `snapshot_from_html`
-# to walk parent/child links via `NodeRef`.
-ego-tree = "0.11"
 # SHA-256 verification of auto-fetched Chromium binaries (issue #78).
 sha2 = { workspace = true }
 

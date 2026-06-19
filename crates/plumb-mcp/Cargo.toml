@@ -29,6 +29,13 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 subtle = { workspace = true }
 
+[features]
+# Opt-in gate for tests that drive a real Chromium binary (e.g.
+# `lint_page_html` rendering a `data:` URL). Mirrors plumb-cdp's
+# `e2e-chromium` feature; off by default so the unit suite never needs a
+# browser.
+e2e-chromium = []
+
 [dev-dependencies]
 plumb-core = { workspace = true, features = ["test-fake"] }
 tokio = { workspace = true, features = ["test-util"] }
