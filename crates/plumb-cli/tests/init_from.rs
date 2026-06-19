@@ -16,12 +16,12 @@ fn init_from_infers_starter_config_from_real_project_tree() -> Result<(), Box<dy
 {
     let project = TempDir::new()?;
 
-    // A representative Tailwind project: tailwind.config.ts at the
+    // A representative Tailwind project: tailwind.config.js at the
     // root, a styles directory with a `:root` token sheet, and a
     // `node_modules` decoy that the walker MUST skip.
     fs::write(
-        project.path().join("tailwind.config.ts"),
-        "export default { content: [] };\n",
+        project.path().join("tailwind.config.js"),
+        "module.exports = {\n  content: [],\n  theme: {\n    spacing: {\n      '0.5': '0.125rem',\n      '1.5': '0.375rem'\n    }\n  }\n};\n",
     )?;
     fs::create_dir_all(project.path().join("src/styles"))?;
     fs::write(
@@ -46,6 +46,7 @@ fn init_from_infers_starter_config_from_real_project_tree() -> Result<(), Box<dy
         .stdout(contains("Inferred from"));
 
     let written = fs::read_to_string(outdir.path().join("plumb.toml"))?;
+    let node_available = node_on_path();
 
     // Sanity checks on the written body. We assert structural facts
     // and rely on the snapshot below for the canonical form; the
@@ -58,6 +59,16 @@ fn init_from_infers_starter_config_from_real_project_tree() -> Result<(), Box<dy
     assert!(written.contains("color-accent = \"#0b7285\""));
     assert!(written.contains("[spacing]"));
     assert!(written.contains("base_unit = 4"));
+    if node_available {
+        assert!(
+            written.contains("\"0.5\" = 2"),
+            "Tailwind spacing token 0.5 should be merged into init --from output"
+        );
+        assert!(
+            written.contains("\"1.5\" = 6"),
+            "Tailwind spacing token 1.5 should be merged into init --from output"
+        );
+    }
     assert!(written.contains("[radius]"));
     assert!(
         written.contains("Tailwind config detected"),
@@ -67,6 +78,21 @@ fn init_from_infers_starter_config_from_real_project_tree() -> Result<(), Box<dy
         !written.contains("color-poison"),
         "node_modules CSS leaked through the walker"
     );
+    assert!(
+        !written.contains("[viewports]\n"),
+        "init --from must not emit an empty [viewports] table that disables lint targets"
+    );
+    assert!(
+        !written.contains("[rules]\n"),
+        "init --from must not emit an empty [rules] table"
+    );
+
+    Command::cargo_bin("plumb")?
+        .args(["lint", "plumb-fake://hello"])
+        .current_dir(outdir.path())
+        .assert()
+        .code(1)
+        .stdout(contains("spacing/grid-conformance"));
 
     // Determinism: a second invocation against the same tree must
     // produce byte-identical output.
@@ -94,9 +120,18 @@ fn init_from_infers_starter_config_from_real_project_tree() -> Result<(), Box<dy
     let redacted = written
         .replace(&canonical, "<TMP>")
         .replace(&project_path, "<TMP>");
-    insta::assert_snapshot!("init_from_real_project", redacted);
+    if node_available {
+        insta::assert_snapshot!("init_from_real_project", redacted);
+    }
 
     Ok(())
+}
+
+fn node_on_path() -> bool {
+    std::process::Command::new("node")
+        .arg("--version")
+        .output()
+        .is_ok_and(|out| out.status.success())
 }
 
 #[test]

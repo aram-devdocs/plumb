@@ -30,26 +30,43 @@ CHROME="${PLUMB_CHROME:-/Applications/Google Chrome.app/Contents/MacOS/Google Ch
 KITCHEN_SINK="file://$ROOT/e2e-sites/noise-kitchen-sink/dist/index.html"
 
 bucket() { # reads JSON on stdin, prints "total" + per-rule counts
-  python3 - <<'PY'
+  python3 -c '
 import json,sys,collections
 try:
     d=json.load(sys.stdin)
 except Exception:
-    print("  (no JSON — lint failed)"); sys.exit(0)
+    print("  (no JSON — lint failed)"); sys.exit(1)
 s=d.get("summary",{})
-print(f"  total={s.get('total','?')}  (error={s.get('error',0)} warning={s.get('warning',0)} info={s.get('info',0)})")
+print("  total={}  (error={} warning={} info={})".format(
+    s.get("total", "?"),
+    s.get("error", 0),
+    s.get("warning", 0),
+    s.get("info", 0),
+))
 c=collections.Counter(v["rule_id"] for v in d.get("violations",[]))
 for k,v in sorted(c.items()):
     print(f"     {v:5d}  {k}")
-PY
+'
 }
 
 lint() { # $1=label $2=url [$3=config-flag...]
   local label="$1"; shift
   local url="$1"; shift
+  local status=0
+  local output
+  output="$(mktemp "${TMPDIR:-/tmp}/plumb-scoreboard.XXXXXX")"
   rm -rf "${TMPDIR:-/tmp}/chromiumoxide-runner" 2>/dev/null || true
   echo "#### $label"
-  "$BIN" lint "$url" --executable-path "$CHROME" --format json "$@" 2>/dev/null | bucket || echo "  (lint errored)"
+  if "$BIN" lint "$url" --executable-path "$CHROME" --format json "$@" >"$output" 2>/dev/null; then
+    status=0
+  else
+    status=$?
+  fi
+  bucket <"$output" || true
+  rm -f "$output"
+  if [ "$status" -gt 1 ]; then
+    echo "  (lint errored; exit $status)"
+  fi
   echo
 }
 

@@ -22,7 +22,8 @@ use std::path::Path;
 use std::process::ExitCode;
 
 use anyhow::{Context, Result, bail};
-use plumb_codegen::{InferredConfig, infer_config, render_toml};
+use plumb_codegen::{InferredConfig, TokenSourceKind, infer_config, render_toml};
+use plumb_config::{ConfigError, TailwindOptions, merge_tailwind};
 
 const GENERIC_TEMPLATE: &str = include_str!("../../templates/plumb.toml");
 const TAILWIND_TEMPLATE: &str = include_str!("../../templates/plumb-tailwind.toml");
@@ -93,12 +94,51 @@ pub fn run(force: bool, from: Option<&Path>) -> Result<ExitCode> {
 
 /// Walk `source_dir` and render an inferred starter TOML.
 fn render_from_source(source_dir: &Path) -> Result<(String, String)> {
-    let inferred =
+    let mut inferred =
         infer_config(source_dir).with_context(|| format!("walk {}", source_dir.display()))?;
+    merge_tailwind_sources(&mut inferred, source_dir)?;
     let content = render_toml(&inferred)
         .with_context(|| format!("render TOML from {}", source_dir.display()))?;
     let summary = summary_for_inferred(&inferred, source_dir);
     Ok((content, summary))
+}
+
+fn merge_tailwind_sources(inferred: &mut InferredConfig, source_dir: &Path) -> Result<()> {
+    let options = TailwindOptions {
+        cwd_root: Some(source_dir.to_path_buf()),
+        ..TailwindOptions::default()
+    };
+    let mut config = std::mem::take(&mut inferred.config);
+
+    for source in &inferred.sources {
+        if source.kind != TokenSourceKind::TailwindConfig {
+            continue;
+        }
+
+        let tailwind_path = source_dir.join(&source.relative_path);
+        let before = config.clone();
+        match merge_tailwind(config, &tailwind_path, &options) {
+            Ok(merged) => config = merged,
+            Err(ConfigError::TailwindUnavailable { .. }) => {
+                config = before;
+                break;
+            }
+            Err(ConfigError::TailwindEval { reason, .. })
+                if reason.contains("TS_LOADER_MISSING") =>
+            {
+                config = before;
+                break;
+            }
+            Err(err) => {
+                inferred.config = before;
+                return Err(err)
+                    .with_context(|| format!("merge Tailwind config {}", tailwind_path.display()));
+            }
+        }
+    }
+
+    inferred.config = config;
+    Ok(())
 }
 
 fn summary_for_inferred(inferred: &InferredConfig, source_dir: &Path) -> String {

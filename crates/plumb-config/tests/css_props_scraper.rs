@@ -80,6 +80,47 @@ fn scrapes_root_inside_supports_block() {
 }
 
 #[test]
+fn scrapes_root_inside_tailwind_layer_with_directives() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("tailwind.css");
+    std::fs::write(
+        &path,
+        "@tailwind base;\n\
+         @tailwind components;\n\
+         @tailwind utilities;\n\
+         \n\
+         @layer base {\n\
+           :root {\n\
+             --bg-canvas: #ffffff;\n\
+             --space-2: 8px;\n\
+           }\n\
+         }\n\
+         \n\
+         @layer utilities {\n\
+           .focus-ring {\n\
+             @apply focus-visible:outline-none focus-visible:ring-2;\n\
+           }\n\
+         }\n",
+    )
+    .expect("write css");
+
+    let scrapes = scrape_css_properties(&[path]).expect("scrape");
+
+    let bg = scrapes
+        .iter()
+        .find(|s| s.name == "--bg-canvas")
+        .expect("--bg-canvas in @layer base");
+    assert_eq!(bg.at_rule.as_deref(), Some("@layer base"));
+    assert!(matches!(&bg.value, ScrapedValue::Color(c) if c == "#ffffff"));
+
+    let space = scrapes
+        .iter()
+        .find(|s| s.name == "--space-2")
+        .expect("--space-2 in @layer base");
+    assert!(matches!(space.value, ScrapedValue::Px(8)));
+}
+
+#[test]
 fn handles_comments_and_quoted_strings_in_values() {
     let dir = tempfile::tempdir().expect("tempdir");
     let path = dir.path().join("strings.css");

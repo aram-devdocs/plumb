@@ -642,29 +642,34 @@ fn merge_font_weight(spec: &mut TypeScaleSpec, font_weight: &serde_json::Map<Str
 }
 
 /// Merge `theme.fontFamily`. Each value is typically a `[primary,
-/// fallback...]` array; we keep only the primary family per name and
-/// dedupe in insertion order.
+/// fallback...]` array; every family in the stack is accepted and
+/// deduped in insertion order.
 fn merge_font_family(spec: &mut TypeScaleSpec, font_family: &serde_json::Map<String, Value>) {
     let mut seen: IndexMap<String, ()> = IndexMap::new();
     for family in &spec.families {
         seen.insert(family.clone(), ());
     }
     for value in font_family.values() {
-        let primary = match value {
-            Value::String(s) => Some(s.trim().trim_matches(['\'', '"']).to_owned()),
-            Value::Array(arr) => arr
-                .first()
-                .and_then(Value::as_str)
-                .map(|s| s.trim().trim_matches(['\'', '"']).to_owned()),
-            _ => None,
-        };
-        if let Some(family) = primary
-            && !family.is_empty()
-        {
-            seen.insert(family, ());
+        match value {
+            Value::String(s) => insert_font_family(&mut seen, s),
+            Value::Array(arr) => {
+                for item in arr {
+                    if let Some(s) = item.as_str() {
+                        insert_font_family(&mut seen, s);
+                    }
+                }
+            }
+            _ => {}
         }
     }
     spec.families = seen.into_keys().collect();
+}
+
+fn insert_font_family(seen: &mut IndexMap<String, ()>, raw: &str) {
+    let family = raw.trim().trim_matches(['\'', '"']).to_owned();
+    if !family.is_empty() {
+        seen.insert(family, ());
+    }
 }
 
 /// Merge `theme.borderRadius` into [`RadiusSpec`].
@@ -849,7 +854,7 @@ mod tests {
     }
 
     #[test]
-    fn merge_font_family_keeps_primary() {
+    fn merge_font_family_keeps_stack_entries() {
         let mut spec = TypeScaleSpec::default();
         let theme = serde_json::json!({
             "sans": ["Inter", "ui-sans-serif", "system-ui"],
@@ -857,7 +862,16 @@ mod tests {
         });
         let map = theme.as_object().expect("object");
         merge_font_family(&mut spec, map);
-        assert_eq!(spec.families, vec!["Inter", "JetBrains Mono"]);
+        assert_eq!(
+            spec.families,
+            vec![
+                "Inter",
+                "ui-sans-serif",
+                "system-ui",
+                "JetBrains Mono",
+                "monospace"
+            ]
+        );
     }
 
     #[test]
