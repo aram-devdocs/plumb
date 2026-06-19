@@ -1,7 +1,19 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg width="1200" height="630" viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0H0V40" fill="none" stroke="#ffffff" stroke-opacity="0.10" stroke-width="1"/>
+    </pattern>
+    <pattern id="grid-major" width="160" height="160" patternUnits="userSpaceOnUse">
+      <path d="M160 0H0V160" fill="none" stroke="#ffffff" stroke-opacity="0.16" stroke-width="1.25"/>
+    </pattern>
+  </defs>
   <rect width="1200" height="630" fill="#1a4faa"/>
-  <svg x="270.0" y="180.3" width="660" height="219.4" viewBox="0 0 727.03 241.67">
+  <rect width="1200" height="630" fill="url(#grid)"/>
+  <rect width="1200" height="630" fill="url(#grid-major)"/>
+  <!-- a 45° construction line through the mark, echoing the set-square hypotenuse -->
+  <line x1="290" y1="355" x2="566" y2="109" stroke="#ffffff" stroke-opacity="0.22" stroke-width="1.25"/>
+  <svg x="320.0" y="138.9" width="560" height="186.1" viewBox="0 0 727.03 241.67">
     <style>.cls-1{fill:#fff;}</style>
     <g>
       <g>
@@ -14,6 +26,6 @@
       <path class="cls-1" d="M49.79,49.79V191.88L241.67,0H0V241.67H24.9V24.9H181.57l-106.88,106.88v-57.09h57.09v-24.9H49.79Z"/>
     </g>
   </svg>
-  <text x="600" y="470" text-anchor="middle" font-family="Inter, system-ui, -apple-system, Helvetica, Arial, sans-serif" font-size="34" font-weight="500" fill="#ffffff" fill-opacity="0.92">Deterministic design-system linter for rendered websites</text>
-  <text x="600" y="520" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="26" fill="#ffffff" fill-opacity="0.72">plumb lint &lt;url&gt;  •  plumb mcp</text>
+  <text x="600" y="452" text-anchor="middle" font-family="Inter, system-ui, -apple-system, Helvetica, Arial, sans-serif" font-size="33" font-weight="500" fill="#ffffff" fill-opacity="0.95">Deterministic design-system linter for rendered websites</text>
+  <text x="600" y="500" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="25" fill="#ffffff" fill-opacity="0.70">plumb lint &lt;url&gt;  ·  plumb mcp</text>
 </svg>

@@ -1,3 +1,8 @@
+<div class="plumb-hero" align="center">
+  <img class="plumb-hero-light" src="plumb-lockup.svg" alt="Plumb" width="300">
+  <img class="plumb-hero-dark" src="plumb-lockup-white.svg" alt="Plumb" width="300">
+</div>
+
 # Introduction
 
 Most UI bugs live in the rendered 90% that source linters never see.

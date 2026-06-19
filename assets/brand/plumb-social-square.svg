@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="640" height="640" viewBox="0 0 640 640" xmlns="http://www.w3.org/2000/svg">
+  <defs><pattern id="g" width="32" height="32" patternUnits="userSpaceOnUse"><path d="M32 0H0V32" fill="none" stroke="#fff" stroke-opacity="0.12" stroke-width="1"/></pattern></defs>
+  <rect width="640" height="640" fill="#1a4faa"/>
+  <rect width="640" height="640" fill="url(#g)"/>
+  <line x1="150" y1="490" x2="490" y2="150" stroke="#fff" stroke-opacity="0.22" stroke-width="1.25"/>
+  <svg x="170.0" y="170.0" width="300" height="300" viewBox="0 0 290.01 290.01"><style>.cls-1{fill:#fff;}</style><path class="cls-1" d="M59.75,59.75V230.26L290.01,0H0V290.01H29.88V29.88H217.89L89.63,158.13V89.63h68.51v-29.88H59.75Z"/></svg>
+</svg>

@@ -1,8 +1,7 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/brand/plumb-lockup-white.svg">
-    <img alt="Plumb" src="assets/brand/plumb-lockup.svg" width="340">
-  </picture>
+  <a href="https://plumb.aramhammoudeh.com">
+    <img alt="Plumb — deterministic design-system linter for rendered websites" src="assets/brand/plumb-og.png" width="820">
+  </a>
 </p>
 
 <p align="center"><strong>A deterministic design-system linter for rendered websites, not the code behind it.</strong></p>
