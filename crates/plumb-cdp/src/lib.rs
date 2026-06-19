@@ -103,10 +103,12 @@ const CHROMIUMOXIDE_REQUEST_TIMEOUT: Duration = Duration::from_mins(1);
 const CDP_CONTROL_TIMEOUT: Duration = Duration::from_secs(10);
 const TARGET_CREATE_TIMEOUT: Duration = Duration::from_secs(30);
 const TARGET_ATTACH_TIMEOUT: Duration = Duration::from_secs(75);
+const PAGE_COMMAND_TIMEOUT: Duration = Duration::from_secs(25);
 const NAVIGATION_ASSIGNMENT_TIMEOUT: Duration = Duration::from_secs(2);
 const DOCUMENT_READY_TIMEOUT: Duration = Duration::from_secs(30);
 const NAVIGATION_STATE_READ_TIMEOUT: Duration = Duration::from_secs(2);
-const SNAPSHOT_CAPTURE_TIMEOUT: Duration = Duration::from_secs(30);
+const SNAPSHOT_CAPTURE_TIMEOUT: Duration = Duration::from_secs(25);
+const TRANSIENT_CAPTURE_RETRIES: usize = 1;
 
 /// CSS property whitelist passed to `DOMSnapshot.captureSnapshot` as the
 /// `computedStyles` argument.
@@ -917,6 +919,28 @@ impl BrowserDriver for ChromiumDriver {
             return Ok(Vec::new());
         }
 
+        let mut attempts = 0;
+        loop {
+            let result = self.snapshot_all_once(&targets).await;
+            if attempts < TRANSIENT_CAPTURE_RETRIES
+                && result
+                    .as_ref()
+                    .err()
+                    .is_some_and(is_retryable_capture_timeout)
+            {
+                if let Err(err) = &result {
+                    tracing::debug!(attempt = attempts + 1, error = %err, "retrying Chromium capture after transient timeout");
+                }
+                attempts += 1;
+                continue;
+            }
+            return result;
+        }
+    }
+}
+
+impl ChromiumDriver {
+    async fn snapshot_all_once(&self, targets: &[Target]) -> Result<Vec<PlumbSnapshot>, CdpError> {
         // Use the first target's dimensions and DPR for the initial
         // launch (the `--force-device-scale-factor` arg is fixed at
         // launch time). Per-target viewport / DPR is then applied via
@@ -931,7 +955,7 @@ impl BrowserDriver for ChromiumDriver {
         let result: Result<Vec<PlumbSnapshot>, CdpError> = async {
             validate_browser_version(&session.browser).await?;
             let mut snapshots = Vec::with_capacity(targets.len());
-            for target in &targets {
+            for target in targets {
                 let snap = capture_target(&session.browser, target, &self.options).await?;
                 snapshots.push(snap);
             }
@@ -1123,6 +1147,26 @@ impl PersistentBrowser {
     /// [`CdpError::MalformedSnapshot`] when the response cannot be
     /// flattened.
     pub async fn snapshot(&self, target: Target) -> Result<PlumbSnapshot, CdpError> {
+        let mut attempts = 0;
+        loop {
+            let result = self.snapshot_once(&target).await;
+            if attempts < TRANSIENT_CAPTURE_RETRIES
+                && result
+                    .as_ref()
+                    .err()
+                    .is_some_and(is_retryable_capture_timeout)
+            {
+                if let Err(err) = &result {
+                    tracing::debug!(attempt = attempts + 1, error = %err, "retrying persistent Chromium capture after transient timeout");
+                }
+                attempts += 1;
+                continue;
+            }
+            return result;
+        }
+    }
+
+    async fn snapshot_once(&self, target: &Target) -> Result<PlumbSnapshot, CdpError> {
         let ctx_id = with_timeout("Target.createBrowserContext", CDP_CONTROL_TIMEOUT, async {
             self.inner
                 .browser
@@ -1148,7 +1192,7 @@ impl PersistentBrowser {
                 hidden: None,
             };
             let page = create_page_without_load_wait(&self.inner.browser, create_params).await?;
-            capture_on_page(&page, &target, &self.inner.options).await
+            capture_on_page(&page, target, &self.inner.options).await
         }
         .await;
 
@@ -1334,7 +1378,12 @@ async fn apply_viewport(page: &Page, target: &Target) -> Result<(), CdpError> {
         screen_orientation: None,
         viewport: None,
     };
-    page.execute(params).await.map_err(driver_error)?;
+    with_timeout(
+        "Emulation.setDeviceMetricsOverride",
+        PAGE_COMMAND_TIMEOUT,
+        async { page.execute(params).await.map(|_| ()).map_err(driver_error) },
+    )
+    .await?;
     Ok(())
 }
 
@@ -1634,7 +1683,17 @@ async fn apply_storage_state_local_storage(
                 }
             })?;
             let script = format!("window.localStorage.setItem({key}, {value});");
-            page.evaluate(script.as_str()).await.map_err(driver_error)?;
+            with_timeout(
+                "Runtime.evaluate localStorage",
+                PAGE_COMMAND_TIMEOUT,
+                async {
+                    page.evaluate(script.as_str())
+                        .await
+                        .map(|_| ())
+                        .map_err(driver_error)
+                },
+            )
+            .await?;
         }
     }
     Ok(())
@@ -1727,7 +1786,12 @@ async fn add_script_to_evaluate_on_new_document(page: &Page, source: &str) -> Re
         include_command_line_api: None,
         run_immediately: Some(true),
     };
-    page.execute(params).await.map_err(driver_error)?;
+    with_timeout(
+        "Page.addScriptToEvaluateOnNewDocument",
+        PAGE_COMMAND_TIMEOUT,
+        async { page.execute(params).await.map(|_| ()).map_err(driver_error) },
+    )
+    .await?;
     Ok(())
 }
 
@@ -1749,7 +1813,10 @@ async fn install_extra_headers(page: &Page, headers: &[(String, String)]) -> Res
         object.insert(name, serde_json::Value::String(value));
     }
     let params = SetExtraHttpHeadersParams::new(Headers::new(serde_json::Value::Object(object)));
-    page.execute(params).await.map_err(driver_error)?;
+    with_timeout("Network.setExtraHTTPHeaders", PAGE_COMMAND_TIMEOUT, async {
+        page.execute(params).await.map(|_| ()).map_err(driver_error)
+    })
+    .await?;
     Ok(())
 }
 
@@ -1790,7 +1857,10 @@ async fn install_cookies(
             .map(|c| c.into_cdp_param(url_for_cookies))
             .collect(),
     );
-    page.execute(params).await.map_err(driver_error)?;
+    with_timeout("Network.setCookies", PAGE_COMMAND_TIMEOUT, async {
+        page.execute(params).await.map(|_| ()).map_err(driver_error)
+    })
+    .await?;
     Ok(())
 }
 
@@ -1807,9 +1877,17 @@ async fn install_storage_state_cookies(page: &Page, state: &StorageState) -> Res
         p.http_only = Some(cookie.http_only);
         params.push(p);
     }
-    page.execute(SetCookiesParams::new(params))
-        .await
-        .map_err(driver_error)?;
+    with_timeout(
+        "Network.setCookies storageState",
+        PAGE_COMMAND_TIMEOUT,
+        async {
+            page.execute(SetCookiesParams::new(params))
+                .await
+                .map(|_| ())
+                .map_err(driver_error)
+        },
+    )
+    .await?;
     Ok(())
 }
 
@@ -2004,6 +2082,23 @@ fn contextualize_request_timeout(operation: &str, err: CdpError) -> CdpError {
     }
 
     err
+}
+
+fn is_retryable_capture_timeout(err: &CdpError) -> bool {
+    let CdpError::Driver(source) = err else {
+        return false;
+    };
+
+    if matches!(
+        source.downcast_ref::<chromiumoxide::error::CdpError>(),
+        Some(chromiumoxide::error::CdpError::Timeout)
+    ) {
+        return true;
+    }
+
+    source
+        .downcast_ref::<io::Error>()
+        .is_some_and(|err| err.kind() == io::ErrorKind::TimedOut)
 }
 
 fn timeout_error(operation: &str, timeout: Duration) -> CdpError {
@@ -2734,6 +2829,7 @@ fn rect_from_bounds(inner: &[f64]) -> Rect {
 
 #[cfg(test)]
 mod tests {
+    use std::io;
     use std::path::PathBuf;
 
     use super::{
@@ -3292,6 +3388,32 @@ mod tests {
         let message = err.to_string();
         assert!(message.contains("Target.attachToTarget"));
         assert!(message.contains("Chromiumoxide request budget"));
+    }
+
+    #[test]
+    fn retryable_capture_timeout_accepts_chromiumoxide_timeout() {
+        let err = CdpError::Driver(Box::new(chromiumoxide::error::CdpError::Timeout));
+
+        assert!(super::is_retryable_capture_timeout(&err));
+    }
+
+    #[test]
+    fn retryable_capture_timeout_accepts_plumb_timed_out_io() {
+        let err = CdpError::Driver(Box::new(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "Emulation.setDeviceMetricsOverride exceeded 25s budget",
+        )));
+
+        assert!(super::is_retryable_capture_timeout(&err));
+    }
+
+    #[test]
+    fn retryable_capture_timeout_rejects_non_timeout_errors() {
+        let err = CdpError::MalformedSnapshot {
+            reason: "missing document".to_owned(),
+        };
+
+        assert!(!super::is_retryable_capture_timeout(&err));
     }
 
     fn parse_loading_failed(raw: &str) -> super::EventLoadingFailed {
