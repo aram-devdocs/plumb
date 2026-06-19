@@ -19,9 +19,10 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::Result;
-use clap::{ArgAction, Parser, Subcommand, ValueEnum};
+use clap::{ArgAction, CommandFactory, FromArgMatches, Parser, Subcommand, ValueEnum};
 use tracing_subscriber::EnvFilter;
 
+mod banner;
 mod commands;
 
 /// Plumb — deterministic design-system linter for rendered websites.
@@ -32,6 +33,11 @@ mod commands;
     about = "Deterministic design-system linter for rendered websites.",
     long_about = None,
     propagate_version = true,
+    // A bare `plumb` (no subcommand) renders the top-level help — and
+    // therefore the brand banner — instead of a usage error. clap prints
+    // help to stderr and exits 2 on this path, the same exit code the
+    // prior "subcommand required" usage error produced.
+    arg_required_else_help = true,
 )]
 struct Cli {
     /// Increase log verbosity. Pass `-v` for debug, `-vv` for trace.
@@ -348,7 +354,14 @@ enum McpTransport {
 }
 
 fn main() -> ExitCode {
-    let cli = Cli::parse();
+    let cli = match parse_cli() {
+        Ok(cli) => cli,
+        // `clap::Error::exit` prints help/version/usage to the correct
+        // stream and exits with clap's own code (0 for `--help`/`--version`,
+        // 2 for usage / missing-subcommand). It diverges, so this arm
+        // never falls through.
+        Err(err) => err.exit(),
+    };
     init_tracing(cli.verbose);
     miette::set_panic_hook();
 
@@ -359,6 +372,20 @@ fn main() -> ExitCode {
             ExitCode::from(2)
         }
     }
+}
+
+/// Parse argv into [`Cli`], attaching the TTY-aware brand banner to the
+/// help output first.
+///
+/// This mirrors `Cli::parse()` (build the command, match argv, hydrate
+/// the struct) but injects the banner via [`banner::brand`] between the
+/// first two steps so the colour decision is made at runtime rather than
+/// baked into a derive attribute. The banner only renders when clap
+/// displays help, so it never reaches the `mcp` stdio stream.
+fn parse_cli() -> Result<Cli, clap::Error> {
+    let command = banner::brand(Cli::command(), banner::should_color());
+    let matches = command.try_get_matches()?;
+    Cli::from_arg_matches(&matches)
 }
 
 // `Command::Lint` and `Command::Watch` carry the full PRD §15 capture-knob

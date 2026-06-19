@@ -37,6 +37,10 @@
 //! [`rmcp`]: https://crates.io/crates/rmcp
 
 #![forbid(unsafe_code)]
+#![doc(
+    html_logo_url = "https://raw.githubusercontent.com/aram-devdocs/plumb/main/assets/brand/plumb-mark.svg",
+    html_favicon_url = "https://raw.githubusercontent.com/aram-devdocs/plumb/main/theme/favicon.svg"
+)]
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 
 mod compare_viewports;

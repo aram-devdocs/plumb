@@ -23,3 +23,59 @@
 .chapter li {
     line-height: 1.5;
 }
+
+/* ──────────────────────────────────────────────────────────────────
+ * Plumb brand accents (#1a4faa). Scoped per mdBook theme so link and
+ * active-item colors stay legible on both light and dark backgrounds.
+ * A lighter tint (#6b9bff) is used on the dark themes (coal/navy/ayu)
+ * to clear the WCAG AA contrast floor — which Plumb lints for.
+ * ────────────────────────────────────────────────────────────────── */
+:root {
+    --plumb-brand: #1a4faa;
+    --plumb-brand-on-dark: #6b9bff;
+}
+
+/* Links in body content. */
+.light .content a:not(.header),
+.rust .content a:not(.header) {
+    color: var(--plumb-brand);
+}
+.coal .content a:not(.header),
+.navy .content a:not(.header),
+.ayu .content a:not(.header) {
+    color: var(--plumb-brand-on-dark);
+}
+
+/* Active sidebar chapter. */
+.light .chapter li.chapter-item a.active,
+.rust .chapter li.chapter-item a.active {
+    color: var(--plumb-brand);
+    font-weight: 600;
+}
+.coal .chapter li.chapter-item a.active,
+.navy .chapter li.chapter-item a.active,
+.ayu .chapter li.chapter-item a.active {
+    color: var(--plumb-brand-on-dark);
+    font-weight: 600;
+}
+
+/* Menu-bar title + a brand top rule. */
+.menu-title {
+    font-weight: 700;
+    letter-spacing: 0.01em;
+}
+.light #menu-bar,
+.rust #menu-bar {
+    border-bottom: 2px solid var(--plumb-brand);
+}
+.coal #menu-bar,
+.navy #menu-bar,
+.ayu #menu-bar {
+    border-bottom: 2px solid var(--plumb-brand-on-dark);
+}
+
+/* Inline-code + blockquote get a subtle brand edge on light themes. */
+.light blockquote,
+.rust blockquote {
+    border-inline-start: 4px solid var(--plumb-brand);
+}
