@@ -57,9 +57,11 @@ use indexmap::IndexMap;
 use plumb_core::report::Rect;
 use plumb_core::snapshot::{SnapshotNode, TextBox};
 use plumb_core::{PlumbSnapshot, ViewportKey};
+use std::future::Future;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tempfile::TempDir;
 
 use chromiumoxide::Page;
@@ -92,6 +94,16 @@ pub const MIN_SUPPORTED_CHROMIUM_MAJOR: u32 = 131;
 /// Chromium binary with a larger major refuses to run; bump this
 /// constant after running the e2e suite against the new major.
 pub const MAX_SUPPORTED_CHROMIUM_MAJOR: u32 = 150;
+
+const BROWSER_LAUNCH_TIMEOUT: Duration = Duration::from_secs(30);
+const BROWSER_CLOSE_TIMEOUT: Duration = Duration::from_secs(5);
+const BROWSER_WAIT_TIMEOUT: Duration = Duration::from_secs(5);
+const BROWSER_KILL_TIMEOUT: Duration = Duration::from_secs(5);
+const CDP_CONTROL_TIMEOUT: Duration = Duration::from_secs(10);
+const NAVIGATION_ASSIGNMENT_TIMEOUT: Duration = Duration::from_secs(2);
+const DOCUMENT_READY_TIMEOUT: Duration = Duration::from_secs(30);
+const NAVIGATION_STATE_READ_TIMEOUT: Duration = Duration::from_secs(2);
+const SNAPSHOT_CAPTURE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// CSS property whitelist passed to `DOMSnapshot.captureSnapshot` as the
 /// `computedStyles` argument.
@@ -939,10 +951,10 @@ async fn capture_target(
     target: &Target,
     options: &ChromiumOptions,
 ) -> Result<PlumbSnapshot, CdpError> {
-    let page = browser
-        .new_page("about:blank")
-        .await
-        .map_err(driver_error)?;
+    let page = with_timeout("Target.createTarget", CDP_CONTROL_TIMEOUT, async {
+        browser.new_page("about:blank").await.map_err(driver_error)
+    })
+    .await?;
 
     capture_on_page(&page, target, options).await
 }
@@ -985,7 +997,12 @@ async fn capture_on_page(
         include_text_color_opacities: None,
     };
 
-    let response = page.execute(params).await.map_err(driver_error)?;
+    let response = with_timeout(
+        "DOMSnapshot.captureSnapshot",
+        SNAPSHOT_CAPTURE_TIMEOUT,
+        async { page.execute(params).await.map_err(driver_error) },
+    )
+    .await?;
     flatten_snapshot(target, &response.result)
 }
 
@@ -1035,7 +1052,11 @@ impl PersistentBrowser {
             config,
             profile_dir,
         } = launch;
-        let (mut browser, handler) = Browser::launch(config).await.map_err(map_launch_error)?;
+        let (mut browser, handler) =
+            with_timeout("Chromium launch", BROWSER_LAUNCH_TIMEOUT, async {
+                Browser::launch(config).await.map_err(map_launch_error)
+            })
+            .await?;
         let handler_task = poll_handler(handler);
 
         // Validate the version before stashing the browser in `Arc` —
@@ -1073,12 +1094,14 @@ impl PersistentBrowser {
     /// [`CdpError::MalformedSnapshot`] when the response cannot be
     /// flattened.
     pub async fn snapshot(&self, target: Target) -> Result<PlumbSnapshot, CdpError> {
-        let ctx_id = self
-            .inner
-            .browser
-            .create_browser_context(CreateBrowserContextParams::default())
-            .await
-            .map_err(driver_error)?;
+        let ctx_id = with_timeout("Target.createBrowserContext", CDP_CONTROL_TIMEOUT, async {
+            self.inner
+                .browser
+                .create_browser_context(CreateBrowserContextParams::default())
+                .await
+                .map_err(driver_error)
+        })
+        .await?;
 
         let result: Result<PlumbSnapshot, CdpError> = async {
             let create_params = CreateTargetParams {
@@ -1095,12 +1118,14 @@ impl PersistentBrowser {
                 for_tab: None,
                 hidden: None,
             };
-            let page = self
-                .inner
-                .browser
-                .new_page(create_params)
-                .await
-                .map_err(driver_error)?;
+            let page = with_timeout("Target.createTarget", CDP_CONTROL_TIMEOUT, async {
+                self.inner
+                    .browser
+                    .new_page(create_params)
+                    .await
+                    .map_err(driver_error)
+            })
+            .await?;
             capture_on_page(&page, &target, &self.inner.options).await
         }
         .await;
@@ -1108,12 +1133,14 @@ impl PersistentBrowser {
         // Always dispose the incognito context, even on failure. Mirror
         // the swallow-and-log pattern from `ChromiumSession::shutdown`
         // so cleanup errors never mask the underlying snapshot result.
-        if let Err(err) = self
-            .inner
-            .browser
-            .dispose_browser_context(ctx_id)
-            .await
-            .map_err(driver_error)
+        if let Err(err) = with_timeout("Target.disposeBrowserContext", CDP_CONTROL_TIMEOUT, async {
+            self.inner
+                .browser
+                .dispose_browser_context(ctx_id)
+                .await
+                .map_err(driver_error)
+        })
+        .await
         {
             tracing::debug!(error = %err, "failed to dispose incognito browser context");
         }
@@ -1347,20 +1374,43 @@ struct NavigationState {
 
 async fn navigate_page(page: &Page, url: &str) -> Result<(), CdpError> {
     if uses_chromiumoxide_goto(url) {
-        page.goto(url).await.map_err(driver_error)?;
+        with_timeout("Page.navigate", DOCUMENT_READY_TIMEOUT, async {
+            page.goto(url).await.map(|_| ()).map_err(driver_error)
+        })
+        .await?;
         return Ok(());
     }
 
-    let mut navigation_failures = page
-        .event_listener::<EventLoadingFailed>()
-        .await
-        .map_err(driver_error)?;
-    page.execute(NetworkEnableParams::default())
-        .await
-        .map_err(driver_error)?;
+    let mut navigation_failures = with_timeout(
+        "Network.loadingFailed listener",
+        CDP_CONTROL_TIMEOUT,
+        async {
+            page.event_listener::<EventLoadingFailed>()
+                .await
+                .map_err(driver_error)
+        },
+    )
+    .await?;
+    with_timeout("Network.enable", CDP_CONTROL_TIMEOUT, async {
+        page.execute(NetworkEnableParams::default())
+            .await
+            .map(|_| ())
+            .map_err(driver_error)
+    })
+    .await?;
 
     let script = navigation_assignment_script(url)?;
-    let initial_result = page.evaluate(script.as_str()).await.map_err(driver_error);
+    let initial_result = with_timeout(
+        "navigation location assignment",
+        NAVIGATION_ASSIGNMENT_TIMEOUT,
+        async {
+            page.evaluate(script.as_str())
+                .await
+                .map(|_| ())
+                .map_err(driver_error)
+        },
+    )
+    .await;
 
     wait_for_document_ready(page, url, initial_result.err(), &mut navigation_failures).await
 }
@@ -1384,6 +1434,7 @@ async fn wait_for_document_ready(
     initial_error: Option<CdpError>,
     navigation_failures: &mut EventStream<EventLoadingFailed>,
 ) -> Result<(), CdpError> {
+    let mut last_state_error = None;
     let attempt = async {
         loop {
             tokio::select! {
@@ -1396,28 +1447,42 @@ async fn wait_for_document_ready(
                         return Err(navigation_failed_error(display_url, &failure.error_text));
                     }
                 }
-                () = tokio::time::sleep(std::time::Duration::from_millis(50)) => {
-                    match read_navigation_state(page).await {
-                        Ok(state) if state.is_chrome_error_page => {
+                () = tokio::time::sleep(Duration::from_millis(50)) => {
+                    match tokio::time::timeout(
+                        NAVIGATION_STATE_READ_TIMEOUT,
+                        read_navigation_state(page),
+                    )
+                    .await
+                    {
+                        Ok(Ok(state)) if state.is_chrome_error_page => {
                             return Err(chrome_error_page_error(display_url, &state.href));
                         }
-                        Ok(state) if document_is_loaded(&state) => return Ok(()),
-                        Ok(_) | Err(_) => {}
+                        Ok(Ok(state)) if document_is_loaded(&state) => return Ok(()),
+                        Ok(Ok(_)) => {}
+                        Ok(Err(err)) => {
+                            last_state_error = Some(err.to_string());
+                        }
+                        Err(_) => {
+                            last_state_error = Some(timeout_reason(
+                                "navigation state read",
+                                NAVIGATION_STATE_READ_TIMEOUT,
+                            ));
+                        }
                     }
                 }
             }
         }
     };
 
-    if let Ok(result) = tokio::time::timeout(std::time::Duration::from_secs(10), attempt).await {
+    if let Ok(result) = tokio::time::timeout(DOCUMENT_READY_TIMEOUT, attempt).await {
         return result;
     }
 
-    let mut reason = format!("navigation to `{display_url}` exhausted 10s ready-state budget");
-    if let Some(err) = initial_error {
-        reason.push_str(" after initial location assignment failed: ");
-        reason.push_str(&err.to_string());
-    }
+    let reason = navigation_ready_timeout_reason(
+        display_url,
+        initial_error.as_ref().map(ToString::to_string).as_deref(),
+        last_state_error.as_deref(),
+    );
     Err(CdpError::Driver(Box::new(io::Error::other(reason))))
 }
 
@@ -1467,6 +1532,26 @@ fn parse_navigation_state(raw: &str) -> Result<NavigationState, CdpError> {
             "parse navigation state `{raw}`: {err}"
         ))))
     })
+}
+
+fn navigation_ready_timeout_reason(
+    display_url: &str,
+    initial_error: Option<&str>,
+    last_state_error: Option<&str>,
+) -> String {
+    let mut reason = format!(
+        "navigation to `{display_url}` exhausted {} ready-state budget",
+        timeout_budget_label(DOCUMENT_READY_TIMEOUT)
+    );
+    if let Some(err) = initial_error {
+        reason.push_str(" after initial location assignment failed: ");
+        reason.push_str(err);
+    }
+    if let Some(err) = last_state_error {
+        reason.push_str("; last navigation state read failed: ");
+        reason.push_str(err);
+    }
+    reason
 }
 
 /// Wait stages that must run *after* navigation. PRD §15 — `--wait-for`
@@ -1825,9 +1910,12 @@ struct ChromiumSession {
 
 impl ChromiumSession {
     async fn launch(launch: ChromiumLaunch) -> Result<Self, CdpError> {
-        let (browser, handler) = Browser::launch(launch.config)
-            .await
-            .map_err(map_launch_error)?;
+        let (browser, handler) = with_timeout("Chromium launch", BROWSER_LAUNCH_TIMEOUT, async {
+            Browser::launch(launch.config)
+                .await
+                .map_err(map_launch_error)
+        })
+        .await?;
         let handler_task = poll_handler(handler);
         Ok(Self {
             browser,
@@ -1837,29 +1925,11 @@ impl ChromiumSession {
     }
 
     async fn shutdown(&mut self) -> Result<(), CdpError> {
-        let close_result = self.browser.close().await.map_err(driver_error);
-        if let Err(close_err) = close_result {
-            if let Err(kill_err) = kill_browser(&mut self.browser).await {
-                tracing::debug!(error = %kill_err, "failed to kill Chromium after close error");
-            }
-            self.abort_handler().await;
-            let _profile_dir = self.profile_dir.take();
-            return Err(close_err);
-        }
-
-        if let Err(wait_err) = self.browser.wait().await {
-            let cleanup_err = io_error(wait_err);
-            if let Err(kill_err) = kill_browser(&mut self.browser).await {
-                tracing::debug!(error = %kill_err, "failed to kill Chromium after wait error");
-            }
-            self.abort_handler().await;
-            let _profile_dir = self.profile_dir.take();
-            return Err(cleanup_err);
-        }
+        let cleanup_result = close_browser_best_effort(&mut self.browser).await;
 
         self.abort_handler().await;
         let _profile_dir = self.profile_dir.take();
-        Ok(())
+        cleanup_result
     }
 
     async fn abort_handler(&mut self) {
@@ -1882,18 +1952,43 @@ fn poll_handler(mut handler: Handler) -> JoinHandle<()> {
     })
 }
 
+async fn with_timeout<T, F>(operation: &str, timeout: Duration, future: F) -> Result<T, CdpError>
+where
+    F: Future<Output = Result<T, CdpError>>,
+{
+    match tokio::time::timeout(timeout, future).await {
+        Ok(result) => result,
+        Err(_) => Err(timeout_error(operation, timeout)),
+    }
+}
+
+fn timeout_error(operation: &str, timeout: Duration) -> CdpError {
+    CdpError::Driver(Box::new(io::Error::new(
+        io::ErrorKind::TimedOut,
+        timeout_reason(operation, timeout),
+    )))
+}
+
+fn timeout_reason(operation: &str, timeout: Duration) -> String {
+    format!(
+        "{operation} exceeded {} budget",
+        timeout_budget_label(timeout)
+    )
+}
+
+fn timeout_budget_label(timeout: Duration) -> String {
+    if timeout.as_millis().is_multiple_of(1_000) {
+        format!("{}s", timeout.as_secs())
+    } else {
+        format!("{}ms", timeout.as_millis())
+    }
+}
+
 async fn cleanup_failed_persistent_launch(
     browser: &mut Browser,
     handler_task: JoinHandle<()>,
 ) -> Result<(), CdpError> {
-    let close_result = browser.close().await.map_err(driver_error);
-    if close_result.is_err()
-        && let Err(kill_err) = kill_browser(browser).await
-    {
-        tracing::debug!(error = %kill_err, "failed to kill Chromium after close error");
-    }
-
-    let wait_result = browser.wait().await.map_err(io_error);
+    let close_result = close_browser_best_effort(browser).await;
     handler_task.abort();
     if let Err(join_err) = handler_task.await
         && !join_err.is_cancelled()
@@ -1901,20 +1996,50 @@ async fn cleanup_failed_persistent_launch(
         tracing::debug!(error = %join_err, "Chromium handler task failed");
     }
 
-    close_result?;
-    wait_result?;
+    close_result
+}
+
+async fn close_browser_best_effort(browser: &mut Browser) -> Result<(), CdpError> {
+    if let Err(err) = with_timeout("Browser.close", BROWSER_CLOSE_TIMEOUT, async {
+        browser.close().await.map_err(driver_error)
+    })
+    .await
+    {
+        tracing::debug!(error = %err, "failed to close Chromium");
+    }
+
+    if let Err(wait_err) = with_timeout("Chromium process wait", BROWSER_WAIT_TIMEOUT, async {
+        browser.wait().await.map_err(io_error)
+    })
+    .await
+    {
+        tracing::debug!(error = %wait_err, "failed to wait for Chromium process");
+        kill_browser(browser).await?;
+        with_timeout(
+            "Chromium process wait after kill",
+            BROWSER_WAIT_TIMEOUT,
+            async { browser.wait().await.map_err(io_error) },
+        )
+        .await?;
+    }
     Ok(())
 }
 
 async fn kill_browser(browser: &mut Browser) -> Result<(), CdpError> {
-    if let Some(result) = browser.kill().await {
+    if let Some(result) = tokio::time::timeout(BROWSER_KILL_TIMEOUT, browser.kill())
+        .await
+        .map_err(|_| timeout_error("Chromium kill", BROWSER_KILL_TIMEOUT))?
+    {
         result.map_err(io_error)?;
     }
     Ok(())
 }
 
 async fn validate_browser_version(browser: &Browser) -> Result<(), CdpError> {
-    let version = browser.version().await.map_err(driver_error)?;
+    let version = with_timeout("Browser.version", CDP_CONTROL_TIMEOUT, async {
+        browser.version().await.map_err(driver_error)
+    })
+    .await?;
     validate_chromium_product_major(&version.product)
 }
 
@@ -3098,6 +3223,19 @@ mod tests {
     fn parse_navigation_state_rejects_malformed_json() {
         let err = super::parse_navigation_state("not json");
         assert!(matches!(err, Err(CdpError::Driver(_))));
+    }
+
+    #[test]
+    fn navigation_ready_timeout_reason_preserves_stage_errors() {
+        let reason = super::navigation_ready_timeout_reason(
+            "http://127.0.0.1:49197/",
+            Some("navigation location assignment exceeded 2s budget"),
+            Some("navigation state read exceeded 2s budget"),
+        );
+
+        assert!(reason.contains("exhausted 30s ready-state budget"));
+        assert!(reason.contains("after initial location assignment failed"));
+        assert!(reason.contains("last navigation state read failed"));
     }
 
     fn parse_loading_failed(raw: &str) -> super::EventLoadingFailed {

@@ -1252,9 +1252,7 @@ async fn authenticate_http_request(
 /// on transport errors.
 pub async fn run_stdio(cwd: PathBuf) -> Result<(), McpError> {
     let handler = PlumbServer::new(cwd);
-    let service = handler
-        .clone()
-        .serve(stdio())
+    let service = Box::pin(handler.clone().serve(stdio()))
         .await
         .map_err(|e| McpError::Service(e.to_string()))?;
     let service_result = service
