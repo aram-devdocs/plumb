@@ -2941,7 +2941,7 @@ mod tests {
     #[test]
     fn browser_config_creates_isolated_profile_by_default() {
         let driver = super::ChromiumDriver::new(super::ChromiumOptions {
-            executable_path: Some(PathBuf::from("/bin/echo")),
+            executable_path: Some(test_executable_path()),
             ..super::ChromiumOptions::default()
         });
         let launch = match driver.browser_config(&super::Target::default(), None) {
@@ -2963,7 +2963,7 @@ mod tests {
             Err(err) => panic!("tempdir failed: {err}"),
         };
         let driver = super::ChromiumDriver::new(super::ChromiumOptions {
-            executable_path: Some(PathBuf::from("/bin/echo")),
+            executable_path: Some(test_executable_path()),
             user_data_dir: Some(profile.path().to_path_buf()),
             ..super::ChromiumOptions::default()
         });
@@ -3071,6 +3071,13 @@ mod tests {
         match serde_json::from_str(raw) {
             Ok(event) => event,
             Err(err) => panic!("loading failed event parse failed: {err}"),
+        }
+    }
+
+    fn test_executable_path() -> PathBuf {
+        match std::env::current_exe() {
+            Ok(path) => path,
+            Err(err) => panic!("current executable path unavailable: {err}"),
         }
     }
 
