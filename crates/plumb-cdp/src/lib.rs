@@ -100,6 +100,7 @@ const BROWSER_CLOSE_TIMEOUT: Duration = Duration::from_secs(5);
 const BROWSER_WAIT_TIMEOUT: Duration = Duration::from_secs(5);
 const BROWSER_KILL_TIMEOUT: Duration = Duration::from_secs(5);
 const CDP_CONTROL_TIMEOUT: Duration = Duration::from_secs(10);
+const TARGET_CREATE_TIMEOUT: Duration = Duration::from_secs(30);
 const NAVIGATION_ASSIGNMENT_TIMEOUT: Duration = Duration::from_secs(2);
 const DOCUMENT_READY_TIMEOUT: Duration = Duration::from_secs(30);
 const NAVIGATION_STATE_READ_TIMEOUT: Duration = Duration::from_secs(2);
@@ -951,7 +952,7 @@ async fn capture_target(
     target: &Target,
     options: &ChromiumOptions,
 ) -> Result<PlumbSnapshot, CdpError> {
-    let page = with_timeout("Target.createTarget", CDP_CONTROL_TIMEOUT, async {
+    let page = with_timeout("Target.createTarget", TARGET_CREATE_TIMEOUT, async {
         browser.new_page("about:blank").await.map_err(driver_error)
     })
     .await?;
@@ -1118,7 +1119,7 @@ impl PersistentBrowser {
                 for_tab: None,
                 hidden: None,
             };
-            let page = with_timeout("Target.createTarget", CDP_CONTROL_TIMEOUT, async {
+            let page = with_timeout("Target.createTarget", TARGET_CREATE_TIMEOUT, async {
                 self.inner
                     .browser
                     .new_page(create_params)
