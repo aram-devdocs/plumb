@@ -16,10 +16,10 @@ use plumb_cdp::{
     BrowserDriver, ChromiumDriver, ChromiumOptions, Cookie, FakeDriver, Target, is_fake_url,
     parse_header_kv, validate_safe_path,
 };
-use plumb_core::{Config, Severity, ViewportKey};
+use plumb_core::{Config, ViewportKey};
 use thiserror::Error;
 
-use crate::commands::{OutputFormat, selector as selector_filter};
+use crate::commands::{OutputFormat, SeverityFilter, selector as selector_filter};
 
 /// Aggregated args for [`run`]. Bundling them into a struct keeps the
 /// `Command::Lint` dispatch readable as the flag surface grows
@@ -34,6 +34,16 @@ pub struct LintArgs {
     pub config_path: Option<PathBuf>,
     pub executable_path: Option<PathBuf>,
     pub format: OutputFormat,
+    /// Minimum severity to show and count toward the exit code
+    /// (PRD §15.4). Filters `report.reported` before render and exit
+    /// code, independently of the config `[[ignore]]` suppression.
+    pub min_severity: SeverityFilter,
+    /// When non-empty, keep only violations whose `rule_id` is in this
+    /// set. Unknown ids match nothing. Applied alongside `min_severity`.
+    pub rule_ids: Vec<String>,
+    /// Optional cap on the number of findings rendered after filtering
+    /// and the engine's deterministic sort. `None` shows all.
+    pub max_findings: Option<usize>,
     pub output_path: Option<PathBuf>,
     pub viewports: Vec<String>,
     pub selector: Option<String>,
@@ -85,6 +95,9 @@ pub async fn run(args: LintArgs) -> Result<ExitCode> {
         config_path,
         executable_path,
         format,
+        min_severity,
+        rule_ids,
+        max_findings,
         output_path,
         viewports,
         selector,
@@ -180,10 +193,36 @@ pub async fn run(args: LintArgs) -> Result<ExitCode> {
 
     let report = plumb_core::run_report(snapshots.iter(), &config);
 
-    let out = render(&report, format, suggest_ignores)?;
+    // PRD §15.4 — `--min-severity` and `--rule` are *view* filters layered
+    // on top of the engine's config `[[ignore]]` suppression (already
+    // reflected in `report.reported`). They narrow what the user sees and
+    // what counts toward the exit code without touching the ignored bucket.
+    let (filtered, severity_hidden) = apply_view_filters(&report.reported, min_severity, &rule_ids);
 
+    let out = render(&RenderInput {
+        violations: &filtered,
+        ignored_count: report.ignored.len(),
+        format,
+        suggest_ignores,
+        max_findings,
+        severity_hidden,
+        min_severity,
+    })?;
+
+    emit(&out, output_path.as_deref())?;
+
+    Ok(exit_code_for(&filtered))
+}
+
+/// Write the rendered lint output to `output_path`, or to stdout when it
+/// is `None`.
+///
+/// # Errors
+///
+/// Returns an error if the destination file cannot be written.
+fn emit(out: &str, output_path: Option<&Path>) -> Result<()> {
     if let Some(path) = output_path {
-        std::fs::write(&path, out)
+        std::fs::write(path, out)
             .with_context(|| format!("write lint output to {}", path.display()))?;
     } else {
         // CLI is the one place writing to stdout is permitted — hence the
@@ -193,8 +232,7 @@ pub async fn run(args: LintArgs) -> Result<ExitCode> {
             print!("{out}");
         }
     }
-
-    Ok(exit_code_for(&report.reported))
+    Ok(())
 }
 
 /// Decide which viewports to snapshot.
@@ -297,72 +335,239 @@ fn load_config(path: Option<&Path>) -> Result<Config> {
     }
 }
 
-/// Format `report` into the requested string output, optionally
-/// appending the `.plumbignore` suggestion block.
+/// Apply the PRD §15.4 view filters to the engine's reported violations.
 ///
-/// `report.ignored.len()` flows into the pretty footer
-/// (`N violation(s) suppressed by config`) and the JSON envelope
-/// (`"ignored": N`) so users can audit how many violations the
-/// loaded `[[ignore]]` entries silenced. SARIF intentionally drops
-/// the count: GitHub Code Scanning consumers parse the strict 2.1.0
-/// schema, and adding a non-standard property would either confuse
-/// them or be silently dropped.
+/// Returns the kept set (severity at/above `min_severity` and, when
+/// `rule_ids` is non-empty, a matching `rule_id`) plus a count of how many
+/// the severity threshold dropped — the pretty footer surfaces the latter.
+/// The count spans the whole reported set so it reflects the threshold's
+/// effect independent of `--rule`.
+fn apply_view_filters(
+    reported: &[plumb_core::Violation],
+    min_severity: SeverityFilter,
+    rule_ids: &[String],
+) -> (Vec<plumb_core::Violation>, usize) {
+    let filtered = reported
+        .iter()
+        .filter(|v| min_severity.keeps(v.severity))
+        .filter(|v| rule_ids.is_empty() || rule_ids.iter().any(|id| id == &v.rule_id))
+        .cloned()
+        .collect();
+    let severity_hidden = reported
+        .iter()
+        .filter(|v| !min_severity.keeps(v.severity))
+        .count();
+    (filtered, severity_hidden)
+}
+
+/// Everything `render` needs to format the post-filter violation set.
 ///
-/// `suggest_ignores` is independent of the runtime ignore filter:
-/// the suggestion list is derived from `report.reported` only —
-/// already-ignored violations don't need to be suggested back.
-fn render(
-    report: &plumb_core::RunReport,
+/// `violations` is the set after `--min-severity` and `--rule` filtering;
+/// `summary`/`stats` and the JSON envelope are computed from it in full.
+/// `max_findings` caps only the *rendered* findings list, never the
+/// counts — pretty and JSON both derive their stats (counts,
+/// `viewport_count`, `rule_count`, `run_id`) from the full filtered set so
+/// they agree. JSON records the cap in a top-level `truncated` flag and
+/// pretty appends a footer; SARIF is never capped.
+struct RenderInput<'a> {
+    /// The post-filter violations, already sorted by the engine.
+    violations: &'a [plumb_core::Violation],
+    /// How many violations the config `[[ignore]]` entries suppressed.
+    ignored_count: usize,
+    /// Output format.
     format: OutputFormat,
+    /// Append a `.plumbignore` suggestion block (PRD §15).
     suggest_ignores: bool,
-) -> Result<String> {
-    let violations = report.reported.as_slice();
-    let ignored_count = report.ignored.len();
+    /// Optional cap on the rendered findings list.
+    max_findings: Option<usize>,
+    /// How many violations `--min-severity` dropped from the reported set.
+    severity_hidden: usize,
+    /// The active `--min-severity` threshold, for the pretty footer label.
+    min_severity: SeverityFilter,
+}
+
+/// Format the post-filter violations into the requested output.
+///
+/// `ignored_count` flows into the pretty footer
+/// (`N violation(s) suppressed by config`) and the JSON envelope
+/// (`"ignored": N`) so users can audit how many violations the loaded
+/// `[[ignore]]` entries silenced. SARIF intentionally drops the count:
+/// GitHub Code Scanning consumers parse the strict 2.1.0 schema, and a
+/// non-standard property would confuse them or be silently dropped.
+///
+/// `--min-severity` / `--rule` filtering and the `--max-findings` cap are
+/// already reflected in `input.violations` and `input.max_findings`. The
+/// pretty and JSON paths surface the cap (footer / `truncated` flag);
+/// SARIF renders the full filtered set uncapped, because code-scanning
+/// consumers want every finding and the schema has no place for a
+/// truncation indicator.
+///
+/// `suggest_ignores` is independent of the runtime ignore filter: the
+/// suggestion list is derived from the post-filter violations only.
+///
+/// # Errors
+///
+/// Returns an error if JSON or SARIF serialization fails.
+fn render(input: &RenderInput<'_>) -> Result<String> {
+    let &RenderInput {
+        violations,
+        ignored_count,
+        format,
+        suggest_ignores,
+        max_findings,
+        severity_hidden,
+        min_severity,
+    } = input;
+
     Ok(match format {
         OutputFormat::Pretty => {
-            if suggest_ignores {
-                plumb_format::pretty_with_suggested_ignores_and_ignored(violations, ignored_count)
+            // Pass the FULL filtered set plus the display cap so the stats
+            // block (counts, viewport_count, rule_count, run_id) reflects
+            // every filtered violation — identical to the JSON envelope —
+            // while only the first `max_findings` findings render.
+            let mut out = if suggest_ignores {
+                plumb_format::pretty_capped_with_suggested_ignores(
+                    violations,
+                    max_findings,
+                    ignored_count,
+                )
             } else {
-                plumb_format::pretty_with_ignored(violations, ignored_count)
-            }
+                plumb_format::pretty_capped(violations, max_findings, ignored_count)
+            };
+            append_triage_footers(
+                &mut out,
+                violations.len(),
+                display_count(violations.len(), max_findings),
+                severity_hidden,
+                min_severity,
+            );
+            out
         }
         OutputFormat::Json => {
-            if suggest_ignores {
+            // Render the *full* filtered set so `summary`/`stats` count
+            // every post-filter violation, then cap the `violations`
+            // array and record the cap in a `truncated` flag.
+            let rendered = if suggest_ignores {
                 plumb_format::json_with_suggested_ignores_and_ignored(violations, ignored_count)
                     .context("serialize JSON")?
             } else {
                 plumb_format::json_with_ignored(violations, ignored_count)
                     .context("serialize JSON")?
-            }
+            };
+            cap_json_violations(&rendered, max_findings)?
         }
         OutputFormat::Sarif => {
+            // SARIF is uncapped: GitHub Code Scanning and IDE consumers
+            // want every finding, and the format has no place to record a
+            // truncation flag. `--max-findings` is a human-triage knob for
+            // the pretty and JSON paths only.
             plumb_format::sarif_with_rules(violations, &plumb_core::builtin_rule_metadata())
                 .context("serialize SARIF")?
         }
     })
 }
 
-fn exit_code_for(violations: &[plumb_core::Violation]) -> ExitCode {
-    // PRD §13.3 exit-code mapping:
-    //   0 — no violations
-    //   1 — errors present
-    //   2 — reserved for CLI/infra failures (handled in main)
-    //   3 — warnings only (no errors)
-    let mut has_error = false;
-    let mut has_warning = false;
-    for v in violations {
-        match v.severity {
-            Severity::Error => has_error = true,
-            Severity::Warning => has_warning = true,
-            Severity::Info => {}
-        }
+/// Number of findings that render after applying an optional display cap.
+/// `None` (or a cap larger than the set) shows everything; the result
+/// feeds the pretty `… and M more` footer math.
+fn display_count(total: usize, max_findings: Option<usize>) -> usize {
+    match max_findings {
+        Some(n) => n.min(total),
+        None => total,
     }
-    if has_error {
-        ExitCode::from(1)
-    } else if has_warning {
-        ExitCode::from(3)
-    } else {
+}
+
+/// English plural suffix for a count: `""` for one, `"s"` otherwise.
+fn plural(n: usize) -> &'static str {
+    if n == 1 { "" } else { "s" }
+}
+
+/// Append the pretty-format triage footer lines: how many findings the
+/// `--min-severity` threshold hid, then how many the `--max-findings` cap
+/// dropped. Each line is emitted only when its count is non-zero.
+fn append_triage_footers(
+    out: &mut String,
+    total: usize,
+    shown: usize,
+    severity_hidden: usize,
+    min_severity: SeverityFilter,
+) {
+    use std::fmt::Write as _;
+    if !out.ends_with('\n') {
+        out.push('\n');
+    }
+    if severity_hidden > 0 {
+        let _ = writeln!(
+            out,
+            "  {severity_hidden} finding{} hidden below --min-severity {} (lower it to see them)",
+            plural(severity_hidden),
+            min_severity.label(),
+        );
+    }
+    let hidden_by_cap = total.saturating_sub(shown);
+    if hidden_by_cap > 0 {
+        let _ = writeln!(
+            out,
+            "  … and {hidden_by_cap} more finding{} (raise --max-findings to see them)",
+            plural(hidden_by_cap),
+        );
+    }
+}
+
+/// Cap the `violations` array of a rendered JSON envelope to
+/// `max_findings`, recording whether anything was dropped under a new
+/// top-level `"truncated"` flag. `summary`/`stats` are left untouched so
+/// they keep reflecting the full filtered set (PRD §15.4).
+///
+/// The envelope is re-emitted with alphabetically ordered top-level keys
+/// for a stable, deterministic shape; nested objects keep their own
+/// insertion order.
+fn cap_json_violations(rendered: &str, max_findings: Option<usize>) -> Result<String> {
+    use std::collections::BTreeMap;
+
+    let mut value: serde_json::Value =
+        serde_json::from_str(rendered).context("re-parse rendered JSON envelope")?;
+    let obj = value
+        .as_object_mut()
+        .context("rendered JSON envelope is not an object")?;
+
+    let total = obj
+        .get("violations")
+        .and_then(serde_json::Value::as_array)
+        .map_or(0, Vec::len);
+    let truncated = match max_findings {
+        Some(n) if n < total => {
+            if let Some(arr) = obj
+                .get_mut("violations")
+                .and_then(serde_json::Value::as_array_mut)
+            {
+                arr.truncate(n);
+            }
+            true
+        }
+        _ => false,
+    };
+    obj.insert("truncated".to_owned(), serde_json::Value::Bool(truncated));
+
+    let sorted: BTreeMap<String, serde_json::Value> = std::mem::take(obj).into_iter().collect();
+    serde_json::to_string_pretty(&sorted).context("re-serialize capped JSON envelope")
+}
+
+/// Map the post-filter violation set to a process exit code per
+/// PRD §13.3.
+///
+/// `violations` is the set remaining after `--min-severity` and `--rule`
+/// filtering. Any remaining violation yields exit code 1; an empty set
+/// yields 0. The default `--min-severity warn` drops info-level findings
+/// before this point, so an info-only or clean run exits 0 while a run
+/// with a warning or error at/above the threshold exits 1. Exit code 2
+/// (CLI / infrastructure failure) is produced in `main`; exit code 3
+/// (user-facing input error) is clap's own usage-error path.
+fn exit_code_for(violations: &[plumb_core::Violation]) -> ExitCode {
+    if violations.is_empty() {
         ExitCode::SUCCESS
+    } else {
+        ExitCode::from(1)
     }
 }
 

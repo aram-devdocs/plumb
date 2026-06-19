@@ -191,11 +191,13 @@ fn run_lint(
         site: name.to_owned(),
         reason: format!("spawn plumb binary `{}`: {err}", config.plumb_bin.display()),
     })?;
-    // PRD §13.3: 0 = clean, 1 = errors, 3 = warnings only. The fixtures
-    // intentionally produce warnings, so 3 is the steady state. Any
-    // other code is an infrastructure failure.
+    // PRD §13.3: 0 = clean, 1 = one or more violations at/above the
+    // default `--min-severity warn` threshold, 2 = CLI / infrastructure
+    // failure. The fixtures intentionally produce warnings, so exit 1 is
+    // the steady state; anything outside {0, 1} is an infrastructure
+    // failure.
     let code = output.status.code();
-    let allowed = matches!(code, Some(0 | 1 | 3));
+    let allowed = matches!(code, Some(0 | 1));
     if !allowed {
         return Err(HarnessError::Lint {
             site: name.to_owned(),

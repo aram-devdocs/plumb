@@ -37,7 +37,10 @@ fn lint_fake_url_emits_one_violation() -> Result<(), Box<dyn std::error::Error>>
     Command::cargo_bin("plumb")?
         .args(["lint", "plumb-fake://hello"])
         .assert()
-        .code(3) // warning-only -> exit 3
+        // The canned snapshot fires one `warning`. Under the default
+        // `--min-severity warn`, a warning is at/above threshold, so the
+        // run fails with exit 1 (PRD §13.3) — not the old exit-3 bug.
+        .code(1)
         .stdout(contains("spacing/grid-conformance"));
     Ok(())
 }
@@ -47,7 +50,7 @@ fn lint_fake_url_json_format() -> Result<(), Box<dyn std::error::Error>> {
     Command::cargo_bin("plumb")?
         .args(["lint", "plumb-fake://hello", "--format", "json"])
         .assert()
-        .code(3)
+        .code(1)
         .stdout(contains("\"rule_id\""));
     Ok(())
 }
@@ -61,7 +64,7 @@ fn lint_fake_url_json_output_writes_exact_payload_to_file() -> Result<(), Box<dy
     let expected = Command::cargo_bin("plumb")?
         .args(["lint", "plumb-fake://hello", "--format", "json"])
         .output()?;
-    assert_eq!(expected.status.code(), Some(3));
+    assert_eq!(expected.status.code(), Some(1));
     assert!(expected.stderr.is_empty());
 
     Command::cargo_bin("plumb")?
@@ -74,7 +77,7 @@ fn lint_fake_url_json_output_writes_exact_payload_to_file() -> Result<(), Box<dy
             output_path.to_str().ok_or("non-utf8 output path")?,
         ])
         .assert()
-        .code(3)
+        .code(1)
         .stdout("")
         .stderr("");
 
@@ -92,7 +95,7 @@ fn lint_fake_url_sarif_output_writes_exact_payload_to_file()
     let expected = Command::cargo_bin("plumb")?
         .args(["lint", "plumb-fake://hello", "--format", "sarif"])
         .output()?;
-    assert_eq!(expected.status.code(), Some(3));
+    assert_eq!(expected.status.code(), Some(1));
     assert!(expected.stderr.is_empty());
 
     Command::cargo_bin("plumb")?
@@ -105,7 +108,7 @@ fn lint_fake_url_sarif_output_writes_exact_payload_to_file()
             output_path.to_str().ok_or("non-utf8 output path")?,
         ])
         .assert()
-        .code(3)
+        .code(1)
         .stdout("")
         .stderr("");
 
@@ -165,7 +168,7 @@ fn lint_fake_url_ignores_executable_path_override() -> Result<(), Box<dyn std::e
             "/definitely/not/a/chromium/binary",
         ])
         .assert()
-        .code(3)
+        .code(1)
         .stdout(contains("spacing/grid-conformance"));
     Ok(())
 }
@@ -195,7 +198,7 @@ fn lint_fake_url_ignores_auto_fetch_flag() -> Result<(), Box<dyn std::error::Err
     Command::cargo_bin("plumb")?
         .args(["lint", "plumb-fake://hello", "--auto-fetch-chromium"])
         .assert()
-        .code(3)
+        .code(1)
         .stdout(contains("spacing/grid-conformance"));
     Ok(())
 }
@@ -298,7 +301,7 @@ fn lint_runs_every_configured_viewport_when_flag_absent() -> Result<(), Box<dyn 
         .args(["lint", "plumb-fake://hello"])
         .current_dir(workspace.path())
         .assert()
-        .code(3)
+        .code(1)
         .stdout(contains("spacing/grid-conformance"))
         .stdout(contains("mobile"))
         .stdout(contains("desktop"));
@@ -312,7 +315,7 @@ fn lint_filters_to_named_viewport() -> Result<(), Box<dyn std::error::Error>> {
         .args(["lint", "plumb-fake://hello", "--viewport", "mobile"])
         .current_dir(workspace.path())
         .assert()
-        .code(3)
+        .code(1)
         .stdout(contains("mobile"))
         .stdout(contains("desktop").not());
     Ok(())
@@ -332,7 +335,7 @@ fn lint_repeats_viewport_flag() -> Result<(), Box<dyn std::error::Error>> {
         ])
         .current_dir(workspace.path())
         .assert()
-        .code(3)
+        .code(1)
         .stdout(contains("mobile"))
         .stdout(contains("desktop"))
         .stdout(contains("tablet").not());
@@ -443,7 +446,7 @@ fn init_then_lint_runs_against_fake_driver() -> Result<(), Box<dyn std::error::E
         .args(["lint", "plumb-fake://hello"])
         .current_dir(dir.path())
         .assert()
-        .code(3)
+        .code(1)
         .stdout(contains("spacing/"));
     Ok(())
 }
@@ -459,7 +462,7 @@ fn lint_with_selector_matching_body_keeps_violation() -> Result<(), Box<dyn std:
     Command::cargo_bin("plumb")?
         .args(["lint", "plumb-fake://hello", "--selector", "body"])
         .assert()
-        .code(3)
+        .code(1)
         .stdout(contains("spacing/grid-conformance"));
     Ok(())
 }
@@ -521,7 +524,7 @@ fn lint_fake_url_json_rect_matches_requested_viewport() -> Result<(), Box<dyn st
         ])
         .current_dir(workspace.path())
         .assert()
-        .code(3)
+        .code(1)
         .stdout(contains("\"viewport\": \"mobile\""))
         .stdout(contains("\"width\": 375"))
         .stdout(contains("\"height\": 812"))
@@ -554,7 +557,7 @@ fn lint_accepts_wait_for_and_wait_ms_against_fake_driver() -> Result<(), Box<dyn
             "10",
         ])
         .assert()
-        .code(3)
+        .code(1)
         .stdout(contains("spacing/grid-conformance"));
     Ok(())
 }
@@ -571,7 +574,7 @@ fn lint_accepts_repeated_cookies_against_fake_driver() -> Result<(), Box<dyn std
             "lang=en",
         ])
         .assert()
-        .code(3)
+        .code(1)
         .stdout(contains("spacing/grid-conformance"));
     Ok(())
 }
@@ -613,7 +616,7 @@ fn lint_accepts_repeated_headers_against_fake_driver() -> Result<(), Box<dyn std
             "Authorization: Bearer xyz",
         ])
         .assert()
-        .code(3)
+        .code(1)
         .stdout(contains("spacing/grid-conformance"));
     Ok(())
 }
@@ -649,7 +652,7 @@ fn lint_accepts_storage_state_path_against_fake_driver() -> Result<(), Box<dyn s
         ])
         .current_dir(dir.path())
         .assert()
-        .code(3)
+        .code(1)
         .stdout(contains("spacing/grid-conformance"));
     Ok(())
 }
@@ -724,7 +727,7 @@ fn lint_accepts_disable_animations_and_hide_scrollbars_and_dpr()
             "2.0",
         ])
         .assert()
-        .code(3)
+        .code(1)
         .stdout(contains("spacing/grid-conformance"));
     Ok(())
 }
@@ -742,7 +745,7 @@ fn lint_without_suggest_ignores_omits_section() -> Result<(), Box<dyn std::error
     Command::cargo_bin("plumb")?
         .args(["lint", "plumb-fake://hello"])
         .assert()
-        .code(3)
+        .code(1)
         .stdout(contains("Suggested .plumbignore").not());
     Ok(())
 }
@@ -758,7 +761,7 @@ fn watch_once_runs_a_single_cycle_and_emits_status_line() -> Result<(), Box<dyn 
     Command::cargo_bin("plumb")?
         .args(["watch", "plumb-fake://hello", "--once"])
         .assert()
-        .code(3)
+        .code(1)
         .stdout(contains("spacing/grid-conformance"))
         .stderr(contains("watching"))
         .stderr(contains("lint:"))
@@ -771,7 +774,7 @@ fn lint_pretty_with_suggest_ignores_appends_footer() -> Result<(), Box<dyn std::
     Command::cargo_bin("plumb")?
         .args(["lint", "plumb-fake://hello", "--suggest-ignores"])
         .assert()
-        .code(3)
+        .code(1)
         .stdout(contains("Suggested .plumbignore"))
         .stdout(contains("would suppress 1 violation"))
         .stdout(contains("# Format: <rule_id> <selector_path>"))
@@ -784,7 +787,7 @@ fn watch_once_with_json_format_emits_lint_payload() -> Result<(), Box<dyn std::e
     Command::cargo_bin("plumb")?
         .args(["watch", "plumb-fake://hello", "--once", "--format", "json"])
         .assert()
-        .code(3)
+        .code(1)
         .stdout(contains("\"rule_id\""))
         .stderr(contains("watching"));
     Ok(())
@@ -801,7 +804,7 @@ fn lint_json_with_suggest_ignores_adds_array() -> Result<(), Box<dyn std::error:
             "--suggest-ignores",
         ])
         .assert()
-        .code(3)
+        .code(1)
         .stdout(contains("\"suggested_ignores\""))
         .stdout(contains("\"rule_id\": \"spacing/grid-conformance\""))
         .stdout(contains("\"selector\": \"html > body\""));
@@ -813,7 +816,7 @@ fn lint_json_without_suggest_ignores_omits_array() -> Result<(), Box<dyn std::er
     Command::cargo_bin("plumb")?
         .args(["lint", "plumb-fake://hello", "--format", "json"])
         .assert()
-        .code(3)
+        .code(1)
         .stdout(contains("\"suggested_ignores\"").not());
     Ok(())
 }
@@ -851,7 +854,7 @@ fn watch_once_with_suggest_ignores_appends_footer() -> Result<(), Box<dyn std::e
     Command::cargo_bin("plumb")?
         .args(["watch", "plumb-fake://hello", "--once", "--suggest-ignores"])
         .assert()
-        .code(3)
+        .code(1)
         .stdout(contains("Suggested .plumbignore"))
         .stdout(contains("would suppress 1 violation"))
         .stdout(contains("spacing/grid-conformance html > body"))
@@ -927,7 +930,7 @@ reason = "selector that does not match anything in the canned snapshot"
         .args(["lint", "plumb-fake://hello"])
         .current_dir(dir.path())
         .assert()
-        .code(3)
+        .code(1)
         .stdout(contains("spacing/grid-conformance"))
         .stdout(contains("suppressed by config").not());
     Ok(())
@@ -961,7 +964,7 @@ fn lint_json_without_ignore_config_emits_zero_ignored_count()
     Command::cargo_bin("plumb")?
         .args(["lint", "plumb-fake://hello", "--format", "json"])
         .assert()
-        .code(3)
+        .code(1)
         .stdout(contains("\"ignored\": 0"));
     Ok(())
 }
@@ -987,5 +990,251 @@ note = "this field does not exist on IgnoreRule"
         .assert()
         .code(2)
         .stderr(contains("note").or(contains("unknown field")));
+    Ok(())
+}
+
+// ============================================================
+// Triage flags (PRD §15.4) + exit-code mapping (PRD §13.3).
+//
+// The canned `plumb-fake://hello` snapshot fires exactly one
+// `spacing/grid-conformance` warning at `html > body`. These tests pin
+// `--min-severity`, `--rule`, and `--max-findings` against that fixture
+// without launching Chromium.
+
+/// Default `--min-severity warn`: a warning is at/above the threshold, so
+/// the run fails with exit 1 (PRD §13.3) — the old exit-3 "warning only"
+/// bucket is gone.
+#[test]
+fn lint_warning_only_run_exits_one_under_default_threshold()
+-> Result<(), Box<dyn std::error::Error>> {
+    Command::cargo_bin("plumb")?
+        .args(["lint", "plumb-fake://hello"])
+        .assert()
+        .code(1)
+        .stdout(contains("spacing/grid-conformance"));
+    Ok(())
+}
+
+/// `--min-severity error` drops the lone warning below the threshold, so
+/// the run is clean (exit 0) and a footer documents the hidden finding.
+#[test]
+fn lint_min_severity_error_hides_warning_and_exits_zero() -> Result<(), Box<dyn std::error::Error>>
+{
+    Command::cargo_bin("plumb")?
+        .args(["lint", "plumb-fake://hello", "--min-severity", "error"])
+        .assert()
+        .code(0)
+        .stdout(contains("spacing/grid-conformance").not())
+        .stdout(contains("hidden below --min-severity error"));
+    Ok(())
+}
+
+/// `--min-severity info` shows everything including the warning, so the
+/// run still fails with exit 1.
+#[test]
+fn lint_min_severity_info_shows_warning_and_exits_one() -> Result<(), Box<dyn std::error::Error>> {
+    Command::cargo_bin("plumb")?
+        .args(["lint", "plumb-fake://hello", "--min-severity", "info"])
+        .assert()
+        .code(1)
+        .stdout(contains("spacing/grid-conformance"));
+    Ok(())
+}
+
+/// `--min-severity off` suppresses every finding and forces a clean
+/// (exit 0) run regardless of what the engine reported.
+#[test]
+fn lint_min_severity_off_shows_nothing_and_exits_zero() -> Result<(), Box<dyn std::error::Error>> {
+    Command::cargo_bin("plumb")?
+        .args(["lint", "plumb-fake://hello", "--min-severity", "off"])
+        .assert()
+        .code(0)
+        .stdout(contains("spacing/grid-conformance").not())
+        .stdout(contains("No violations."));
+    Ok(())
+}
+
+/// `--rule <id>` keeps only matching violations. The fixture's rule id
+/// matches, so the warning survives and the run fails with exit 1.
+#[test]
+fn lint_rule_filter_matching_id_keeps_violation() -> Result<(), Box<dyn std::error::Error>> {
+    Command::cargo_bin("plumb")?
+        .args([
+            "lint",
+            "plumb-fake://hello",
+            "--rule",
+            "spacing/grid-conformance",
+        ])
+        .assert()
+        .code(1)
+        .stdout(contains("spacing/grid-conformance"));
+    Ok(())
+}
+
+/// An unknown `--rule` id matches nothing, leaving an empty filtered set:
+/// no output and a clean (exit 0) run. Validation is intentionally
+/// absent — a typo simply hides every finding.
+#[test]
+fn lint_rule_filter_unknown_id_matches_nothing_and_exits_zero()
+-> Result<(), Box<dyn std::error::Error>> {
+    Command::cargo_bin("plumb")?
+        .args(["lint", "plumb-fake://hello", "--rule", "does/not-exist"])
+        .assert()
+        .code(0)
+        .stdout(contains("spacing/grid-conformance").not());
+    Ok(())
+}
+
+/// `--max-findings` is a display cap, not a triage filter: it shrinks the
+/// rendered list and appends a footer, but the run still fails with
+/// exit 1 because the post-filter set is non-empty.
+#[test]
+fn lint_max_findings_zero_caps_pretty_output_with_footer() -> Result<(), Box<dyn std::error::Error>>
+{
+    Command::cargo_bin("plumb")?
+        .args(["lint", "plumb-fake://hello", "--max-findings", "0"])
+        .assert()
+        .code(1)
+        .stdout(contains("spacing/grid-conformance").not())
+        .stdout(contains(
+            "… and 1 more finding (raise --max-findings to see them)",
+        ));
+    Ok(())
+}
+
+/// With more findings than the cap, the pretty footer pluralizes the
+/// hidden count. Three viewports yield three warnings; `--max-findings 1`
+/// shows one and reports two more.
+#[test]
+fn lint_max_findings_pretty_footer_pluralizes() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = workspace_with_three_viewports()?;
+    Command::cargo_bin("plumb")?
+        .args(["lint", "plumb-fake://hello", "--max-findings", "1"])
+        .current_dir(dir.path())
+        .assert()
+        .code(1)
+        .stdout(contains(
+            "… and 2 more findings (raise --max-findings to see them)",
+        ));
+    Ok(())
+}
+
+/// In JSON, `--max-findings` caps the `violations` array and sets a
+/// top-level `truncated` flag, but `summary` keeps counting the full
+/// filtered set (PRD §15.4).
+#[test]
+fn lint_max_findings_json_caps_array_but_keeps_summary() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = workspace_with_two_viewports()?;
+    let output = Command::cargo_bin("plumb")?
+        .args([
+            "lint",
+            "plumb-fake://hello",
+            "--format",
+            "json",
+            "--max-findings",
+            "1",
+        ])
+        .current_dir(dir.path())
+        .output()?;
+    assert_eq!(output.status.code(), Some(1));
+
+    let envelope: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+    assert_eq!(envelope["truncated"], serde_json::json!(true));
+    assert_eq!(
+        envelope["violations"].as_array().map(Vec::len),
+        Some(1),
+        "the array is capped to --max-findings"
+    );
+    assert_eq!(
+        envelope["summary"]["total"],
+        serde_json::json!(2),
+        "summary still counts the full filtered set"
+    );
+    Ok(())
+}
+
+/// The pretty `stats` block must count the FULL filtered set, not the
+/// `--max-findings`-capped subset. Three viewports yield three warnings;
+/// `--max-findings 1` renders one finding but the stats line, viewport,
+/// and rule counts still report the full three. Regression guard for the
+/// undercounting bug where pretty stats were computed from the capped
+/// slice.
+#[test]
+fn lint_max_findings_pretty_stats_reflect_full_set() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = workspace_with_three_viewports()?;
+    Command::cargo_bin("plumb")?
+        .args(["lint", "plumb-fake://hello", "--max-findings", "1"])
+        .current_dir(dir.path())
+        .assert()
+        .code(1)
+        // Full count in the stats summary line, despite the cap of 1.
+        .stdout(contains("3 violations (0 error, 3 warning, 0 info)"))
+        .stdout(contains("viewport_count: 3"))
+        .stdout(contains("rule_count: 1"))
+        .stdout(contains(
+            "… and 2 more findings (raise --max-findings to see them)",
+        ));
+    Ok(())
+}
+
+/// The pretty stats count and the JSON `summary.total` must agree for the
+/// same `--max-findings`-capped run: both derive from the full filtered
+/// set, so capping the rendered list never shifts the counts. Also pins
+/// the shared `run_id` so pretty and JSON stay coherent byte for byte.
+#[test]
+fn lint_max_findings_pretty_and_json_counts_agree() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = workspace_with_two_viewports()?;
+
+    let json_out = Command::cargo_bin("plumb")?
+        .args([
+            "lint",
+            "plumb-fake://hello",
+            "--format",
+            "json",
+            "--max-findings",
+            "1",
+        ])
+        .current_dir(dir.path())
+        .output()?;
+    let envelope: serde_json::Value = serde_json::from_slice(&json_out.stdout)?;
+    let json_total = envelope["summary"]["total"]
+        .as_u64()
+        .expect("summary.total");
+    let json_run_id = envelope["run_id"].as_str().expect("run_id").to_owned();
+    assert_eq!(
+        json_total, 2,
+        "two viewports → two warnings in the full set"
+    );
+
+    let pretty_out = Command::cargo_bin("plumb")?
+        .args(["lint", "plumb-fake://hello", "--max-findings", "1"])
+        .current_dir(dir.path())
+        .output()?;
+    let pretty = String::from_utf8(pretty_out.stdout)?;
+
+    // The pretty stats count line must report the same full total the JSON
+    // summary does — not the capped 1.
+    assert!(
+        pretty.contains(&format!("{json_total} violations (")),
+        "pretty stats must show the full count {json_total}; got:\n{pretty}"
+    );
+    assert!(
+        pretty.contains(&format!("run_id: {json_run_id}")),
+        "pretty run_id must match the JSON run_id ({json_run_id}); got:\n{pretty}"
+    );
+    Ok(())
+}
+
+/// Without `--max-findings`, the JSON envelope always carries
+/// `"truncated": false` so consumers can rely on the key being present.
+#[test]
+fn lint_json_truncated_false_when_uncapped() -> Result<(), Box<dyn std::error::Error>> {
+    let output = Command::cargo_bin("plumb")?
+        .args(["lint", "plumb-fake://hello", "--format", "json"])
+        .output()?;
+    assert_eq!(output.status.code(), Some(1));
+
+    let envelope: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+    assert_eq!(envelope["truncated"], serde_json::json!(false));
     Ok(())
 }

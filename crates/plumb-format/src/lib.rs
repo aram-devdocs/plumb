@@ -62,8 +62,34 @@ pub fn pretty(violations: &[Violation]) -> String {
 /// `ignored_count == 0` produces the same output as [`pretty`].
 #[must_use]
 pub fn pretty_with_ignored(violations: &[Violation], ignored_count: usize) -> String {
-    let sorted = pretty_sorted(violations);
-    let run_id = match run_id_for_sorted(&sorted) {
+    pretty_capped(violations, None, ignored_count)
+}
+
+/// Render a pretty block whose stats reflect the FULL `violations` slice
+/// while the findings body shows only the first `display_cap` of them.
+///
+/// `plumb lint --max-findings N` routes through here. The stats block —
+/// `run_id`, the violation count line, `viewport_count`, and `rule_count`
+/// — is always computed from every violation in `violations`, so it
+/// matches the JSON envelope's `stats` for the same filtered set no matter
+/// how small `display_cap` is. `run_id` is the SHA-256 of the canonically
+/// sorted full set, identical to [`json()`]'s `run_id`, so the pretty and
+/// JSON renders of one run agree on it byte for byte.
+///
+/// `display_cap == None`, or a cap at or above `violations.len()`, renders
+/// every finding. A cap of `Some(0)` renders no findings but still prints
+/// the full stats. `ignored_count` appends the
+/// `N violation(s) suppressed by config` footer when non-zero.
+#[must_use]
+pub fn pretty_capped(
+    violations: &[Violation],
+    display_cap: Option<usize>,
+    ignored_count: usize,
+) -> String {
+    // `run_id` hashes the canonically sorted FULL set — the same input
+    // the JSON envelope hashes — so the two formats never disagree on it.
+    let canonical = canonical_sorted(violations);
+    let run_id = match run_id_for_sorted(&canonical) {
         Ok(run_id) => run_id,
         // `Violation` is JSON-serializable by construction, so this
         // branch should be unreachable in practice. Keep the pretty
@@ -71,16 +97,24 @@ pub fn pretty_with_ignored(violations: &[Violation], ignored_count: usize) -> St
         Err(_) => String::from("sha256:unavailable"),
     };
 
+    // The body renders in pretty display order; the cap keeps the first
+    // `display_cap` findings as they appear top to bottom.
+    let sorted = pretty_sorted(violations);
+    let shown: &[&Violation] = match display_cap {
+        Some(n) if n < sorted.len() => &sorted[..n],
+        _ => &sorted,
+    };
+
     let mut out = String::new();
 
-    if sorted.is_empty() {
+    if violations.is_empty() {
         out.push_str("No violations.\n");
     } else {
         let mut current_viewport: Option<&str> = None;
         let mut current_rule: Option<&str> = None;
         let mut current_selector: Option<&str> = None;
 
-        for violation in &sorted {
+        for violation in shown {
             let viewport = violation.viewport.as_str();
             if current_viewport != Some(viewport) {
                 if current_viewport.is_some() {
@@ -248,7 +282,21 @@ pub fn pretty_with_suggested_ignores_and_ignored(
     violations: &[Violation],
     ignored_count: usize,
 ) -> String {
-    let mut out = pretty_with_ignored(violations, ignored_count);
+    pretty_capped_with_suggested_ignores(violations, None, ignored_count)
+}
+
+/// Like [`pretty_capped`] but appends the suggested `.plumbignore` block.
+///
+/// The block — and its `would suppress N violation(s)` count — reflects
+/// the FULL `violations` slice, matching the JSON `suggested_ignores`
+/// array, even when `display_cap` hides some findings from the body.
+#[must_use]
+pub fn pretty_capped_with_suggested_ignores(
+    violations: &[Violation],
+    display_cap: Option<usize>,
+    ignored_count: usize,
+) -> String {
+    let mut out = pretty_capped(violations, display_cap, ignored_count);
     append_suggested_ignores_block(&mut out, violations);
     out
 }
@@ -970,8 +1018,9 @@ mod tests {
     use super::{
         MCP_COMPACT_RESPONSE_CAP_BYTES, json, json_with_ignored, json_with_suggested_ignores,
         json_with_suggested_ignores_and_ignored, mcp_compact, mcp_compact_capped, pretty,
-        pretty_with_ignored, pretty_with_suggested_ignores,
-        pretty_with_suggested_ignores_and_ignored, suggested_ignores,
+        pretty_capped, pretty_capped_with_suggested_ignores, pretty_with_ignored,
+        pretty_with_suggested_ignores, pretty_with_suggested_ignores_and_ignored,
+        suggested_ignores,
     };
     use indexmap::IndexMap;
     use plumb_core::{Severity, ViewportKey, Violation};
@@ -1234,6 +1283,98 @@ mod tests {
     fn pretty_with_ignored_zero_matches_pretty() {
         let v = vec![violation("spacing/grid-conformance", "body", "desktop", 1)];
         assert_eq!(pretty(&v), pretty_with_ignored(&v, 0));
+    }
+
+    /// A three-violation set spanning two viewports and two rules. Each
+    /// finding renders as a `warning: test` line, so counting that
+    /// substring gives the number of findings in the body.
+    fn capped_fixture() -> Vec<Violation> {
+        vec![
+            violation("a/one", "sel1", "desktop", 1),
+            violation("b/two", "sel2", "desktop", 2),
+            violation("a/one", "sel3", "mobile", 3),
+        ]
+    }
+
+    #[test]
+    fn pretty_capped_none_matches_pretty_with_ignored() {
+        // `display_cap == None` is the uncapped path — identical output to
+        // the existing entry point, so the refactor is behavior-preserving.
+        let v = capped_fixture();
+        assert_eq!(pretty_capped(&v, None, 0), pretty_with_ignored(&v, 0));
+    }
+
+    #[test]
+    fn pretty_capped_stats_reflect_full_set_not_the_cap() {
+        let v = capped_fixture();
+        let out = pretty_capped(&v, Some(1), 0);
+
+        // Only the first finding (pretty order: desktop a/one sel1) renders.
+        assert_eq!(
+            out.matches("      warning: test").count(),
+            1,
+            "cap of 1 renders exactly one finding:\n{out}"
+        );
+
+        // Stats count the full three-violation set regardless of the cap.
+        assert!(
+            out.contains("3 violations (0 error, 3 warning, 0 info)"),
+            "stats must show the full count:\n{out}"
+        );
+        assert!(out.contains("viewport_count: 2"), "stats:\n{out}");
+        assert!(out.contains("rule_count: 2"), "stats:\n{out}");
+    }
+
+    #[test]
+    fn pretty_capped_run_id_matches_json_run_id() {
+        // The pretty `run_id` is the SHA-256 of the canonically sorted full
+        // set — the same input JSON hashes — so capping the rendered body
+        // never shifts it and the two formats agree.
+        let v = capped_fixture();
+        let pretty_out = pretty_capped(&v, Some(1), 0);
+        let json_out = json(&v).expect("json serialize");
+        let envelope: serde_json::Value =
+            serde_json::from_str(&json_out).expect("json envelope parses");
+        let json_run_id = envelope["run_id"].as_str().expect("run_id present");
+
+        assert!(
+            pretty_out.contains(&format!("run_id: {json_run_id}")),
+            "pretty run_id must equal json run_id ({json_run_id}):\n{pretty_out}"
+        );
+    }
+
+    #[test]
+    fn pretty_capped_zero_renders_no_findings_but_keeps_stats() {
+        let v = capped_fixture();
+        let out = pretty_capped(&v, Some(0), 0);
+        assert_eq!(
+            out.matches("      warning: test").count(),
+            0,
+            "cap of 0 renders no findings:\n{out}"
+        );
+        assert!(
+            out.contains("3 violations (0 error, 3 warning, 0 info)"),
+            "stats survive a zero cap:\n{out}"
+        );
+        assert!(
+            !out.contains("No violations."),
+            "a capped-out body is not the empty-set 'No violations.' message:\n{out}"
+        );
+    }
+
+    #[test]
+    fn pretty_capped_with_suggested_ignores_counts_full_set() {
+        // The suggested-ignores block reflects the full set (three
+        // violations across two rules), not the single rendered finding.
+        let v = capped_fixture();
+        let out = pretty_capped_with_suggested_ignores(&v, Some(1), 0);
+        assert!(
+            out.contains("Suggested .plumbignore (would suppress 3 violations):"),
+            "suggested-ignores count must reflect the full set:\n{out}"
+        );
+        assert!(out.contains("a/one sel1"), "block lists full set:\n{out}");
+        assert!(out.contains("a/one sel3"), "block lists full set:\n{out}");
+        assert!(out.contains("b/two sel2"), "block lists full set:\n{out}");
     }
 
     #[test]

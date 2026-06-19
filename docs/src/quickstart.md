@@ -42,10 +42,9 @@ happened:
 
 | Code | Meaning |
 |------|---------|
-| 0 | No violations. |
-| 1 | One or more `error`-severity violations. |
+| 0 | No violations at or above `--min-severity` (default `warn`). |
+| 1 | One or more violations at or above the `--min-severity` threshold. |
 | 2 | CLI or infrastructure failure (bad URL, missing config, browser not found). |
-| 3 | Only `warning`-severity violations. |
 
 If Chrome is not on the standard path, point at it explicitly:
 

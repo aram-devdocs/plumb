@@ -134,14 +134,15 @@ audit:
 
 # Determinism check: run the CLI three times and byte-diff the output.
 #
-# `plumb lint` exits 3 when only warnings are present, which is the
-# walking-skeleton steady state. Bash `set -e` would treat that as a
-# failure, so each invocation is wrapped to swallow the expected code.
+# `plumb lint` exits 1 when any violation is at/above the `--min-severity`
+# threshold (default `warn`), which is the walking-skeleton steady state.
+# Bash `set -e` would treat that as a failure, so each invocation is
+# wrapped to swallow the expected code.
 determinism-check:
     @echo "▸ Determinism check (3 runs, byte-diff JSON output)…"
-    @cargo run --quiet -p plumb-cli -- lint plumb-fake://hello --format json > /tmp/plumb-det-1.json || [ $? -eq 3 ]
-    @cargo run --quiet -p plumb-cli -- lint plumb-fake://hello --format json > /tmp/plumb-det-2.json || [ $? -eq 3 ]
-    @cargo run --quiet -p plumb-cli -- lint plumb-fake://hello --format json > /tmp/plumb-det-3.json || [ $? -eq 3 ]
+    @cargo run --quiet -p plumb-cli -- lint plumb-fake://hello --format json > /tmp/plumb-det-1.json || [ $? -eq 1 ]
+    @cargo run --quiet -p plumb-cli -- lint plumb-fake://hello --format json > /tmp/plumb-det-2.json || [ $? -eq 1 ]
+    @cargo run --quiet -p plumb-cli -- lint plumb-fake://hello --format json > /tmp/plumb-det-3.json || [ $? -eq 1 ]
     @diff -q /tmp/plumb-det-1.json /tmp/plumb-det-2.json
     @diff -q /tmp/plumb-det-2.json /tmp/plumb-det-3.json
     @echo "▸ OK — all three runs produced byte-identical output."
