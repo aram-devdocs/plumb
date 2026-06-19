@@ -101,6 +101,7 @@ const BROWSER_WAIT_TIMEOUT: Duration = Duration::from_secs(5);
 const BROWSER_KILL_TIMEOUT: Duration = Duration::from_secs(5);
 const CDP_CONTROL_TIMEOUT: Duration = Duration::from_secs(10);
 const TARGET_CREATE_TIMEOUT: Duration = Duration::from_secs(30);
+const TARGET_ATTACH_TIMEOUT: Duration = Duration::from_secs(30);
 const NAVIGATION_ASSIGNMENT_TIMEOUT: Duration = Duration::from_secs(2);
 const DOCUMENT_READY_TIMEOUT: Duration = Duration::from_secs(30);
 const NAVIGATION_STATE_READ_TIMEOUT: Duration = Duration::from_secs(2);
@@ -952,12 +953,37 @@ async fn capture_target(
     target: &Target,
     options: &ChromiumOptions,
 ) -> Result<PlumbSnapshot, CdpError> {
-    let page = with_timeout("Target.createTarget", TARGET_CREATE_TIMEOUT, async {
-        browser.new_page("about:blank").await.map_err(driver_error)
+    let page =
+        create_page_without_load_wait(browser, CreateTargetParams::new("about:blank")).await?;
+
+    capture_on_page(&page, target, options).await
+}
+
+async fn create_page_without_load_wait(
+    browser: &Browser,
+    params: CreateTargetParams,
+) -> Result<Page, CdpError> {
+    let target_id = with_timeout("Target.createTarget", TARGET_CREATE_TIMEOUT, async {
+        browser
+            .execute(params)
+            .await
+            .map(|response| response.result.target_id)
+            .map_err(driver_error)
     })
     .await?;
 
-    capture_on_page(&page, target, options).await
+    with_timeout("Target.attachToTarget", TARGET_ATTACH_TIMEOUT, async {
+        loop {
+            match browser.get_page(target_id.clone()).await {
+                Ok(page) => return Ok(page),
+                Err(chromiumoxide::error::CdpError::NotFound) => {
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                }
+                Err(err) => return Err(driver_error(err)),
+            }
+        }
+    })
+    .await
 }
 
 /// Apply viewport / animation hooks, install cookies and headers,
@@ -1119,14 +1145,7 @@ impl PersistentBrowser {
                 for_tab: None,
                 hidden: None,
             };
-            let page = with_timeout("Target.createTarget", TARGET_CREATE_TIMEOUT, async {
-                self.inner
-                    .browser
-                    .new_page(create_params)
-                    .await
-                    .map_err(driver_error)
-            })
-            .await?;
+            let page = create_page_without_load_wait(&self.inner.browser, create_params).await?;
             capture_on_page(&page, &target, &self.inner.options).await
         }
         .await;
