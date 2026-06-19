@@ -1031,17 +1031,26 @@ impl PersistentBrowser {
     pub async fn launch(options: ChromiumOptions) -> Result<Self, CdpError> {
         let resolved_executable = resolve_auto_fetch(&options).await?;
         let launch = persistent_browser_config(&options, resolved_executable.as_deref())?;
-        let (browser, handler) = Browser::launch(launch.config)
-            .await
-            .map_err(map_launch_error)?;
+        let ChromiumLaunch {
+            config,
+            profile_dir,
+        } = launch;
+        let (mut browser, handler) = Browser::launch(config).await.map_err(map_launch_error)?;
         let handler_task = poll_handler(handler);
 
         // Validate the version before stashing the browser in `Arc` —
-        // on failure, dropping the browser here causes
-        // `Browser::drop` to reap the child synchronously.
+        // on failure, explicitly close/wait before the isolated
+        // profile is dropped so Windows does not retain locked files.
         if let Err(err) = validate_browser_version(&browser).await {
-            handler_task.abort();
-            drop(browser);
+            if let Err(cleanup_err) =
+                cleanup_failed_persistent_launch(&mut browser, handler_task).await
+            {
+                tracing::debug!(
+                    error = %cleanup_err,
+                    "failed to clean up Chromium after version validation failure"
+                );
+            }
+            let _profile_dir = profile_dir;
             return Err(err);
         }
 
@@ -1049,7 +1058,7 @@ impl PersistentBrowser {
             inner: Arc::new(PersistentBrowserInner {
                 browser,
                 handler_task: Mutex::new(Some(handler_task)),
-                _profile_dir: launch.profile_dir,
+                _profile_dir: profile_dir,
                 options,
             }),
         })
@@ -1871,6 +1880,30 @@ fn poll_handler(mut handler: Handler) -> JoinHandle<()> {
             }
         }
     })
+}
+
+async fn cleanup_failed_persistent_launch(
+    browser: &mut Browser,
+    handler_task: JoinHandle<()>,
+) -> Result<(), CdpError> {
+    let close_result = browser.close().await.map_err(driver_error);
+    if close_result.is_err()
+        && let Err(kill_err) = kill_browser(browser).await
+    {
+        tracing::debug!(error = %kill_err, "failed to kill Chromium after close error");
+    }
+
+    let wait_result = browser.wait().await.map_err(io_error);
+    handler_task.abort();
+    if let Err(join_err) = handler_task.await
+        && !join_err.is_cancelled()
+    {
+        tracing::debug!(error = %join_err, "Chromium handler task failed");
+    }
+
+    close_result?;
+    wait_result?;
+    Ok(())
 }
 
 async fn kill_browser(browser: &mut Browser) -> Result<(), CdpError> {
