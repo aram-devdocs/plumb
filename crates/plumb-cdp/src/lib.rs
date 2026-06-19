@@ -99,6 +99,7 @@ const BROWSER_LAUNCH_TIMEOUT: Duration = Duration::from_secs(30);
 const BROWSER_CLOSE_TIMEOUT: Duration = Duration::from_secs(5);
 const BROWSER_WAIT_TIMEOUT: Duration = Duration::from_secs(5);
 const BROWSER_KILL_TIMEOUT: Duration = Duration::from_secs(5);
+const CHROMIUMOXIDE_REQUEST_TIMEOUT: Duration = Duration::from_mins(1);
 const CDP_CONTROL_TIMEOUT: Duration = Duration::from_secs(10);
 const TARGET_CREATE_TIMEOUT: Duration = Duration::from_secs(30);
 const TARGET_ATTACH_TIMEOUT: Duration = Duration::from_secs(30);
@@ -863,6 +864,7 @@ impl ChromiumDriver {
                 msedge: false,
                 unstable: false,
             })
+            .request_timeout(CHROMIUMOXIDE_REQUEST_TIMEOUT)
             .window_size(target.width, target.height)
             .arg("--hide-scrollbars")
             .arg(scale_factor_arg);
@@ -1266,6 +1268,7 @@ fn persistent_browser_config(
             msedge: false,
             unstable: false,
         })
+        .request_timeout(CHROMIUMOXIDE_REQUEST_TIMEOUT)
         .window_size(1280, 800)
         .arg("--hide-scrollbars");
 
