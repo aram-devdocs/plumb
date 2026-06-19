@@ -962,7 +962,6 @@ async fn capture_on_page(
     let storage_state = pre_navigate(page, target, options).await?;
 
     page.goto(target.url.as_str()).await.map_err(driver_error)?;
-    page.wait_for_navigation().await.map_err(driver_error)?;
 
     apply_post_navigate_waits(page, target).await?;
     apply_storage_state_local_storage(page, target, storage_state.as_ref()).await?;
