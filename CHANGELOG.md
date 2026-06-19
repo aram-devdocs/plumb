@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 From the first release onward, this file is maintained automatically by [`release-please`](https://github.com/googleapis/release-please) based on [Conventional Commits](https://www.conventionalcommits.org/) on `main`. Do not edit released sections by hand.
 
+## [0.0.13](https://github.com/aram-devdocs/plumb/compare/v0.0.12...v0.0.13) (2026-06-19)
+
+
+### Features
+
+* brand identity across the CLI, docs, and assets ([#305](https://github.com/aram-devdocs/plumb/issues/305)) ([2d28ec0](https://github.com/aram-devdocs/plumb/commit/2d28ec027f5a4da731f62e7e197d57d3a9a2ed49))
+
+
+### Bug Fixes
+
+* **ci:** unstick Preflight + tolerate Dogfood warnings/nextjs flake ([#292](https://github.com/aram-devdocs/plumb/issues/292)) ([6bba313](https://github.com/aram-devdocs/plumb/commit/6bba313d174ad4ff7300486e56c07c973d75db8f))
+* **cli:** triage flags, exit codes, and grid honoring the spacing scale ([#304](https://github.com/aram-devdocs/plumb/issues/304)) ([5e9d34b](https://github.com/aram-devdocs/plumb/commit/5e9d34b6f7bb56115345aaf8c4427c2103f9a678))
+* **mcp:** cap and aggregate tool output; load project config ([#303](https://github.com/aram-devdocs/plumb/issues/303)) ([dd1ab99](https://github.com/aram-devdocs/plumb/commit/dd1ab99a04331548f8595cb6139981aab7f7f933))
+* **release:** post-process homebrew formula + include .zip in upload glob ([#288](https://github.com/aram-devdocs/plumb/issues/288)) ([9e0b476](https://github.com/aram-devdocs/plumb/commit/9e0b476a0cc641f9dccbd12b2adfd84e9e63e72a))
+* **rules:** precision pass to cut real-world false positives ([#302](https://github.com/aram-devdocs/plumb/issues/302)) ([3b42259](https://github.com/aram-devdocs/plumb/commit/3b422598f3f8e95f55a985c1eec17053f598e800))
+
 ## [0.0.12](https://github.com/aram-devdocs/plumb/compare/v0.0.11...v0.0.12) (2026-05-08)
 
 
