@@ -92,6 +92,78 @@ fn edge_near_alignment_golden() -> Result<(), serde_json::Error> {
     Ok(())
 }
 
+fn tagged_node(dom_order: u64, selector: &str, tag: &str, rect_value: Rect) -> SnapshotNode {
+    SnapshotNode {
+        dom_order,
+        selector: selector.to_owned(),
+        tag: tag.to_owned(),
+        attrs: IndexMap::new(),
+        computed_styles: IndexMap::new(),
+        rect: Some(rect_value),
+        parent: Some(1),
+        children: Vec::new(),
+    }
+}
+
+/// Count `edge/near-alignment` violations for two same-tag siblings with
+/// the given rects. Lets one test vary only the tag (layout vs SVG
+/// primitive) or the geometry (positive-area vs zero-area).
+fn near_alignment_violation_count(tag: &str, rect_a: Rect, rect_b: Rect) -> usize {
+    let child_a = tagged_node(2, "html > body > *:nth-child(1)", tag, rect_a);
+    let child_b = tagged_node(3, "html > body > *:nth-child(2)", tag, rect_b);
+    let snapshot = PlumbSnapshot {
+        url: "plumb-fake://edge-near-alignment-guard".into(),
+        viewport: ViewportKey::new("desktop"),
+        viewport_width: 1280,
+        viewport_height: 800,
+        nodes: vec![root_html(), body_node(), child_a, child_b],
+        text_boxes: Vec::new(),
+    };
+    run(&snapshot, &Config::default())
+        .into_iter()
+        .filter(|v| v.rule_id == "edge/near-alignment")
+        .count()
+}
+
+#[test]
+fn edge_near_alignment_skips_non_layout_children() {
+    // Left edges at x = 0 and x = 2 cluster within the default 3px
+    // tolerance (centroid 1, each 1px off). As <div> siblings they fire;
+    // the identical geometry on <path> SVG primitives is non-layout and
+    // MUST be skipped.
+    let rect_a = rect(0, 50, 100, 80);
+    let rect_b = rect(2, 50, 100, 80);
+    assert!(
+        near_alignment_violation_count("div", rect_a, rect_b) > 0,
+        "near-aligned <div> siblings must fire"
+    );
+    assert_eq!(
+        near_alignment_violation_count("path", rect_a, rect_b),
+        0,
+        "near-aligned <path> primitives must be skipped as non-layout"
+    );
+}
+
+#[test]
+fn edge_near_alignment_skips_zero_area_boxes() {
+    // A zero-width pair (`<br>`-style collapsed boxes) paints nothing,
+    // so its edges must never form an alignment cluster — even though
+    // the same near-aligned <div> geometry fires.
+    let solid_a = rect(0, 50, 100, 80);
+    let solid_b = rect(2, 50, 100, 80);
+    assert!(
+        near_alignment_violation_count("div", solid_a, solid_b) > 0,
+        "positive-area <div> siblings must fire"
+    );
+    let zero_a = rect(0, 50, 0, 80);
+    let zero_b = rect(2, 50, 0, 80);
+    assert_eq!(
+        near_alignment_violation_count("br", zero_a, zero_b),
+        0,
+        "zero-area <br> pair must be skipped"
+    );
+}
+
 #[test]
 fn edge_near_alignment_run_is_deterministic() -> Result<(), serde_json::Error> {
     let snapshot = fixture_snapshot();

@@ -89,6 +89,19 @@ fn violation_for_node(
     nodes_by_dom_order: &IndexMap<u64, &SnapshotNode>,
     node: &SnapshotNode,
 ) -> Option<Violation> {
+    // Only nodes that paint a non-empty text run have contrast to judge.
+    // CDP attributes inline text boxes to the painting element, so a
+    // textless container (`<div>`, `<section>`) owns no text box — or only
+    // zero-length ones — and there is nothing to measure. Skip it instead
+    // of emitting a phantom finding on every wrapper.
+    if ctx
+        .text_boxes_for(node.dom_order)
+        .iter()
+        .all(|tb| tb.length == 0)
+    {
+        return None;
+    }
+
     let raw_foreground = node.computed_styles.get(FOREGROUND_COLOR)?;
     let foreground = parse_css_color(raw_foreground)?;
     if foreground.a <= 0.0 {

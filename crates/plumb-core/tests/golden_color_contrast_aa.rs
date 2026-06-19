@@ -34,7 +34,7 @@
 
 use indexmap::IndexMap;
 use plumb_core::report::Rect;
-use plumb_core::snapshot::SnapshotNode;
+use plumb_core::snapshot::{SnapshotNode, TextBox};
 use plumb_core::{Config, PlumbSnapshot, ViewportKey, run};
 
 fn fixture_snapshot() -> PlumbSnapshot {
@@ -115,8 +115,39 @@ fn fixture_snapshot() -> PlumbSnapshot {
                 Some(rect(0, 248, 320, 24)),
                 1,
             ),
+            // A textless container: it inherits a failing `color` it never
+            // paints. With no text box, the real text-run guard MUST skip
+            // it — proving the guard does not flag empty wrappers.
+            text_node(
+                11,
+                "html > body > div:nth-child(8)",
+                &[("color", "rgb(119, 119, 119)"), ("font-size", "16px")],
+                Some(rect(0, 284, 320, 24)),
+                1,
+            ),
         ],
-        text_boxes: Vec::new(),
+        // One text box per text-bearing node. The textless container
+        // (dom_order 11) deliberately has none. Sorted by (dom_order,
+        // start) per the snapshot invariant.
+        text_boxes: vec![
+            text_box(2),
+            text_box(3),
+            text_box(4),
+            text_box(5),
+            text_box(6),
+            text_box(8),
+            text_box(9),
+            text_box(10),
+        ],
+    }
+}
+
+fn text_box(dom_order: u64) -> TextBox {
+    TextBox {
+        dom_order,
+        bounds: rect(0, 0, 320, 24),
+        start: 0,
+        length: 8,
     }
 }
 
@@ -153,7 +184,7 @@ fn body_node() -> SnapshotNode {
         computed_styles,
         rect: Some(rect(0, 0, 1280, 800)),
         parent: Some(0),
-        children: vec![2, 3, 4, 5, 6, 7, 9, 10],
+        children: vec![2, 3, 4, 5, 6, 7, 9, 10, 11],
     }
 }
 
@@ -239,6 +270,28 @@ fn color_contrast_aa_obeys_configured_min_ratio() {
             .filter(|violation| violation.rule_id == "color/contrast-aa")
             .map(|violation| violation.selector)
             .any(|selector| selector == "html > body > div:nth-child(7)")
+    );
+}
+
+#[test]
+fn color_contrast_aa_skips_textless_container() {
+    // The textless container (dom_order 11) inherits a `color` that would
+    // fail 4.5:1 on white, but it paints no text run, so the rule MUST
+    // NOT flag it. Genuine low-contrast text still fires.
+    let snapshot = fixture_snapshot();
+    let selectors: Vec<String> = run(&snapshot, &Config::default())
+        .into_iter()
+        .filter(|violation| violation.rule_id == "color/contrast-aa")
+        .map(|violation| violation.selector)
+        .collect();
+
+    assert!(
+        !selectors.contains(&"html > body > div:nth-child(8)".to_owned()),
+        "textless container must not be flagged: {selectors:?}"
+    );
+    assert!(
+        selectors.contains(&"html > body > div:nth-child(2)".to_owned()),
+        "genuine low-contrast text must still fire: {selectors:?}"
     );
 }
 

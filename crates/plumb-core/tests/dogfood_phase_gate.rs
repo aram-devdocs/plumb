@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 use indexmap::IndexMap;
 use plumb_core::config::{AlignmentSpec, ColorSpec, RadiusSpec, SpacingSpec, TypeScaleSpec};
 use plumb_core::report::Rect;
-use plumb_core::snapshot::SnapshotNode;
+use plumb_core::snapshot::{SnapshotNode, TextBox};
 use plumb_core::{Config, PlumbSnapshot, ViewportKey, run};
 
 #[allow(clippy::too_many_lines)]
@@ -117,7 +117,7 @@ fn dogfood_snapshot() -> PlumbSnapshot {
         node(
             71,
             "#siblings > .card:nth-child(1)",
-            "article",
+            "button",
             Some(70),
             Some(rect(0, 100, 100, 80)),
             &[],
@@ -127,7 +127,7 @@ fn dogfood_snapshot() -> PlumbSnapshot {
         node(
             72,
             "#siblings > .card:nth-child(2)",
-            "article",
+            "button",
             Some(70),
             Some(rect(120, 100, 100, 100)),
             &[],
@@ -137,7 +137,7 @@ fn dogfood_snapshot() -> PlumbSnapshot {
         node(
             73,
             "#siblings > .card:nth-child(3)",
-            "article",
+            "button",
             Some(70),
             Some(rect(240, 100, 100, 100)),
             &[],
@@ -213,7 +213,15 @@ fn dogfood_snapshot() -> PlumbSnapshot {
         viewport_width: 1280,
         viewport_height: 800,
         nodes,
-        text_boxes: Vec::new(),
+        // `#color > .off-palette` (dom_order 41) paints a real text run,
+        // so the `color/palette-conformance` text-run guard judges its
+        // off-palette `color`. Without this box the guard would skip it.
+        text_boxes: vec![TextBox {
+            dom_order: 41,
+            bounds: rect(0, 0, 100, 40),
+            start: 0,
+            length: 8,
+        }],
     }
 }
 

@@ -3,7 +3,11 @@
 //!
 //! ## Heuristic
 //!
-//! 1. Group nodes by `parent` `dom_order`.
+//! 0. Keep only interactive button-like nodes (PRD §6/§11.3) — a
+//!    heading beside its caption or a wrapper beside its content is not
+//!    a height-consistency defect, so non-interactive nodes are dropped
+//!    before grouping.
+//! 1. Group the remaining nodes by `parent` `dom_order`.
 //! 2. Within each parent, cluster the siblings into "visual rows":
 //!    two siblings share a row when their `top` edges are within
 //!    `ROW_TOP_TOLERANCE_PX` AND their bounding rects overlap
@@ -63,6 +67,13 @@ impl Rule for HeightConsistency {
         // — height clustering needs geometry.
         let mut groups: IndexMap<u64, Vec<SiblingEntry<'_>>> = IndexMap::new();
         for node in ctx.nodes() {
+            // PRD §6/§11.3 scopes height-consistency to interactive
+            // button-like peers. Comparing arbitrary siblings (a heading
+            // next to its caption, a wrapper next to its content) is
+            // noise, so skip non-interactive nodes before grouping.
+            if !crate::rules::util::is_interactive(node) {
+                continue;
+            }
             let Some(parent) = node.parent else { continue };
             let Some(rect) = ctx.rect_for(node.dom_order) else {
                 continue;

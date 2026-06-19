@@ -183,6 +183,65 @@ fn spacing_grid_conformance_golden() -> Result<(), serde_json::Error> {
     Ok(())
 }
 
+/// Run the engine over a single `<div>` carrying one `margin-top`
+/// value and return how many `spacing/grid-conformance` violations it
+/// produces. Used by the tolerance-band test to exercise the `0.5px`
+/// snap window from both sides.
+fn grid_violations_for_margin_top(value: &str) -> usize {
+    let only = node(
+        2,
+        "html > body > div:nth-child(1)",
+        &[("margin-top", value)],
+        Some(Rect {
+            x: 0,
+            y: 0,
+            width: 200,
+            height: 100,
+        }),
+    );
+    let snapshot = PlumbSnapshot {
+        url: "plumb-fake://spacing-grid-tolerance".into(),
+        viewport: ViewportKey::new("desktop"),
+        viewport_width: 1280,
+        viewport_height: 800,
+        nodes: vec![root_html_with_body(), body_node(), only],
+        text_boxes: Vec::new(),
+    };
+    run(&snapshot, &fixture_config())
+        .into_iter()
+        .filter(|v| v.rule_id == "spacing/grid-conformance")
+        .count()
+}
+
+#[test]
+fn spacing_grid_conformance_tolerance_band() {
+    // `base_unit = 4`. A value within 0.5px of the nearest multiple is
+    // on-grid (UA-stylesheet residue like a `16.08px` margin snaps to
+    // 16); an honest off-grid value still fires.
+    assert_eq!(
+        grid_violations_for_margin_top("16.08px"),
+        0,
+        "16.08px is within 0.5 of 16 — on-grid"
+    );
+    assert_eq!(
+        grid_violations_for_margin_top("13px"),
+        1,
+        "13px is 1px off the nearest multiple (12) — off-grid"
+    );
+    // Boundary: exactly 0.5px off is still on-grid (the test is `<=`).
+    assert_eq!(
+        grid_violations_for_margin_top("16.5px"),
+        0,
+        "16.5px is exactly 0.5 off 16 — still on-grid"
+    );
+    // Just past the boundary fires.
+    assert_eq!(
+        grid_violations_for_margin_top("16.6px"),
+        1,
+        "16.6px is 0.6 off 16 — off-grid"
+    );
+}
+
 #[test]
 fn spacing_grid_conformance_run_is_deterministic() -> Result<(), serde_json::Error> {
     let snapshot = fixture_snapshot();

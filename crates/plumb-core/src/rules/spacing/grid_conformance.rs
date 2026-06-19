@@ -15,10 +15,12 @@ use crate::rules::spacing::SPACING_PROPERTIES;
 use crate::rules::util::{nearest_multiple, parse_px};
 use crate::snapshot::SnapshotCtx;
 
-/// Tolerance for the off-grid test. Subpixel rounding from
-/// `getComputedStyle` can leave a residue of ~1e-12; `1e-6` keeps the
-/// rule resilient without admitting honest off-grid values.
-const FRACT_TOLERANCE: f64 = 1e-6;
+/// Tolerance for the off-grid test, in CSS pixels. A value within this
+/// absolute band of the nearest grid multiple is treated as on-grid.
+/// `0.5px` absorbs subpixel rounding and UA-stylesheet `em`-derived
+/// residue (e.g. a `16.08px` default `<h1>` margin snaps to `16`) while
+/// still catching honest off-grid values like `13px` or `10px`.
+const GRID_TOLERANCE_PX: f64 = 0.5;
 
 /// Flags spacing values that aren't multiples of `spacing.base_unit`.
 #[derive(Debug, Clone, Copy)]
@@ -44,7 +46,6 @@ impl Rule for GridConformance {
             // would force a div-by-zero. Skip the rule entirely.
             return;
         }
-        let base_unit_f = f64::from(base_unit);
 
         for node in ctx.nodes() {
             for prop in SPACING_PROPERTIES {
@@ -52,10 +53,12 @@ impl Rule for GridConformance {
                     continue;
                 };
                 let Some(value) = parse_px(raw) else { continue };
-                if (value / base_unit_f).fract().abs() <= FRACT_TOLERANCE {
+                let suggested = nearest_multiple(value, base_unit);
+                #[allow(clippy::cast_precision_loss)]
+                let nearest = suggested as f64;
+                if (value - nearest).abs() <= GRID_TOLERANCE_PX {
                     continue;
                 }
-                let suggested = nearest_multiple(value, base_unit);
                 let to = if suggested == 0 {
                     "0".to_owned()
                 } else {

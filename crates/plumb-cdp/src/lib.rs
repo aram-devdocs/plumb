@@ -2159,7 +2159,7 @@ fn flatten_snapshot(
     finalize_nodes(&mut nodes, &tags, &parents);
     nodes.sort_by_key(|n| n.dom_order);
 
-    let text_boxes = extract_text_boxes(document, &layout_view, &node_to_dom_order);
+    let text_boxes = extract_text_boxes(document, &layout_view, &nodes_view, &node_to_dom_order);
 
     Ok(PlumbSnapshot {
         url: target.url.clone(),
@@ -2191,6 +2191,37 @@ fn build_dom_order_map(nodes_view: &NodesView<'_>) -> Vec<Option<u64>> {
         }
     }
     map
+}
+
+/// Walk up the CDP parent chain from `node_index` until reaching a node
+/// that maps to an element `dom_order`. Returns that `dom_order`, or
+/// `None` when no ancestor is a kept element.
+///
+/// CDP attributes inline text layout boxes to `#text` nodes (nodeType 3),
+/// which are not elements and so carry no `dom_order`. Re-attributing a
+/// box to the nearest ancestor element keeps `text_boxes_for` non-empty
+/// for the painting element (`<p>`, `<span>`, …). When `node_index`
+/// already maps to an element, its own `dom_order` is returned
+/// immediately — preserving the prior behavior for element-owned boxes.
+fn nearest_element_dom_order(
+    nodes_view: &NodesView<'_>,
+    node_to_dom_order: &[Option<u64>],
+    node_index: usize,
+) -> Option<u64> {
+    let mut cursor = Some(node_index);
+    // Bound the walk by the node count: a tree of N nodes has no path
+    // longer than N, so this terminates even on a malformed cyclic
+    // `parentIndex` chain.
+    for _ in 0..=node_to_dom_order.len() {
+        let idx = cursor?;
+        if let Some(order) = node_to_dom_order.get(idx).copied().flatten() {
+            return Some(order);
+        }
+        cursor = nodes_view
+            .parent_index(idx)
+            .and_then(|parent| usize::try_from(parent).ok());
+    }
+    None
 }
 
 fn build_nodes(
@@ -2318,11 +2349,17 @@ fn finalize_nodes(
 /// Extract text boxes from `document.text_boxes`, mapping layout indices
 /// back to `dom_order` via the layout view and node-to-dom-order map.
 ///
-/// Gracefully skips entries whose layout index is out of range or
-/// points to a non-element node. Returns sorted by `(dom_order, start)`.
+/// CDP attributes each inline text box to the `#text` layout node that
+/// owns it. `#text` nodes (nodeType 3) are not elements, so they carry no
+/// `dom_order` of their own. Rather than dropping every real text run,
+/// each box is re-attributed to the `dom_order` of its nearest ancestor
+/// element via [`nearest_element_dom_order`]. A box is only skipped when
+/// its layout index is out of range or no ancestor element has a
+/// `dom_order`. Returns sorted by `(dom_order, start)`.
 fn extract_text_boxes(
     document: &DocumentSnapshot,
     layout_view: &LayoutView<'_>,
+    nodes_view: &NodesView<'_>,
     node_to_dom_order: &[Option<u64>],
 ) -> Vec<TextBox> {
     let tb = &document.text_boxes;
@@ -2353,7 +2390,13 @@ fn extract_text_boxes(
         if cdp_node_idx_usize >= node_to_dom_order.len() {
             continue;
         }
-        let Some(dom_order) = node_to_dom_order[cdp_node_idx_usize] else {
+        // The layout node owning this box is usually a `#text` node with
+        // no `dom_order`. Re-attribute to the nearest ancestor element so
+        // the painting element (`<p>`, `<span>`, …) carries its text run;
+        // only drop the box when no ancestor element has a `dom_order`.
+        let Some(dom_order) =
+            nearest_element_dom_order(nodes_view, node_to_dom_order, cdp_node_idx_usize)
+        else {
             continue;
         };
 
@@ -3399,5 +3442,109 @@ mod tests {
     fn parse_inline_styles_lowercases_property_preserves_value_case() {
         let parsed = super::parse_inline_styles("Color: Red");
         assert_eq!(parsed.get("color").map(String::as_str), Some("Red"));
+    }
+
+    /// A synthetic `DOMSnapshot.captureSnapshot` response matching the
+    /// CDP wire format. The DOM is:
+    ///
+    /// ```text
+    /// html > body > p > #text("Hello")
+    ///             > div > span
+    /// ```
+    ///
+    /// CDP owns the inline text box on the `#text` node (node index 3),
+    /// not on the `<p>`. The container `<div>` has only an element child,
+    /// so no text box references it.
+    fn capture_returns_with_text_box() -> super::CaptureSnapshotReturns {
+        let value = serde_json::json!({
+            "documents": [{
+                "documentURL": 0, "title": 0, "baseURL": 0,
+                "contentLanguage": 0, "encodingName": 0, "publicId": 0,
+                "systemId": 0, "frameId": 0,
+                "nodes": {
+                    // index:        0   1   2   3   4   5
+                    //             html body p  #txt div span
+                    "parentIndex": [-1,  0,  1,  2,  1,  4],
+                    "nodeType":    [ 1,  1,  1,  3,  1,  1],
+                    "nodeName":    [ 1,  2,  3,  4,  5,  6]
+                },
+                "layout": {
+                    // layout slot:  0(p) 1(#text) 2(div) 3(span)
+                    "nodeIndex": [2, 3, 4, 5],
+                    "styles": [],
+                    "bounds": [
+                        [10.0, 10.0, 100.0, 20.0],
+                        [10.0, 12.0,  40.0, 16.0],
+                        [10.0, 40.0, 200.0, 50.0],
+                        [10.0, 40.0,   0.0,  0.0]
+                    ],
+                    "text": [],
+                    "stackingContexts": { "index": [] }
+                },
+                "textBoxes": {
+                    // Owned by layout slot 1 — the `#text` node.
+                    "layoutIndex": [1],
+                    "bounds": [[10.0, 12.0, 40.0, 16.0]],
+                    "start": [0],
+                    "length": [5]
+                }
+            }],
+            "strings": ["", "HTML", "BODY", "P", "#text", "DIV", "SPAN"]
+        });
+        serde_json::from_value(value).expect("synthetic CDP response must deserialize")
+    }
+
+    #[test]
+    fn text_box_reattributed_to_nearest_ancestor_element() {
+        let target = super::Target {
+            url: "https://example.com/".to_string(),
+            ..super::Target::default()
+        };
+        let snap = super::flatten_snapshot(&target, &capture_returns_with_text_box())
+            .expect("flatten must succeed for the synthetic response");
+
+        // `<p>` is the third element in source order → dom_order 2.
+        let p = snap
+            .nodes
+            .iter()
+            .find(|n| n.tag == "p")
+            .expect("`<p>` element must survive flattening");
+        let div = snap
+            .nodes
+            .iter()
+            .find(|n| n.tag == "div")
+            .expect("`<div>` element must survive flattening");
+
+        // Exactly one text box, attributed to the `<p>` (the nearest
+        // ancestor element of the `#text` layout node), not dropped.
+        assert_eq!(snap.text_boxes.len(), 1, "the single text run survives");
+        let tb = &snap.text_boxes[0];
+        assert_eq!(
+            tb.dom_order, p.dom_order,
+            "text box must attribute to the `<p>`, not the `#text` node"
+        );
+        assert_eq!(tb.length, 5, "\"Hello\" is 5 UTF-16 units");
+        assert_eq!(tb.start, 0);
+
+        // The container `<div>` has only an element child, so no text box
+        // references it.
+        assert!(
+            snap.text_boxes.iter().all(|b| b.dom_order != div.dom_order),
+            "container `<div>` with only element children must carry no text box"
+        );
+    }
+
+    #[test]
+    fn text_box_reattribution_is_byte_deterministic() {
+        let target = super::Target::default();
+        let a =
+            super::flatten_snapshot(&target, &capture_returns_with_text_box()).expect("flatten a");
+        let b =
+            super::flatten_snapshot(&target, &capture_returns_with_text_box()).expect("flatten b");
+        assert_eq!(
+            serde_json::to_string(&a).expect("serialize a"),
+            serde_json::to_string(&b).expect("serialize b"),
+            "two flattens of identical input must match byte-for-byte"
+        );
     }
 }
