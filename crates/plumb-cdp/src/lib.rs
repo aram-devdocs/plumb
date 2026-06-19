@@ -837,6 +837,7 @@ impl ChromiumDriver {
         // (scrollbar overlay differences across DPRs, OS-level scaling).
         let scale_factor_arg = format!("--force-device-scale-factor={}", target.device_pixel_ratio);
         let builder = BrowserConfig::builder()
+            .new_headless_mode()
             .chrome_detection(DetectionOptions {
                 msedge: false,
                 unstable: false,
@@ -1173,6 +1174,7 @@ fn persistent_browser_config(
     // snapshot calls `Emulation.setDeviceMetricsOverride` to drive
     // both viewport and DPR per-call.
     let builder = BrowserConfig::builder()
+        .new_headless_mode()
         .chrome_detection(DetectionOptions {
             msedge: false,
             unstable: false,
