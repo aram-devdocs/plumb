@@ -1807,12 +1807,7 @@ async fn inject_auth_script(page: &Page, path: &Path) -> Result<(), CdpError> {
 }
 
 async fn add_script_to_evaluate_on_new_document(page: &Page, source: &str) -> Result<(), CdpError> {
-    let params = AddScriptToEvaluateOnNewDocumentParams {
-        source: source.to_owned(),
-        world_name: None,
-        include_command_line_api: None,
-        run_immediately: Some(true),
-    };
+    let params = add_script_to_evaluate_params(source);
     with_timeout(
         "Page.addScriptToEvaluateOnNewDocument",
         PAGE_COMMAND_TIMEOUT,
@@ -1820,6 +1815,15 @@ async fn add_script_to_evaluate_on_new_document(page: &Page, source: &str) -> Re
     )
     .await?;
     Ok(())
+}
+
+fn add_script_to_evaluate_params(source: &str) -> AddScriptToEvaluateOnNewDocumentParams {
+    AddScriptToEvaluateOnNewDocumentParams {
+        source: source.to_owned(),
+        world_name: None,
+        include_command_line_api: None,
+        run_immediately: None,
+    }
 }
 
 async fn install_extra_headers(page: &Page, headers: &[(String, String)]) -> Result<(), CdpError> {
@@ -3304,6 +3308,16 @@ mod tests {
         assert!(!viewport.is_landscape);
         assert!(!viewport.emulating_mobile);
         assert!(!viewport.has_touch);
+    }
+
+    #[test]
+    fn add_script_params_registers_for_future_documents_only() {
+        let params = super::add_script_to_evaluate_params("window.__plumb = true;");
+
+        assert_eq!(params.source, "window.__plumb = true;");
+        assert!(params.world_name.is_none());
+        assert!(params.include_command_line_api.is_none());
+        assert!(params.run_immediately.is_none());
     }
 
     #[test]
