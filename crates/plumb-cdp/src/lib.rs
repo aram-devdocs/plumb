@@ -1343,10 +1343,15 @@ async fn capture_on_raw_page(
         apply_viewport_raw(cdp, page, target).await?;
     }
     let storage_state = pre_navigate_raw(cdp, page, target, options).await?;
+    let page_events_enabled = enable_raw_page_events(cdp, page).await;
     let deterministic_styles_installed =
-        add_deterministic_styles_on_new_document_raw(cdp, page, target).await?;
+        if should_preinstall_deterministic_styles(page_events_enabled, target) {
+            add_deterministic_styles_on_new_document_raw(cdp, page, target).await?
+        } else {
+            false
+        };
 
-    navigate_raw(cdp, page, target).await?;
+    navigate_raw(cdp, page, target, page_events_enabled).await?;
 
     apply_post_navigate_waits_raw(cdp, page, target).await?;
     apply_storage_state_local_storage_raw(cdp, page, target, storage_state.as_ref()).await?;
@@ -1956,8 +1961,8 @@ async fn navigate_raw(
     cdp: &mut RawCdpClient,
     page: &RawPage,
     target: &Target,
+    page_events_enabled: bool,
 ) -> Result<(), CdpError> {
-    let page_events_enabled = enable_raw_page_events(cdp, page).await;
     let mut events = RawNavigationEvents::default();
     let initial_result = navigate_raw_by_page_navigate(
         cdp,
@@ -2031,6 +2036,10 @@ fn raw_navigation_events_for_wait(
     events: RawNavigationEvents,
 ) -> Option<RawNavigationEvents> {
     (page_events_enabled || events.has_navigated()).then_some(events)
+}
+
+fn should_preinstall_deterministic_styles(page_events_enabled: bool, target: &Target) -> bool {
+    page_events_enabled && deterministic_style_source(target).is_some()
 }
 
 async fn enable_raw_page_events(cdp: &mut RawCdpClient, page: &RawPage) -> bool {
@@ -4401,6 +4410,29 @@ mod tests {
         ));
         assert!(super::should_apply_post_navigation_deterministic_styles(
             false, &target
+        ));
+    }
+
+    #[test]
+    fn raw_deterministic_styles_preinstall_requires_page_events() {
+        let target = super::Target::default();
+
+        assert!(super::should_preinstall_deterministic_styles(true, &target));
+        assert!(!super::should_preinstall_deterministic_styles(
+            false, &target
+        ));
+    }
+
+    #[test]
+    fn raw_deterministic_styles_preinstall_skips_without_source() {
+        let target = super::Target {
+            disable_animations: false,
+            hide_scrollbars: false,
+            ..super::Target::default()
+        };
+
+        assert!(!super::should_preinstall_deterministic_styles(
+            true, &target
         ));
     }
 
