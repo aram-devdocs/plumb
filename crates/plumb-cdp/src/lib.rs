@@ -1352,7 +1352,7 @@ async fn capture_on_raw_page(
     apply_post_navigate_waits_raw(cdp, page, target).await?;
     apply_storage_state_local_storage_raw(cdp, page, target, storage_state.as_ref()).await?;
     if should_apply_post_navigation_deterministic_styles(deterministic_styles_installed, target) {
-        apply_deterministic_styles_raw(cdp, page, target).await?;
+        apply_deterministic_styles_raw_best_effort(cdp, page, target).await?;
     }
 
     let params = CaptureSnapshotParams {
@@ -2613,6 +2613,21 @@ async fn apply_deterministic_styles_raw(
     Ok(())
 }
 
+async fn apply_deterministic_styles_raw_best_effort(
+    cdp: &mut RawCdpClient,
+    page: &RawPage,
+    target: &Target,
+) -> Result<(), CdpError> {
+    match apply_deterministic_styles_raw(cdp, page, target).await {
+        Ok(()) => Ok(()),
+        Err(err) if is_deterministic_styles_timeout(&err) => {
+            tracing::debug!(error = %err, "skipping raw deterministic styles after CDP timeout");
+            Ok(())
+        }
+        Err(err) => Err(err),
+    }
+}
+
 fn should_apply_post_navigation_deterministic_styles(preinstalled: bool, target: &Target) -> bool {
     !preinstalled && deterministic_style_source(target).is_some()
 }
@@ -3186,6 +3201,19 @@ fn is_ready_state_read_timeout(err: &io::Error) -> bool {
     let message = err.to_string();
     message.contains("exhausted 30s ready-state budget")
         && message.contains("last navigation state read failed: navigation state read exceeded")
+}
+
+fn is_deterministic_styles_timeout(err: &CdpError) -> bool {
+    let CdpError::Driver(source) = err else {
+        return false;
+    };
+
+    source.downcast_ref::<io::Error>().is_some_and(|err| {
+        err.kind() == io::ErrorKind::TimedOut
+            && err
+                .to_string()
+                .contains("Runtime.evaluate deterministic styles")
+    })
 }
 
 fn timeout_error(operation: &str, timeout: Duration) -> CdpError {
@@ -4855,6 +4883,35 @@ mod tests {
         )));
 
         assert!(super::is_retryable_capture_timeout(&err));
+    }
+
+    #[test]
+    fn deterministic_styles_timeout_is_skippable() {
+        let err = CdpError::Driver(Box::new(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "Runtime.evaluate deterministic styles exceeded 25s budget",
+        )));
+
+        assert!(super::is_deterministic_styles_timeout(&err));
+    }
+
+    #[test]
+    fn deterministic_styles_timeout_rejects_unrelated_timeouts() {
+        let err = CdpError::Driver(Box::new(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "Runtime.evaluate wait_for_selector exceeded 25s budget",
+        )));
+
+        assert!(!super::is_deterministic_styles_timeout(&err));
+    }
+
+    #[test]
+    fn deterministic_styles_timeout_rejects_non_timeout_errors() {
+        let err = CdpError::Driver(Box::new(io::Error::other(
+            "Runtime.evaluate deterministic styles failed: detached target",
+        )));
+
+        assert!(!super::is_deterministic_styles_timeout(&err));
     }
 
     #[test]
