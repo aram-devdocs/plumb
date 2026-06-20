@@ -1351,7 +1351,11 @@ async fn capture_on_raw_page(
 
     apply_post_navigate_waits_raw(cdp, page, target).await?;
     apply_storage_state_local_storage_raw(cdp, page, target, storage_state.as_ref()).await?;
-    if should_apply_post_navigation_deterministic_styles(deterministic_styles_installed, target) {
+    if should_apply_raw_post_navigation_deterministic_styles(
+        deterministic_styles_installed,
+        target,
+        page_events_enabled,
+    ) {
         apply_deterministic_styles_raw_best_effort(cdp, page, target).await?;
     }
 
@@ -2630,6 +2634,14 @@ async fn apply_deterministic_styles_raw_best_effort(
 
 fn should_apply_post_navigation_deterministic_styles(preinstalled: bool, target: &Target) -> bool {
     !preinstalled && deterministic_style_source(target).is_some()
+}
+
+fn should_apply_raw_post_navigation_deterministic_styles(
+    preinstalled: bool,
+    target: &Target,
+    page_events_enabled: bool,
+) -> bool {
+    page_events_enabled && should_apply_post_navigation_deterministic_styles(preinstalled, target)
 }
 
 fn deterministic_style_source(target: &Target) -> Option<String> {
@@ -4424,12 +4436,19 @@ mod tests {
     }
 
     #[test]
-    fn raw_deterministic_styles_apply_post_navigation_without_page_events() {
+    fn raw_deterministic_styles_skip_post_navigation_without_page_events() {
         let target = super::Target::default();
 
-        assert!(super::should_apply_post_navigation_deterministic_styles(
-            false, &target
-        ));
+        assert!(
+            !super::should_apply_raw_post_navigation_deterministic_styles(false, &target, false)
+        );
+    }
+
+    #[test]
+    fn raw_deterministic_styles_apply_post_navigation_with_page_events() {
+        let target = super::Target::default();
+
+        assert!(super::should_apply_raw_post_navigation_deterministic_styles(false, &target, true));
     }
 
     #[test]
@@ -4440,9 +4459,9 @@ mod tests {
             ..super::Target::default()
         };
 
-        assert!(!super::should_apply_post_navigation_deterministic_styles(
-            false, &target
-        ));
+        assert!(
+            !super::should_apply_raw_post_navigation_deterministic_styles(false, &target, true)
+        );
     }
 
     #[test]
