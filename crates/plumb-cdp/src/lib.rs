@@ -1035,12 +1035,20 @@ impl RawCdpClient {
         cmd: T,
     ) -> Result<T::Response, CdpError> {
         let method = cmd.identifier();
-        let params = serde_json::to_value(cmd).map_err(serde_driver_error)?;
-        let call_id = self
-            .conn
-            .submit_command(method.clone(), session_id.cloned(), params)
-            .map_err(serde_driver_error)?;
+        let call_id = self.submit(session_id, cmd)?;
         self.wait_for_response::<T>(call_id, method).await
+    }
+
+    fn submit<T: Command>(
+        &mut self,
+        session_id: Option<&SessionId>,
+        cmd: T,
+    ) -> Result<CallId, CdpError> {
+        let method = cmd.identifier();
+        let params = serde_json::to_value(cmd).map_err(serde_driver_error)?;
+        self.conn
+            .submit_command(method, session_id.cloned(), params)
+            .map_err(serde_driver_error)
     }
 
     async fn execute_collecting_page_events<T: Command>(
@@ -1318,13 +1326,10 @@ impl RawPage {
         Ok(())
     }
 
-    async fn evaluate_unit_collecting_page_events(
+    fn submit_evaluate_unit(
         &self,
         cdp: &mut RawCdpClient,
-        operation: &str,
-        timeout: Duration,
         expression: &str,
-        events: &mut RawNavigationEvents,
     ) -> Result<(), CdpError> {
         let params = EvaluateParams::builder()
             .expression(expression)
@@ -1332,14 +1337,7 @@ impl RawPage {
             .return_by_value(true)
             .build()
             .map_err(driver_message)?;
-        let result = self
-            .execute_collecting_page_events(cdp, operation, timeout, params, events)
-            .await?;
-        if let Some(exception) = result.exception_details {
-            return Err(driver_error(
-                chromiumoxide::error::CdpError::JavascriptException(Box::new(exception)),
-            ));
-        }
+        cdp.submit(Some(&self.session_id), params)?;
         Ok(())
     }
 }
@@ -1968,14 +1966,7 @@ async fn navigate_raw(
     let page_events_enabled = enable_raw_page_events(cdp, page).await;
     let mut events = RawNavigationEvents::default();
     let initial_result = if uses_raw_location_assignment(target.url.as_str()) {
-        navigate_raw_by_location_assignment(
-            cdp,
-            page,
-            target.url.as_str(),
-            page_events_enabled,
-            &mut events,
-        )
-        .await
+        navigate_raw_by_location_assignment(cdp, page, target.url.as_str()).await
     } else {
         navigate_raw_by_page_navigate(
             cdp,
@@ -2038,28 +2029,9 @@ async fn navigate_raw_by_location_assignment(
     cdp: &mut RawCdpClient,
     page: &RawPage,
     url: &str,
-    page_events_enabled: bool,
-    events: &mut RawNavigationEvents,
 ) -> Result<(), CdpError> {
     let script = navigation_assignment_script(url)?;
-    if page_events_enabled {
-        page.evaluate_unit_collecting_page_events(
-            cdp,
-            "navigation location assignment",
-            NAVIGATION_ASSIGNMENT_TIMEOUT,
-            script.as_str(),
-            events,
-        )
-        .await
-    } else {
-        page.evaluate_unit(
-            cdp,
-            "navigation location assignment",
-            NAVIGATION_ASSIGNMENT_TIMEOUT,
-            script.as_str(),
-        )
-        .await
-    }
+    page.submit_evaluate_unit(cdp, script.as_str())
 }
 
 async fn enable_raw_page_events(cdp: &mut RawCdpClient, page: &RawPage) -> bool {
