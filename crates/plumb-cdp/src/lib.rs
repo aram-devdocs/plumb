@@ -1343,12 +1343,16 @@ async fn capture_on_raw_page(
         apply_viewport_raw(cdp, page, target).await?;
     }
     let storage_state = pre_navigate_raw(cdp, page, target, options).await?;
+    let deterministic_styles_installed =
+        add_deterministic_styles_on_new_document_raw(cdp, page, target).await?;
 
     navigate_raw(cdp, page, target).await?;
 
     apply_post_navigate_waits_raw(cdp, page, target).await?;
     apply_storage_state_local_storage_raw(cdp, page, target, storage_state.as_ref()).await?;
-    apply_deterministic_styles_raw(cdp, page, target).await?;
+    if should_apply_post_navigation_deterministic_styles(deterministic_styles_installed, target) {
+        apply_deterministic_styles_raw(cdp, page, target).await?;
+    }
 
     let params = CaptureSnapshotParams {
         computed_styles: COMPUTED_STYLE_WHITELIST
@@ -1971,7 +1975,7 @@ async fn navigate_raw(
         navigation_display_url(target.url.as_str()),
         initial_result.err(),
         target.wait_for_selector.is_some(),
-        page_events_enabled.then_some(events),
+        raw_navigation_events_for_wait(page_events_enabled, events),
     )
     .await
 }
@@ -2005,12 +2009,14 @@ async fn navigate_raw_by_page_navigate(
     .and_then(|response| {
         if let Some(error_text) = response.error_text {
             if tolerate_navigation_abort && raw_page_navigate_error_is_tolerated(&error_text) {
+                events.observe_main_frame_url(url);
                 return Ok(());
             }
             Err(CdpError::Driver(Box::new(io::Error::other(format!(
                 "Page.navigate failed: {error_text}"
             )))))
         } else {
+            events.observe_main_frame_url(url);
             Ok(())
         }
     })
@@ -2018,6 +2024,13 @@ async fn navigate_raw_by_page_navigate(
 
 fn raw_page_navigate_error_is_tolerated(error_text: &str) -> bool {
     error_text == "net::ERR_ABORTED"
+}
+
+fn raw_navigation_events_for_wait(
+    page_events_enabled: bool,
+    events: RawNavigationEvents,
+) -> Option<RawNavigationEvents> {
+    (page_events_enabled || events.has_navigated()).then_some(events)
 }
 
 async fn enable_raw_page_events(cdp: &mut RawCdpClient, page: &RawPage) -> bool {
@@ -2129,15 +2142,11 @@ async fn wait_for_document_ready_raw(
     };
 
     let mut last_state_error = None;
-    let mut event_wait_timed_out = false;
     if !events.is_ready_for_capture(allow_interactive) {
         match wait_for_raw_navigation_events(cdp, page, &mut events, allow_interactive).await {
             Ok(()) => {}
             Err(err) => {
-                let err = err.to_string();
-                event_wait_timed_out =
-                    err == timeout_reason("raw navigation page event", DOCUMENT_READY_TIMEOUT);
-                last_state_error = Some(err);
+                last_state_error = Some(err.to_string());
             }
         }
     }
@@ -2149,6 +2158,10 @@ async fn wait_for_document_ready_raw(
                 .main_frame_url()
                 .unwrap_or("chrome-error://chromewebdata/"),
         ));
+    }
+
+    if raw_navigation_can_skip_state_read(&events, allow_interactive) {
+        return Ok(());
     }
 
     match tokio::time::timeout(
@@ -2177,12 +2190,6 @@ async fn wait_for_document_ready_raw(
             tracing::debug!("raw navigation state check timed out after page event readiness");
             return Ok(());
         }
-        Err(_) if event_wait_timed_out && events.has_navigated() => {
-            tracing::debug!(
-                "raw navigation state check timed out after main-frame navigation event"
-            );
-            return Ok(());
-        }
         Err(_) => {
             last_state_error = Some(timeout_reason(
                 "navigation state read",
@@ -2197,6 +2204,13 @@ async fn wait_for_document_ready_raw(
         last_state_error.as_deref(),
     );
     Err(CdpError::Driver(Box::new(io::Error::other(reason))))
+}
+
+fn raw_navigation_can_skip_state_read(
+    events: &RawNavigationEvents,
+    allow_interactive: bool,
+) -> bool {
+    events.is_ready_for_capture(allow_interactive) || events.has_navigated()
 }
 
 async fn wait_for_document_ready_raw_by_polling(
@@ -2600,6 +2614,23 @@ async fn apply_deterministic_styles_raw(
     )
     .await?;
     Ok(())
+}
+
+async fn add_deterministic_styles_on_new_document_raw(
+    cdp: &mut RawCdpClient,
+    page: &RawPage,
+    target: &Target,
+) -> Result<bool, CdpError> {
+    let Some(source) = deterministic_style_source(target) else {
+        return Ok(false);
+    };
+
+    add_script_to_evaluate_on_new_document_raw(cdp, page, &source).await?;
+    Ok(true)
+}
+
+fn should_apply_post_navigation_deterministic_styles(preinstalled: bool, target: &Target) -> bool {
+    !preinstalled && deterministic_style_source(target).is_some()
 }
 
 fn deterministic_style_source(target: &Target) -> Option<String> {
@@ -4362,6 +4393,18 @@ mod tests {
     }
 
     #[test]
+    fn raw_deterministic_styles_skip_post_navigation_when_preinstalled() {
+        let target = super::Target::default();
+
+        assert!(!super::should_apply_post_navigation_deterministic_styles(
+            true, &target
+        ));
+        assert!(super::should_apply_post_navigation_deterministic_styles(
+            false, &target
+        ));
+    }
+
+    #[test]
     fn target_effective_dpr_prefers_pin_over_default() {
         let mut t = super::Target {
             device_pixel_ratio: 1.0,
@@ -4598,6 +4641,24 @@ mod tests {
 
         assert!(events.is_ready_for_capture(true));
         assert!(!events.is_ready_for_capture(false));
+    }
+
+    #[test]
+    fn raw_navigation_wait_keeps_accepted_navigation_without_page_events() {
+        let mut events = super::RawNavigationEvents::default();
+        events.observe_main_frame_url("https://example.com/app");
+
+        let events = super::raw_navigation_events_for_wait(false, events);
+
+        assert!(events.is_some_and(|events| events.has_navigated()));
+    }
+
+    #[test]
+    fn raw_navigation_skips_state_read_after_event_timeout_with_navigation() {
+        let mut events = super::RawNavigationEvents::default();
+        events.observe_main_frame_url("https://example.com/app");
+
+        assert!(super::raw_navigation_can_skip_state_read(&events, false));
     }
 
     #[test]
