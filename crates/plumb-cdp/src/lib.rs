@@ -3078,9 +3078,21 @@ fn is_retryable_capture_timeout(err: &CdpError) -> bool {
         return true;
     }
 
-    source
-        .downcast_ref::<io::Error>()
-        .is_some_and(|err| err.kind() == io::ErrorKind::TimedOut)
+    source.downcast_ref::<io::Error>().is_some_and(|err| {
+        err.kind() == io::ErrorKind::TimedOut || is_startup_navigation_abort(err)
+    })
+}
+
+fn is_startup_navigation_abort(err: &io::Error) -> bool {
+    if err.kind() != io::ErrorKind::Other {
+        return false;
+    }
+
+    let message = err.to_string();
+    message.contains("exhausted 30s ready-state budget")
+        && message.contains("after initial location assignment failed:")
+        && message.contains("Page.navigate failed: net::ERR_ABORTED")
+        && message.contains("last navigation state read failed: navigation state read exceeded")
 }
 
 fn timeout_error(operation: &str, timeout: Duration) -> CdpError {
@@ -4601,6 +4613,27 @@ mod tests {
         )));
 
         assert!(super::is_retryable_capture_timeout(&err));
+    }
+
+    #[test]
+    fn retryable_capture_timeout_accepts_startup_navigation_abort() {
+        let err = CdpError::Driver(Box::new(io::Error::other(
+            "navigation to `http://127.0.0.1:49216/` exhausted 30s ready-state budget \
+             after initial location assignment failed: driver failure: Page.navigate failed: \
+             net::ERR_ABORTED; last navigation state read failed: navigation state read \
+             exceeded 2s budget",
+        )));
+
+        assert!(super::is_retryable_capture_timeout(&err));
+    }
+
+    #[test]
+    fn retryable_capture_timeout_rejects_bare_navigation_abort() {
+        let err = CdpError::Driver(Box::new(io::Error::other(
+            "Page.navigate failed: net::ERR_ABORTED",
+        )));
+
+        assert!(!super::is_retryable_capture_timeout(&err));
     }
 
     #[test]
