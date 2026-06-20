@@ -78,8 +78,7 @@ use chromiumoxide::cdp::browser_protocol::network::{
     CookieParam, Headers, SetCookiesParams, SetExtraHttpHeadersParams,
 };
 use chromiumoxide::cdp::browser_protocol::page::{
-    AddScriptToEvaluateOnNewDocumentParams, EnableParams as PageEnableParams, GetFrameTreeParams,
-    NavigateParams,
+    AddScriptToEvaluateOnNewDocumentParams, GetFrameTreeParams, NavigateParams,
 };
 use chromiumoxide::cdp::browser_protocol::target::{
     AttachToTargetParams, CreateBrowserContextParams, CreateTargetParams, SessionId,
@@ -111,10 +110,10 @@ const CDP_CONTROL_TIMEOUT: Duration = Duration::from_secs(10);
 const TARGET_CREATE_TIMEOUT: Duration = Duration::from_secs(10);
 const TARGET_ATTACH_TIMEOUT: Duration = Duration::from_secs(75);
 const PAGE_COMMAND_TIMEOUT: Duration = Duration::from_secs(25);
-const PAGE_ENABLE_TIMEOUT: Duration = Duration::from_secs(25);
 const NAVIGATION_ASSIGNMENT_TIMEOUT: Duration = Duration::from_secs(2);
 const DOCUMENT_READY_TIMEOUT: Duration = Duration::from_secs(30);
 const INITIAL_DOCUMENT_SETTLE_DELAY: Duration = Duration::from_millis(100);
+const POST_READY_SETTLE_DELAY: Duration = Duration::from_millis(100);
 const NAVIGATION_STATE_READ_TIMEOUT: Duration = Duration::from_secs(2);
 const SNAPSHOT_CAPTURE_TIMEOUT_SECS: u64 = 60;
 const SNAPSHOT_CAPTURE_TIMEOUT: Duration = Duration::from_secs(SNAPSHOT_CAPTURE_TIMEOUT_SECS);
@@ -1344,23 +1343,15 @@ async fn capture_on_raw_page(
         apply_viewport_raw(cdp, page, target).await?;
     }
     let storage_state = pre_navigate_raw(cdp, page, target, options).await?;
-    let page_events_enabled = enable_raw_page_events(cdp, page).await?;
-    let deterministic_styles_installed =
-        if should_preinstall_deterministic_styles(page_events_enabled, target) {
-            add_deterministic_styles_on_new_document_raw(cdp, page, target).await?
-        } else {
-            false
-        };
+    let deterministic_styles_installed = false;
+    let page_events_enabled = false;
 
     navigate_raw(cdp, page, target, page_events_enabled).await?;
+    settle_ready_document().await;
 
     apply_post_navigate_waits_raw(cdp, page, target).await?;
     apply_storage_state_local_storage_raw(cdp, page, target, storage_state.as_ref()).await?;
-    if should_apply_post_navigation_deterministic_styles(
-        deterministic_styles_installed,
-        page_events_enabled,
-        target,
-    ) {
+    if should_apply_post_navigation_deterministic_styles(deterministic_styles_installed, target) {
         apply_deterministic_styles_raw(cdp, page, target).await?;
     }
 
@@ -2050,22 +2041,7 @@ fn raw_navigation_events_for_wait(
     page_events_enabled: bool,
     events: RawNavigationEvents,
 ) -> Option<RawNavigationEvents> {
-    (page_events_enabled || events.has_navigated()).then_some(events)
-}
-
-fn should_preinstall_deterministic_styles(page_events_enabled: bool, target: &Target) -> bool {
-    page_events_enabled && deterministic_style_source(target).is_some()
-}
-
-async fn enable_raw_page_events(cdp: &mut RawCdpClient, page: &RawPage) -> Result<bool, CdpError> {
-    page.execute(
-        cdp,
-        "Page.enable",
-        PAGE_ENABLE_TIMEOUT,
-        PageEnableParams::default(),
-    )
-    .await?;
-    Ok(true)
+    page_events_enabled.then_some(events)
 }
 
 fn uses_chromiumoxide_goto(url: &str) -> bool {
@@ -2137,6 +2113,10 @@ async fn settle_initial_document() {
     // macOS CFT 150, pre-navigation probes and interrupted data: loads
     // can make the subsequent Page.navigate unreliable.
     tokio::time::sleep(INITIAL_DOCUMENT_SETTLE_DELAY).await;
+}
+
+async fn settle_ready_document() {
+    tokio::time::sleep(POST_READY_SETTLE_DELAY).await;
 }
 
 async fn wait_for_document_ready_raw(
@@ -2633,25 +2613,8 @@ async fn apply_deterministic_styles_raw(
     Ok(())
 }
 
-async fn add_deterministic_styles_on_new_document_raw(
-    cdp: &mut RawCdpClient,
-    page: &RawPage,
-    target: &Target,
-) -> Result<bool, CdpError> {
-    let Some(source) = deterministic_style_source(target) else {
-        return Ok(false);
-    };
-
-    add_script_to_evaluate_on_new_document_raw(cdp, page, &source).await?;
-    Ok(true)
-}
-
-fn should_apply_post_navigation_deterministic_styles(
-    preinstalled: bool,
-    page_events_enabled: bool,
-    target: &Target,
-) -> bool {
-    page_events_enabled && !preinstalled && deterministic_style_source(target).is_some()
+fn should_apply_post_navigation_deterministic_styles(preinstalled: bool, target: &Target) -> bool {
+    !preinstalled && deterministic_style_source(target).is_some()
 }
 
 fn deterministic_style_source(target: &Target) -> Option<String> {
@@ -4425,42 +4388,32 @@ mod tests {
         let target = super::Target::default();
 
         assert!(!super::should_apply_post_navigation_deterministic_styles(
-            true, true, &target
+            true, &target
         ));
         assert!(super::should_apply_post_navigation_deterministic_styles(
-            false, true, &target
-        ));
-    }
-
-    #[test]
-    fn raw_deterministic_styles_skip_post_navigation_when_page_events_unavailable() {
-        let target = super::Target::default();
-
-        assert!(!super::should_apply_post_navigation_deterministic_styles(
-            false, false, &target
-        ));
-    }
-
-    #[test]
-    fn raw_deterministic_styles_preinstall_requires_page_events() {
-        let target = super::Target::default();
-
-        assert!(super::should_preinstall_deterministic_styles(true, &target));
-        assert!(!super::should_preinstall_deterministic_styles(
             false, &target
         ));
     }
 
     #[test]
-    fn raw_deterministic_styles_preinstall_skips_without_source() {
+    fn raw_deterministic_styles_apply_post_navigation_without_page_events() {
+        let target = super::Target::default();
+
+        assert!(super::should_apply_post_navigation_deterministic_styles(
+            false, &target
+        ));
+    }
+
+    #[test]
+    fn raw_deterministic_styles_skip_post_navigation_without_source() {
         let target = super::Target {
             disable_animations: false,
             hide_scrollbars: false,
             ..super::Target::default()
         };
 
-        assert!(!super::should_preinstall_deterministic_styles(
-            true, &target
+        assert!(!super::should_apply_post_navigation_deterministic_styles(
+            false, &target
         ));
     }
 
@@ -4731,11 +4684,21 @@ mod tests {
     }
 
     #[test]
-    fn raw_navigation_wait_keeps_accepted_navigation_without_page_events() {
+    fn raw_navigation_wait_polls_without_page_events() {
         let mut events = super::RawNavigationEvents::default();
         events.observe_main_frame_url("https://example.com/app");
 
         let events = super::raw_navigation_events_for_wait(false, events);
+
+        assert!(events.is_none());
+    }
+
+    #[test]
+    fn raw_navigation_wait_keeps_events_when_page_events_enabled() {
+        let mut events = super::RawNavigationEvents::default();
+        events.observe_main_frame_url("https://example.com/app");
+
+        let events = super::raw_navigation_events_for_wait(true, events);
 
         assert!(events.is_some_and(|events| events.has_navigated()));
     }

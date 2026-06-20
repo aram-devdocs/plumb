@@ -13,7 +13,7 @@ use std::process::ExitCode;
 
 use anyhow::{Context, Result};
 use plumb_cdp::{
-    BrowserDriver, ChromiumOptions, Cookie, FakeDriver, PersistentBrowser, Target, is_fake_url,
+    BrowserDriver, ChromiumDriver, ChromiumOptions, Cookie, FakeDriver, Target, is_fake_url,
     parse_header_kv, validate_safe_path,
 };
 use plumb_core::{Config, ViewportKey};
@@ -162,7 +162,7 @@ pub async fn run(args: LintArgs) -> Result<ExitCode> {
             .await
             .map_err(anyhow::Error::from)?
     } else {
-        let driver = PersistentBrowser::launch(ChromiumOptions {
+        let driver = ChromiumDriver::new(ChromiumOptions {
             executable_path,
             cookies: parsed_cookies,
             headers: parsed_headers,
@@ -170,17 +170,11 @@ pub async fn run(args: LintArgs) -> Result<ExitCode> {
             storage_state,
             auto_fetch_chromium,
             ..ChromiumOptions::default()
-        })
-        .await
-        .map_err(anyhow::Error::from)?;
-        let snapshots = driver
+        });
+        driver
             .snapshot_all(targets)
             .await
-            .map_err(anyhow::Error::from);
-        if let Err(err) = driver.shutdown().await {
-            tracing::debug!(error = %err, "failed to shut down Chromium after lint capture");
-        }
-        snapshots?
+            .map_err(anyhow::Error::from)?
     };
 
     // PRD §15.4 — apply `--selector` between snapshot collection and
