@@ -1955,18 +1955,15 @@ async fn navigate_raw(
 ) -> Result<(), CdpError> {
     let page_events_enabled = enable_raw_page_events(cdp, page).await;
     let mut events = RawNavigationEvents::default();
-    let initial_result = if uses_raw_async_page_navigate(target.url.as_str()) {
-        submit_raw_page_navigate(cdp, page, target.url.as_str())
-    } else {
-        navigate_raw_by_page_navigate(
-            cdp,
-            page,
-            target.url.as_str(),
-            page_events_enabled,
-            &mut events,
-        )
-        .await
-    };
+    let initial_result = navigate_raw_by_page_navigate(
+        cdp,
+        page,
+        target.url.as_str(),
+        page_events_enabled,
+        &mut events,
+        uses_raw_tolerant_page_navigate(target.url.as_str()),
+    )
+    .await;
 
     wait_for_document_ready_raw(
         cdp,
@@ -1985,6 +1982,7 @@ async fn navigate_raw_by_page_navigate(
     url: &str,
     page_events_enabled: bool,
     events: &mut RawNavigationEvents,
+    tolerate_navigation_abort: bool,
 ) -> Result<(), CdpError> {
     if page_events_enabled {
         page.execute_collecting_page_events(
@@ -2006,6 +2004,9 @@ async fn navigate_raw_by_page_navigate(
     }
     .and_then(|response| {
         if let Some(error_text) = response.error_text {
+            if tolerate_navigation_abort && raw_page_navigate_error_is_tolerated(&error_text) {
+                return Ok(());
+            }
             Err(CdpError::Driver(Box::new(io::Error::other(format!(
                 "Page.navigate failed: {error_text}"
             )))))
@@ -2015,13 +2016,8 @@ async fn navigate_raw_by_page_navigate(
     })
 }
 
-fn submit_raw_page_navigate(
-    cdp: &mut RawCdpClient,
-    page: &RawPage,
-    url: &str,
-) -> Result<(), CdpError> {
-    cdp.submit(Some(&page.session_id), NavigateParams::new(url))?;
-    Ok(())
+fn raw_page_navigate_error_is_tolerated(error_text: &str) -> bool {
+    error_text == "net::ERR_ABORTED"
 }
 
 async fn enable_raw_page_events(cdp: &mut RawCdpClient, page: &RawPage) -> bool {
@@ -2063,7 +2059,7 @@ fn navigation_method_for_url(url: &str) -> NavigationMethod {
     }
 }
 
-fn uses_raw_async_page_navigate(url: &str) -> bool {
+fn uses_raw_tolerant_page_navigate(url: &str) -> bool {
     matches!(
         navigation_method_for_url(url),
         NavigationMethod::LocationAssign
@@ -4479,16 +4475,28 @@ mod tests {
     }
 
     #[test]
-    fn raw_navigation_submits_page_navigate_for_web_urls() {
-        assert!(super::uses_raw_async_page_navigate(
+    fn raw_navigation_tolerates_page_navigate_abort_for_web_urls() {
+        assert!(super::uses_raw_tolerant_page_navigate(
             "http://127.0.0.1:49197/"
         ));
-        assert!(super::uses_raw_async_page_navigate("https://example.com/"));
-        assert!(!super::uses_raw_async_page_navigate(
+        assert!(super::uses_raw_tolerant_page_navigate(
+            "https://example.com/"
+        ));
+        assert!(!super::uses_raw_tolerant_page_navigate(
             "data:text/html;base64,PHNjcmlwdD4="
         ));
-        assert!(!super::uses_raw_async_page_navigate(
+        assert!(!super::uses_raw_tolerant_page_navigate(
             "file:///tmp/static.html"
+        ));
+    }
+
+    #[test]
+    fn raw_page_navigate_tolerates_only_abort_errors() {
+        assert!(super::raw_page_navigate_error_is_tolerated(
+            "net::ERR_ABORTED"
+        ));
+        assert!(!super::raw_page_navigate_error_is_tolerated(
+            "net::ERR_CONNECTION_REFUSED"
         ));
     }
 
