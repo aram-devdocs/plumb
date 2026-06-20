@@ -1212,6 +1212,10 @@ impl RawNavigationEvents {
             && (self.load_event || (allow_interactive && self.dom_content_event))
     }
 
+    fn has_navigated(&self) -> bool {
+        self.main_frame_url.is_some()
+    }
+
     fn is_chrome_error_page(&self) -> bool {
         self.main_frame_url
             .as_deref()
@@ -1326,15 +1330,15 @@ impl RawPage {
         Ok(())
     }
 
-    fn submit_evaluate_unit(
+    fn submit_navigation_assignment(
         &self,
         cdp: &mut RawCdpClient,
         expression: &str,
     ) -> Result<(), CdpError> {
         let params = EvaluateParams::builder()
             .expression(expression)
-            .await_promise(true)
-            .return_by_value(true)
+            .await_promise(false)
+            .return_by_value(false)
             .build()
             .map_err(driver_message)?;
         cdp.submit(Some(&self.session_id), params)?;
@@ -2031,7 +2035,7 @@ async fn navigate_raw_by_location_assignment(
     url: &str,
 ) -> Result<(), CdpError> {
     let script = navigation_assignment_script(url)?;
-    page.submit_evaluate_unit(cdp, script.as_str())
+    page.submit_navigation_assignment(cdp, script.as_str())
 }
 
 async fn enable_raw_page_events(cdp: &mut RawCdpClient, page: &RawPage) -> bool {
@@ -2143,10 +2147,16 @@ async fn wait_for_document_ready_raw(
     };
 
     let mut last_state_error = None;
+    let mut event_wait_timed_out = false;
     if !events.is_ready_for_capture(allow_interactive) {
         match wait_for_raw_navigation_events(cdp, page, &mut events, allow_interactive).await {
             Ok(()) => {}
-            Err(err) => last_state_error = Some(err.to_string()),
+            Err(err) => {
+                let err = err.to_string();
+                event_wait_timed_out =
+                    err == timeout_reason("raw navigation page event", DOCUMENT_READY_TIMEOUT);
+                last_state_error = Some(err);
+            }
         }
     }
 
@@ -2183,6 +2193,12 @@ async fn wait_for_document_ready_raw(
         Ok(Err(err)) => last_state_error = Some(err.to_string()),
         Err(_) if events.is_ready_for_capture(allow_interactive) => {
             tracing::debug!("raw navigation state check timed out after page event readiness");
+            return Ok(());
+        }
+        Err(_) if event_wait_timed_out && events.has_navigated() => {
+            tracing::debug!(
+                "raw navigation state check timed out after main-frame navigation event"
+            );
             return Ok(());
         }
         Err(_) => {
@@ -4559,6 +4575,7 @@ mod tests {
 
         events.observe_main_frame_url("https://example.com/app");
 
+        assert!(events.has_navigated());
         assert!(!events.is_ready_for_capture(false));
 
         events.observe_load_event();
