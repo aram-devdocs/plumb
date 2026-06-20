@@ -24,10 +24,10 @@
 //! [`ChromiumDriver::snapshot_all`] launches Chromium exactly once,
 //! validates [`Browser::version`](chromiumoxide::Browser::version),
 //! and then loops over the requested targets — the first target's
-//! viewport is pinned at launch through Chromiumoxide's viewport
-//! configuration, later targets and explicit DPR pins are applied via
-//! CDP `Emulation.setDeviceMetricsOverride`, then Plumb navigates to
-//! the URL and calls `DOMSnapshot.captureSnapshot` with the
+//! viewport is pinned at launch through Chromium's window size and DPR
+//! flags, later targets and explicit DPR pins are applied via CDP
+//! `Emulation.setDeviceMetricsOverride`, then Plumb navigates to the
+//! URL and calls `DOMSnapshot.captureSnapshot` with the
 //! [`COMPUTED_STYLE_WHITELIST`] from PRD §10.3. Each CDP response is
 //! flattened into a [`PlumbSnapshot`] with deterministic ordering
 //! (nodes sorted by `dom_order`, computed styles inserted in
@@ -81,7 +81,6 @@ use chromiumoxide::cdp::browser_protocol::target::{
     CreateBrowserContextParams, CreateTargetParams,
 };
 use chromiumoxide::detection::DetectionOptions;
-use chromiumoxide::handler::viewport::Viewport as ChromiumViewport;
 use chromiumoxide::listeners::EventStream;
 use chromiumoxide::{Browser, BrowserConfig, Handler};
 use futures_util::StreamExt;
@@ -870,7 +869,7 @@ impl ChromiumDriver {
             })
             .request_timeout(CHROMIUMOXIDE_REQUEST_TIMEOUT)
             .window_size(target.width, target.height)
-            .viewport(chromiumoxide_viewport(target))
+            .viewport(None)
             .arg("--hide-scrollbars")
             .arg(scale_factor_arg);
 
@@ -945,10 +944,12 @@ impl BrowserDriver for ChromiumDriver {
 impl ChromiumDriver {
     async fn snapshot_all_once(&self, targets: &[Target]) -> Result<Vec<PlumbSnapshot>, CdpError> {
         // Use the first target's dimensions and DPR for the initial
-        // launch (the `--force-device-scale-factor` arg is fixed at
-        // launch time). The first unpinned target can reuse that
-        // launch-pinned viewport; later targets, and explicit `--dpr`
-        // pins, still need CDP `Emulation.setDeviceMetricsOverride`.
+        // launch. Chromiumoxide's built-in viewport emulation is
+        // disabled in `browser_config`; otherwise it sends its own
+        // unlabelled page-level Emulation commands during target
+        // initialization. The first unpinned target can reuse the
+        // launch-pinned window/DPR, while later targets and explicit
+        // `--dpr` pins still use Plumb's bounded/labeled override.
         let first = &targets[0];
         let resolved_executable = resolve_auto_fetch(&self.options).await?;
         let launch = self.browser_config(first, resolved_executable.as_deref())?;
@@ -988,8 +989,16 @@ async fn capture_target(
     options: &ChromiumOptions,
     apply_viewport_override: bool,
 ) -> Result<PlumbSnapshot, CdpError> {
-    let page =
-        create_page_without_load_wait(browser, CreateTargetParams::new("about:blank")).await?;
+    let page = create_page_without_load_wait(
+        browser,
+        CreateTargetParams {
+            width: Some(i64::from(target.width)),
+            height: Some(i64::from(target.height)),
+            new_window: Some(true),
+            ..CreateTargetParams::new("about:blank")
+        },
+    )
+    .await?;
 
     capture_on_page(&page, target, options, apply_viewport_override).await
 }
@@ -1326,6 +1335,7 @@ fn persistent_browser_config(
         })
         .request_timeout(CHROMIUMOXIDE_REQUEST_TIMEOUT)
         .window_size(1280, 800)
+        .viewport(None)
         .arg("--hide-scrollbars");
 
     // Same precedence rule as `ChromiumDriver::browser_config`.
@@ -1374,17 +1384,6 @@ async fn resolve_auto_fetch(options: &ChromiumOptions) -> Result<Option<PathBuf>
 
 fn should_apply_viewport_override(target_index: usize, target: &Target) -> bool {
     target_index != 0 || target.pin_dpr.is_some()
-}
-
-fn chromiumoxide_viewport(target: &Target) -> ChromiumViewport {
-    ChromiumViewport {
-        width: target.width,
-        height: target.height,
-        device_scale_factor: Some(f64::from(target.device_pixel_ratio)),
-        emulating_mobile: false,
-        is_landscape: target.width >= target.height,
-        has_touch: false,
-    }
 }
 
 async fn apply_viewport(page: &Page, target: &Target) -> Result<(), CdpError> {
@@ -3289,25 +3288,6 @@ mod tests {
         let target = super::Target::default();
 
         assert!(super::should_apply_viewport_override(1, &target));
-    }
-
-    #[test]
-    fn chromiumoxide_viewport_uses_target_dimensions_and_dpr() {
-        let target = super::Target {
-            width: 390,
-            height: 844,
-            device_pixel_ratio: 3.0,
-            ..super::Target::default()
-        };
-
-        let viewport = super::chromiumoxide_viewport(&target);
-
-        assert_eq!(viewport.width, 390);
-        assert_eq!(viewport.height, 844);
-        assert_eq!(viewport.device_scale_factor, Some(3.0));
-        assert!(!viewport.is_landscape);
-        assert!(!viewport.emulating_mobile);
-        assert!(!viewport.has_touch);
     }
 
     #[test]
