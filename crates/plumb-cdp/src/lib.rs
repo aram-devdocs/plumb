@@ -67,22 +67,27 @@ use tempfile::TempDir;
 
 use chromiumoxide::Page;
 use chromiumoxide::browser::BrowserConfigBuilder;
-use chromiumoxide::cdp::browser_protocol::browser::CloseParams as BrowserCloseParams;
+use chromiumoxide::cdp::browser_protocol::browser::{
+    CloseParams as BrowserCloseParams, GetVersionParams,
+};
 use chromiumoxide::cdp::browser_protocol::dom_snapshot::{
     CaptureSnapshotParams, CaptureSnapshotReturns, DocumentSnapshot,
 };
 use chromiumoxide::cdp::browser_protocol::emulation::SetDeviceMetricsOverrideParams;
 use chromiumoxide::cdp::browser_protocol::network::{
-    CookieParam, EnableParams as NetworkEnableParams, EventLoadingFailed, Headers, ResourceType,
-    SetCookiesParams, SetExtraHttpHeadersParams,
+    CookieParam, Headers, SetCookiesParams, SetExtraHttpHeadersParams,
 };
-use chromiumoxide::cdp::browser_protocol::page::AddScriptToEvaluateOnNewDocumentParams;
+use chromiumoxide::cdp::browser_protocol::page::{
+    AddScriptToEvaluateOnNewDocumentParams, EnableParams as PageEnableParams, NavigateParams,
+};
 use chromiumoxide::cdp::browser_protocol::target::{
-    CreateBrowserContextParams, CreateTargetParams,
+    AttachToTargetParams, CreateBrowserContextParams, CreateTargetParams, SessionId,
 };
+use chromiumoxide::cdp::js_protocol::runtime::EvaluateParams;
+use chromiumoxide::cdp::{CdpEvent, CdpEventMessage};
 use chromiumoxide::detection::DetectionOptions;
-use chromiumoxide::listeners::EventStream;
-use chromiumoxide::{Browser, BrowserConfig, Handler};
+use chromiumoxide::types::{CallId, Command, Message, MethodId, Response};
+use chromiumoxide::{Browser, BrowserConfig, Connection, Handler};
 use futures_util::StreamExt;
 use serde::Deserialize;
 use tokio::task::JoinHandle;
@@ -102,14 +107,16 @@ const BROWSER_WAIT_TIMEOUT: Duration = Duration::from_secs(5);
 const BROWSER_KILL_TIMEOUT: Duration = Duration::from_secs(5);
 const CHROMIUMOXIDE_REQUEST_TIMEOUT: Duration = Duration::from_mins(1);
 const CDP_CONTROL_TIMEOUT: Duration = Duration::from_secs(10);
-const TARGET_CREATE_TIMEOUT: Duration = Duration::from_secs(30);
+const TARGET_CREATE_TIMEOUT: Duration = Duration::from_secs(10);
 const TARGET_ATTACH_TIMEOUT: Duration = Duration::from_secs(75);
 const PAGE_COMMAND_TIMEOUT: Duration = Duration::from_secs(25);
+const PAGE_ENABLE_TIMEOUT: Duration = Duration::from_secs(5);
 const NAVIGATION_ASSIGNMENT_TIMEOUT: Duration = Duration::from_secs(2);
 const DOCUMENT_READY_TIMEOUT: Duration = Duration::from_secs(30);
 const NAVIGATION_STATE_READ_TIMEOUT: Duration = Duration::from_secs(2);
 const SNAPSHOT_CAPTURE_TIMEOUT: Duration = Duration::from_secs(25);
 const TRANSIENT_CAPTURE_RETRIES: usize = 1;
+const INITIAL_PAGE_URL: &str = "data:text/html,%3C!doctype%20html%3E%3Ctitle%3Eplumb%3C%2Ftitle%3E";
 
 /// CSS property whitelist passed to `DOMSnapshot.captureSnapshot` as the
 /// `computedStyles` argument.
@@ -868,6 +875,7 @@ impl ChromiumDriver {
                 unstable: false,
             })
             .request_timeout(CHROMIUMOXIDE_REQUEST_TIMEOUT)
+            .launch_timeout(BROWSER_LAUNCH_TIMEOUT)
             .window_size(target.width, target.height)
             .viewport(None)
             .arg("--hide-scrollbars")
@@ -953,14 +961,15 @@ impl ChromiumDriver {
         let first = &targets[0];
         let resolved_executable = resolve_auto_fetch(&self.options).await?;
         let launch = self.browser_config(first, resolved_executable.as_deref())?;
-        let mut session = ChromiumSession::launch(launch).await?;
+        let mut session = RawChromiumSession::launch(launch).await?;
+        let mut raw = RawCdpClient::connect(session.websocket_address()).await?;
 
         let result: Result<Vec<PlumbSnapshot>, CdpError> = async {
-            validate_browser_version(&session.browser).await?;
+            validate_browser_version_raw(&mut raw).await?;
             let mut snapshots = Vec::with_capacity(targets.len());
             for (target_index, target) in targets.iter().enumerate() {
-                let snap = capture_target(
-                    &session.browser,
+                let snap = capture_target_raw(
+                    &mut raw,
                     target,
                     &self.options,
                     should_apply_viewport_override(target_index, target),
@@ -972,7 +981,7 @@ impl ChromiumDriver {
         }
         .await;
 
-        if let Err(cleanup_err) = session.shutdown().await {
+        if let Err(cleanup_err) = session.shutdown(&mut raw).await {
             tracing::debug!(error = %cleanup_err, "failed to clean up Chromium session");
             if result.is_ok() {
                 return Err(cleanup_err);
@@ -983,24 +992,370 @@ impl ChromiumDriver {
     }
 }
 
-async fn capture_target(
-    browser: &Browser,
+async fn capture_target_raw(
+    cdp: &mut RawCdpClient,
     target: &Target,
     options: &ChromiumOptions,
     apply_viewport_override: bool,
 ) -> Result<PlumbSnapshot, CdpError> {
-    let page = create_page_without_load_wait(
-        browser,
+    let page = RawPage::create(
+        cdp,
         CreateTargetParams {
             width: Some(i64::from(target.width)),
             height: Some(i64::from(target.height)),
             new_window: Some(true),
-            ..CreateTargetParams::new("about:blank")
+            ..CreateTargetParams::new(INITIAL_PAGE_URL)
         },
     )
     .await?;
 
-    capture_on_page(&page, target, options, apply_viewport_override).await
+    wait_for_initial_document_ready_raw(cdp, &page).await?;
+    capture_on_raw_page(cdp, &page, target, options, apply_viewport_override).await
+}
+
+struct RawCdpClient {
+    conn: Connection<CdpEventMessage>,
+}
+
+impl RawCdpClient {
+    async fn connect(websocket_address: &str) -> Result<Self, CdpError> {
+        let conn = with_timeout("CDP websocket connect", CDP_CONTROL_TIMEOUT, async {
+            Connection::<CdpEventMessage>::connect(websocket_address)
+                .await
+                .map_err(driver_error)
+        })
+        .await?;
+        Ok(Self { conn })
+    }
+
+    async fn execute<T: Command>(
+        &mut self,
+        session_id: Option<&SessionId>,
+        cmd: T,
+    ) -> Result<T::Response, CdpError> {
+        let method = cmd.identifier();
+        let params = serde_json::to_value(cmd).map_err(serde_driver_error)?;
+        let call_id = self
+            .conn
+            .submit_command(method.clone(), session_id.cloned(), params)
+            .map_err(serde_driver_error)?;
+        self.wait_for_response::<T>(call_id, method).await
+    }
+
+    async fn execute_collecting_page_events<T: Command>(
+        &mut self,
+        session_id: &SessionId,
+        cmd: T,
+        events: &mut RawNavigationEvents,
+    ) -> Result<T::Response, CdpError> {
+        let method = cmd.identifier();
+        let params = serde_json::to_value(cmd).map_err(serde_driver_error)?;
+        let call_id = self
+            .conn
+            .submit_command(method.clone(), Some(session_id.clone()), params)
+            .map_err(serde_driver_error)?;
+        self.wait_for_response_collecting_page_events::<T>(call_id, method, session_id, events)
+            .await
+    }
+
+    async fn wait_for_response<T: Command>(
+        &mut self,
+        call_id: CallId,
+        method: MethodId,
+    ) -> Result<T::Response, CdpError> {
+        loop {
+            match self.conn.next().await {
+                Some(Ok(Message::Response(response))) if response.id == call_id => {
+                    return raw_command_response::<T>(response, &method);
+                }
+                Some(Ok(Message::Response(_) | Message::Event(_))) => {}
+                Some(Err(err)) => return Err(driver_error(err)),
+                None => {
+                    return Err(CdpError::Driver(Box::new(io::Error::new(
+                        io::ErrorKind::UnexpectedEof,
+                        format!("{method} received no response from Chromium"),
+                    ))));
+                }
+            }
+        }
+    }
+
+    async fn wait_for_response_collecting_page_events<T: Command>(
+        &mut self,
+        call_id: CallId,
+        method: MethodId,
+        session_id: &SessionId,
+        events: &mut RawNavigationEvents,
+    ) -> Result<T::Response, CdpError> {
+        loop {
+            match self.conn.next().await {
+                Some(Ok(Message::Response(response))) if response.id == call_id => {
+                    return raw_command_response::<T>(response, &method);
+                }
+                Some(Ok(Message::Event(event))) => {
+                    events.observe_message(&event, session_id);
+                }
+                Some(Ok(Message::Response(_))) => {}
+                Some(Err(err)) => return Err(driver_error(err)),
+                None => {
+                    return Err(CdpError::Driver(Box::new(io::Error::new(
+                        io::ErrorKind::UnexpectedEof,
+                        format!("{method} received no response from Chromium"),
+                    ))));
+                }
+            }
+        }
+    }
+
+    async fn collect_next_page_event(
+        &mut self,
+        session_id: &SessionId,
+        events: &mut RawNavigationEvents,
+    ) -> Result<(), CdpError> {
+        loop {
+            match self.conn.next().await {
+                Some(Ok(Message::Event(event))) => {
+                    if events.observe_message(&event, session_id) {
+                        return Ok(());
+                    }
+                }
+                Some(Ok(Message::Response(_))) => {}
+                Some(Err(err)) => return Err(driver_error(err)),
+                None => {
+                    return Err(CdpError::Driver(Box::new(io::Error::new(
+                        io::ErrorKind::UnexpectedEof,
+                        "raw CDP event stream ended before navigation completed",
+                    ))));
+                }
+            }
+        }
+    }
+}
+
+fn raw_command_response<T: Command>(
+    response: Response,
+    method: &MethodId,
+) -> Result<T::Response, CdpError> {
+    if let Some(result) = response.result {
+        return T::response_from_value(result).map_err(serde_driver_error);
+    }
+    if let Some(err) = response.error {
+        return Err(CdpError::Driver(Box::new(io::Error::other(format!(
+            "{method} failed: {err}"
+        )))));
+    }
+    Err(CdpError::Driver(Box::new(io::Error::other(format!(
+        "{method} returned neither result nor error"
+    )))))
+}
+
+struct RawPage {
+    session_id: SessionId,
+}
+
+#[derive(Default)]
+struct RawNavigationEvents {
+    main_frame_url: Option<String>,
+    dom_content_event: bool,
+    load_event: bool,
+}
+
+impl RawNavigationEvents {
+    fn observe_message(&mut self, event: &CdpEventMessage, session_id: &SessionId) -> bool {
+        if event.session_id.as_deref() != Some(session_id.as_ref()) {
+            return false;
+        }
+        match &event.params {
+            CdpEvent::PageFrameNavigated(frame) if frame.frame.parent_id.is_none() => {
+                self.observe_main_frame_url(&frame.frame.url);
+                true
+            }
+            CdpEvent::PageDomContentEventFired(_) => {
+                self.observe_dom_content_event();
+                true
+            }
+            CdpEvent::PageLoadEventFired(_) => {
+                self.observe_load_event();
+                true
+            }
+            _ => false,
+        }
+    }
+
+    fn observe_main_frame_url(&mut self, url: &str) {
+        if url_has_navigated(url) {
+            self.main_frame_url = Some(url.to_owned());
+            self.dom_content_event = false;
+            self.load_event = false;
+        }
+    }
+
+    fn observe_dom_content_event(&mut self) {
+        self.dom_content_event = true;
+    }
+
+    fn observe_load_event(&mut self) {
+        self.load_event = true;
+    }
+
+    fn is_ready_for_capture(&self, allow_interactive: bool) -> bool {
+        self.main_frame_url.is_some()
+            && (self.load_event || (allow_interactive && self.dom_content_event))
+    }
+
+    fn is_chrome_error_page(&self) -> bool {
+        self.main_frame_url
+            .as_deref()
+            .is_some_and(|url| url.starts_with("chrome-error:"))
+    }
+
+    fn main_frame_url(&self) -> Option<&str> {
+        self.main_frame_url.as_deref()
+    }
+}
+
+impl RawPage {
+    async fn create(cdp: &mut RawCdpClient, params: CreateTargetParams) -> Result<Self, CdpError> {
+        let target_id = with_timeout("Target.createTarget", TARGET_CREATE_TIMEOUT, async {
+            cdp.execute(None, params)
+                .await
+                .map(|response| response.target_id)
+        })
+        .await
+        .map_err(|err| target_lifecycle_error("Target.createTarget", &err))?;
+
+        let attach = AttachToTargetParams::builder()
+            .target_id(target_id)
+            .flatten(true)
+            .build()
+            .map_err(driver_message)?;
+        let session_id = with_timeout("Target.attachToTarget", TARGET_ATTACH_TIMEOUT, async {
+            cdp.execute(None, attach)
+                .await
+                .map(|response| response.session_id)
+        })
+        .await
+        .map_err(|err| target_lifecycle_error("Target.attachToTarget", &err))?;
+
+        Ok(Self { session_id })
+    }
+
+    async fn execute<T: Command>(
+        &self,
+        cdp: &mut RawCdpClient,
+        operation: &str,
+        timeout: Duration,
+        cmd: T,
+    ) -> Result<T::Response, CdpError> {
+        with_timeout(operation, timeout, async {
+            cdp.execute(Some(&self.session_id), cmd).await
+        })
+        .await
+    }
+
+    async fn execute_collecting_page_events<T: Command>(
+        &self,
+        cdp: &mut RawCdpClient,
+        operation: &str,
+        timeout: Duration,
+        cmd: T,
+        events: &mut RawNavigationEvents,
+    ) -> Result<T::Response, CdpError> {
+        with_timeout(operation, timeout, async {
+            cdp.execute_collecting_page_events(&self.session_id, cmd, events)
+                .await
+        })
+        .await
+    }
+
+    async fn evaluate_value<T: serde::de::DeserializeOwned>(
+        &self,
+        cdp: &mut RawCdpClient,
+        operation: &str,
+        timeout: Duration,
+        expression: &str,
+    ) -> Result<T, CdpError> {
+        let params = EvaluateParams::builder()
+            .expression(expression)
+            .await_promise(true)
+            .return_by_value(true)
+            .build()
+            .map_err(driver_message)?;
+        let result = self.execute(cdp, operation, timeout, params).await?;
+        if let Some(exception) = result.exception_details {
+            return Err(driver_error(
+                chromiumoxide::error::CdpError::JavascriptException(Box::new(exception)),
+            ));
+        }
+        let value = result.result.value.ok_or_else(|| {
+            CdpError::Driver(Box::new(io::Error::other(format!(
+                "{operation} returned no value"
+            ))))
+        })?;
+        serde_json::from_value(value).map_err(serde_driver_error)
+    }
+
+    async fn evaluate_unit(
+        &self,
+        cdp: &mut RawCdpClient,
+        operation: &str,
+        timeout: Duration,
+        expression: &str,
+    ) -> Result<(), CdpError> {
+        let params = EvaluateParams::builder()
+            .expression(expression)
+            .await_promise(true)
+            .return_by_value(true)
+            .build()
+            .map_err(driver_message)?;
+        let result = self.execute(cdp, operation, timeout, params).await?;
+        if let Some(exception) = result.exception_details {
+            return Err(driver_error(
+                chromiumoxide::error::CdpError::JavascriptException(Box::new(exception)),
+            ));
+        }
+        Ok(())
+    }
+}
+
+async fn capture_on_raw_page(
+    cdp: &mut RawCdpClient,
+    page: &RawPage,
+    target: &Target,
+    options: &ChromiumOptions,
+    apply_viewport_override: bool,
+) -> Result<PlumbSnapshot, CdpError> {
+    if apply_viewport_override {
+        apply_viewport_raw(cdp, page, target).await?;
+    }
+    let storage_state = pre_navigate_raw(cdp, page, target, options).await?;
+
+    navigate_raw(cdp, page, target).await?;
+
+    apply_post_navigate_waits_raw(cdp, page, target).await?;
+    apply_storage_state_local_storage_raw(cdp, page, target, storage_state.as_ref()).await?;
+    apply_deterministic_styles_raw(cdp, page, target).await?;
+
+    let params = CaptureSnapshotParams {
+        computed_styles: COMPUTED_STYLE_WHITELIST
+            .iter()
+            .map(|s| (*s).to_string())
+            .collect(),
+        include_paint_order: Some(true),
+        include_dom_rects: Some(true),
+        include_blended_background_colors: Some(true),
+        include_text_color_opacities: None,
+    };
+
+    let response = page
+        .execute(
+            cdp,
+            "DOMSnapshot.captureSnapshot",
+            SNAPSHOT_CAPTURE_TIMEOUT,
+            params,
+        )
+        .await?;
+    flatten_snapshot(target, &response)
 }
 
 async fn create_page_without_load_wait(
@@ -1014,7 +1369,8 @@ async fn create_page_without_load_wait(
             .map(|response| response.result.target_id)
             .map_err(driver_error)
     })
-    .await?;
+    .await
+    .map_err(|err| target_lifecycle_error("Target.createTarget", &err))?;
 
     with_timeout("Target.attachToTarget", TARGET_ATTACH_TIMEOUT, async {
         loop {
@@ -1028,6 +1384,19 @@ async fn create_page_without_load_wait(
         }
     })
     .await
+    .map_err(|err| target_lifecycle_error("Target.attachToTarget", &err))
+}
+
+fn target_lifecycle_error(stage: &str, err: &CdpError) -> CdpError {
+    let kind = if is_retryable_capture_timeout(err) {
+        io::ErrorKind::TimedOut
+    } else {
+        io::ErrorKind::Other
+    };
+    CdpError::Driver(Box::new(io::Error::new(
+        kind,
+        format!("{stage} failed before navigation: {err}"),
+    )))
 }
 
 /// Apply viewport, install pre-navigation state, navigate, wait for
@@ -1201,7 +1570,7 @@ impl PersistentBrowser {
 
         let result: Result<PlumbSnapshot, CdpError> = async {
             let create_params = CreateTargetParams {
-                url: "about:blank".to_string(),
+                url: INITIAL_PAGE_URL.to_string(),
                 left: None,
                 top: None,
                 width: None,
@@ -1215,6 +1584,7 @@ impl PersistentBrowser {
                 hidden: None,
             };
             let page = create_page_without_load_wait(&self.inner.browser, create_params).await?;
+            wait_for_initial_document_ready(&page).await?;
             capture_on_page(&page, target, &self.inner.options, true).await
         }
         .await;
@@ -1336,6 +1706,7 @@ fn persistent_browser_config(
             unstable: false,
         })
         .request_timeout(CHROMIUMOXIDE_REQUEST_TIMEOUT)
+        .launch_timeout(BROWSER_LAUNCH_TIMEOUT)
         .window_size(1280, 800)
         .viewport(None)
         .arg("--hide-scrollbars");
@@ -1415,6 +1786,35 @@ async fn apply_viewport(page: &Page, target: &Target) -> Result<(), CdpError> {
     Ok(())
 }
 
+async fn apply_viewport_raw(
+    cdp: &mut RawCdpClient,
+    page: &RawPage,
+    target: &Target,
+) -> Result<(), CdpError> {
+    let params = SetDeviceMetricsOverrideParams {
+        width: i64::from(target.width),
+        height: i64::from(target.height),
+        device_scale_factor: target.effective_dpr(),
+        mobile: false,
+        scale: None,
+        screen_width: None,
+        screen_height: None,
+        position_x: None,
+        position_y: None,
+        dont_set_visible_size: None,
+        screen_orientation: None,
+        viewport: None,
+    };
+    page.execute(
+        cdp,
+        "Emulation.setDeviceMetricsOverride",
+        PAGE_COMMAND_TIMEOUT,
+        params,
+    )
+    .await?;
+    Ok(())
+}
+
 /// All work that must happen on a fresh page before navigation.
 ///
 /// Runs in this fixed order so behavior matches what users expect:
@@ -1456,6 +1856,31 @@ async fn pre_navigate(
     Ok(storage_state)
 }
 
+async fn pre_navigate_raw(
+    cdp: &mut RawCdpClient,
+    page: &RawPage,
+    target: &Target,
+    options: &ChromiumOptions,
+) -> Result<Option<StorageState>, CdpError> {
+    if let Some(script_path) = options.auth_script.as_deref() {
+        inject_auth_script_raw(cdp, page, script_path).await?;
+    }
+    if !options.headers.is_empty() {
+        install_extra_headers_raw(cdp, page, &options.headers).await?;
+    }
+    if !options.cookies.is_empty() {
+        install_cookies_raw(cdp, page, &options.cookies, target.url.as_str()).await?;
+    }
+    let storage_state = if let Some(state_path) = options.storage_state.as_deref() {
+        let state = StorageState::load_from_path(state_path)?;
+        install_storage_state_cookies_raw(cdp, page, &state).await?;
+        Some(state)
+    } else {
+        None
+    };
+    Ok(storage_state)
+}
+
 #[derive(Debug, Deserialize)]
 struct NavigationState {
     href: String,
@@ -1466,50 +1891,132 @@ struct NavigationState {
 }
 
 async fn navigate_page(page: &Page, url: &str) -> Result<(), CdpError> {
-    if uses_chromiumoxide_goto(url) {
-        with_timeout("Page.navigate", DOCUMENT_READY_TIMEOUT, async {
-            page.goto(url).await.map(|_| ()).map_err(driver_error)
-        })
-        .await?;
-        return Ok(());
-    }
-
-    let mut navigation_failures = with_timeout(
-        "Network.loadingFailed listener",
-        CDP_CONTROL_TIMEOUT,
-        async {
-            page.event_listener::<EventLoadingFailed>()
-                .await
-                .map_err(driver_error)
-        },
-    )
-    .await?;
-    with_timeout("Network.enable", CDP_CONTROL_TIMEOUT, async {
-        page.execute(NetworkEnableParams::default())
+    let initial_result = match navigation_method_for_url(url) {
+        NavigationMethod::ChromiumoxideGoto => {
+            with_timeout("Page.navigate", DOCUMENT_READY_TIMEOUT, async {
+                page.goto(url).await.map(|_| ()).map_err(driver_error)
+            })
             .await
-            .map(|_| ())
-            .map_err(driver_error)
-    })
-    .await?;
+        }
+        NavigationMethod::CdpNavigate => {
+            with_timeout("Page.navigate", PAGE_COMMAND_TIMEOUT, async {
+                page.execute(NavigateParams::new(url))
+                    .await
+                    .map_err(driver_error)
+                    .and_then(|response| {
+                        if let Some(error_text) = &response.error_text {
+                            Err(CdpError::Driver(Box::new(io::Error::other(format!(
+                                "Page.navigate failed: {error_text}"
+                            )))))
+                        } else {
+                            Ok(())
+                        }
+                    })
+            })
+            .await
+        }
+        NavigationMethod::LocationAssign => {
+            let script = navigation_assignment_script(url)?;
+            with_timeout(
+                "navigation location assignment",
+                NAVIGATION_ASSIGNMENT_TIMEOUT,
+                async {
+                    page.evaluate(script.as_str())
+                        .await
+                        .map(|_| ())
+                        .map_err(driver_error)
+                },
+            )
+            .await
+        }
+    };
 
-    let script = navigation_assignment_script(url)?;
-    let initial_result = with_timeout(
-        "navigation location assignment",
-        NAVIGATION_ASSIGNMENT_TIMEOUT,
-        async {
-            page.evaluate(script.as_str())
-                .await
-                .map(|_| ())
-                .map_err(driver_error)
-        },
+    wait_for_document_ready(page, navigation_display_url(url), initial_result.err()).await
+}
+
+async fn navigate_raw(
+    cdp: &mut RawCdpClient,
+    page: &RawPage,
+    target: &Target,
+) -> Result<(), CdpError> {
+    let page_events_enabled = enable_raw_page_events(cdp, page).await;
+    let mut events = RawNavigationEvents::default();
+    let initial_result = if page_events_enabled {
+        page.execute_collecting_page_events(
+            cdp,
+            "Page.navigate",
+            PAGE_COMMAND_TIMEOUT,
+            NavigateParams::new(target.url.as_str()),
+            &mut events,
+        )
+        .await
+    } else {
+        page.execute(
+            cdp,
+            "Page.navigate",
+            PAGE_COMMAND_TIMEOUT,
+            NavigateParams::new(target.url.as_str()),
+        )
+        .await
+    }
+    .and_then(|response| {
+        if let Some(error_text) = response.error_text {
+            Err(CdpError::Driver(Box::new(io::Error::other(format!(
+                "Page.navigate failed: {error_text}"
+            )))))
+        } else {
+            Ok(())
+        }
+    });
+
+    wait_for_document_ready_raw(
+        cdp,
+        page,
+        navigation_display_url(target.url.as_str()),
+        initial_result.err(),
+        target.wait_for_selector.is_some(),
+        page_events_enabled.then_some(events),
     )
-    .await;
+    .await
+}
 
-    wait_for_document_ready(page, url, initial_result.err(), &mut navigation_failures).await
+async fn enable_raw_page_events(cdp: &mut RawCdpClient, page: &RawPage) -> bool {
+    match page
+        .execute(
+            cdp,
+            "Page.enable",
+            PAGE_ENABLE_TIMEOUT,
+            PageEnableParams::default(),
+        )
+        .await
+    {
+        Ok(_) => true,
+        Err(err) => {
+            tracing::debug!(error = %err, "Page.enable failed; falling back to raw ready-state polling");
+            false
+        }
+    }
 }
 
 fn uses_chromiumoxide_goto(url: &str) -> bool {
     url.starts_with("file://")
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NavigationMethod {
+    ChromiumoxideGoto,
+    CdpNavigate,
+    LocationAssign,
+}
+
+fn navigation_method_for_url(url: &str) -> NavigationMethod {
+    if uses_chromiumoxide_goto(url) {
+        NavigationMethod::ChromiumoxideGoto
+    } else if url.starts_with("data:") {
+        NavigationMethod::CdpNavigate
+    } else {
+        NavigationMethod::LocationAssign
+    }
 }
 
 fn navigation_assignment_script(url: &str) -> Result<String, CdpError> {
@@ -1525,44 +2032,13 @@ async fn wait_for_document_ready(
     page: &Page,
     display_url: &str,
     initial_error: Option<CdpError>,
-    navigation_failures: &mut EventStream<EventLoadingFailed>,
 ) -> Result<(), CdpError> {
     let mut last_state_error = None;
     let attempt = async {
         loop {
-            tokio::select! {
-                biased;
-
-                failure = navigation_failures.next() => {
-                    if let Some(failure) = failure
-                        && document_navigation_failed(&failure)
-                    {
-                        return Err(navigation_failed_error(display_url, &failure.error_text));
-                    }
-                }
-                () = tokio::time::sleep(Duration::from_millis(50)) => {
-                    match tokio::time::timeout(
-                        NAVIGATION_STATE_READ_TIMEOUT,
-                        read_navigation_state(page),
-                    )
-                    .await
-                    {
-                        Ok(Ok(state)) if state.is_chrome_error_page => {
-                            return Err(chrome_error_page_error(display_url, &state.href));
-                        }
-                        Ok(Ok(state)) if document_is_loaded(&state) => return Ok(()),
-                        Ok(Ok(_)) => {}
-                        Ok(Err(err)) => {
-                            last_state_error = Some(err.to_string());
-                        }
-                        Err(_) => {
-                            last_state_error = Some(timeout_reason(
-                                "navigation state read",
-                                NAVIGATION_STATE_READ_TIMEOUT,
-                            ));
-                        }
-                    }
-                }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            if poll_document_ready(page, display_url, &mut last_state_error).await? {
+                return Ok(());
             }
         }
     };
@@ -1579,14 +2055,266 @@ async fn wait_for_document_ready(
     Err(CdpError::Driver(Box::new(io::Error::other(reason))))
 }
 
-fn document_navigation_failed(failure: &EventLoadingFailed) -> bool {
-    failure.r#type == ResourceType::Document && failure.canceled != Some(true)
+async fn wait_for_initial_document_ready(page: &Page) -> Result<(), CdpError> {
+    let mut last_state_error = None;
+    let attempt = async {
+        loop {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            match tokio::time::timeout(NAVIGATION_STATE_READ_TIMEOUT, read_navigation_state(page))
+                .await
+            {
+                Ok(Ok(state)) if initial_document_is_ready(&state) => return Ok(()),
+                Ok(Ok(_)) => {}
+                Ok(Err(err)) => last_state_error = Some(err.to_string()),
+                Err(_) => {
+                    last_state_error = Some(timeout_reason(
+                        "initial navigation state read",
+                        NAVIGATION_STATE_READ_TIMEOUT,
+                    ));
+                }
+            }
+        }
+    };
+
+    if let Ok(result) = tokio::time::timeout(DOCUMENT_READY_TIMEOUT, attempt).await {
+        return result;
+    }
+
+    Err(CdpError::Driver(Box::new(io::Error::other(
+        initial_document_ready_timeout_reason(last_state_error.as_deref()),
+    ))))
 }
 
-fn navigation_failed_error(display_url: &str, error_text: &str) -> CdpError {
-    CdpError::Driver(Box::new(io::Error::other(format!(
-        "navigation to `{display_url}` failed: {error_text}"
+async fn wait_for_initial_document_ready_raw(
+    cdp: &mut RawCdpClient,
+    page: &RawPage,
+) -> Result<(), CdpError> {
+    let mut last_state_error = None;
+    let attempt = async {
+        loop {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            match tokio::time::timeout(
+                NAVIGATION_STATE_READ_TIMEOUT,
+                read_navigation_state_raw(cdp, page),
+            )
+            .await
+            {
+                Ok(Ok(state)) if initial_document_is_ready(&state) => return Ok(()),
+                Ok(Ok(_)) => {}
+                Ok(Err(err)) => last_state_error = Some(err.to_string()),
+                Err(_) => {
+                    last_state_error = Some(timeout_reason(
+                        "initial navigation state read",
+                        NAVIGATION_STATE_READ_TIMEOUT,
+                    ));
+                }
+            }
+        }
+    };
+
+    if let Ok(result) = tokio::time::timeout(DOCUMENT_READY_TIMEOUT, attempt).await {
+        return result;
+    }
+
+    Err(CdpError::Driver(Box::new(io::Error::other(
+        initial_document_ready_timeout_reason(last_state_error.as_deref()),
     ))))
+}
+
+async fn wait_for_document_ready_raw(
+    cdp: &mut RawCdpClient,
+    page: &RawPage,
+    display_url: &str,
+    initial_error: Option<CdpError>,
+    allow_interactive: bool,
+    events: Option<RawNavigationEvents>,
+) -> Result<(), CdpError> {
+    let Some(mut events) = events else {
+        return wait_for_document_ready_raw_by_polling(
+            cdp,
+            page,
+            display_url,
+            initial_error,
+            allow_interactive,
+        )
+        .await;
+    };
+
+    let mut last_state_error = None;
+    if !events.is_ready_for_capture(allow_interactive) {
+        match wait_for_raw_navigation_events(cdp, page, &mut events, allow_interactive).await {
+            Ok(()) => {}
+            Err(err) => last_state_error = Some(err.to_string()),
+        }
+    }
+
+    if events.is_chrome_error_page() {
+        return Err(chrome_error_page_error(
+            display_url,
+            events
+                .main_frame_url()
+                .unwrap_or("chrome-error://chromewebdata/"),
+        ));
+    }
+
+    match tokio::time::timeout(
+        NAVIGATION_STATE_READ_TIMEOUT,
+        read_navigation_state_raw(cdp, page),
+    )
+    .await
+    {
+        Ok(Ok(state)) if state.is_chrome_error_page => {
+            return Err(chrome_error_page_error(display_url, &state.href));
+        }
+        Ok(Ok(state)) if document_is_ready_for_capture(&state, allow_interactive) => return Ok(()),
+        Ok(Ok(state))
+            if events.is_ready_for_capture(allow_interactive) && document_has_navigated(&state) =>
+        {
+            return Ok(());
+        }
+        Ok(Ok(_)) if events.is_ready_for_capture(allow_interactive) => return Ok(()),
+        Ok(Ok(_)) => {}
+        Ok(Err(err)) if events.is_ready_for_capture(allow_interactive) => {
+            tracing::debug!(error = %err, "raw navigation state check failed after page event readiness");
+            return Ok(());
+        }
+        Ok(Err(err)) => last_state_error = Some(err.to_string()),
+        Err(_) if events.is_ready_for_capture(allow_interactive) => {
+            tracing::debug!("raw navigation state check timed out after page event readiness");
+            return Ok(());
+        }
+        Err(_) => {
+            last_state_error = Some(timeout_reason(
+                "navigation state read",
+                NAVIGATION_STATE_READ_TIMEOUT,
+            ));
+        }
+    }
+
+    let reason = navigation_ready_timeout_reason(
+        display_url,
+        initial_error.as_ref().map(ToString::to_string).as_deref(),
+        last_state_error.as_deref(),
+    );
+    Err(CdpError::Driver(Box::new(io::Error::other(reason))))
+}
+
+async fn wait_for_document_ready_raw_by_polling(
+    cdp: &mut RawCdpClient,
+    page: &RawPage,
+    display_url: &str,
+    initial_error: Option<CdpError>,
+    allow_interactive: bool,
+) -> Result<(), CdpError> {
+    let mut last_state_error = None;
+    let attempt = async {
+        loop {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            if poll_document_ready_raw(
+                cdp,
+                page,
+                display_url,
+                &mut last_state_error,
+                allow_interactive,
+            )
+            .await?
+            {
+                return Ok(());
+            }
+        }
+    };
+
+    if let Ok(result) = tokio::time::timeout(DOCUMENT_READY_TIMEOUT, attempt).await {
+        return result;
+    }
+
+    let reason = navigation_ready_timeout_reason(
+        display_url,
+        initial_error.as_ref().map(ToString::to_string).as_deref(),
+        last_state_error.as_deref(),
+    );
+    Err(CdpError::Driver(Box::new(io::Error::other(reason))))
+}
+
+async fn wait_for_raw_navigation_events(
+    cdp: &mut RawCdpClient,
+    page: &RawPage,
+    events: &mut RawNavigationEvents,
+    allow_interactive: bool,
+) -> Result<(), CdpError> {
+    let attempt = async {
+        loop {
+            if events.is_ready_for_capture(allow_interactive) {
+                return Ok(());
+            }
+            cdp.collect_next_page_event(&page.session_id, events)
+                .await?;
+        }
+    };
+
+    match tokio::time::timeout(DOCUMENT_READY_TIMEOUT, attempt).await {
+        Ok(result) => result,
+        Err(_) => Err(CdpError::Driver(Box::new(io::Error::other(
+            timeout_reason("raw navigation page event", DOCUMENT_READY_TIMEOUT),
+        )))),
+    }
+}
+
+async fn poll_document_ready_raw(
+    cdp: &mut RawCdpClient,
+    page: &RawPage,
+    display_url: &str,
+    last_state_error: &mut Option<String>,
+    allow_interactive: bool,
+) -> Result<bool, CdpError> {
+    match tokio::time::timeout(
+        NAVIGATION_STATE_READ_TIMEOUT,
+        read_navigation_state_raw(cdp, page),
+    )
+    .await
+    {
+        Ok(Ok(state)) if state.is_chrome_error_page => {
+            Err(chrome_error_page_error(display_url, &state.href))
+        }
+        Ok(Ok(state)) if document_is_ready_for_capture(&state, allow_interactive) => Ok(true),
+        Ok(Ok(_)) => Ok(false),
+        Ok(Err(err)) => {
+            *last_state_error = Some(err.to_string());
+            Ok(false)
+        }
+        Err(_) => {
+            *last_state_error = Some(timeout_reason(
+                "navigation state read",
+                NAVIGATION_STATE_READ_TIMEOUT,
+            ));
+            Ok(false)
+        }
+    }
+}
+
+async fn poll_document_ready(
+    page: &Page,
+    display_url: &str,
+    last_state_error: &mut Option<String>,
+) -> Result<bool, CdpError> {
+    match tokio::time::timeout(NAVIGATION_STATE_READ_TIMEOUT, read_navigation_state(page)).await {
+        Ok(Ok(state)) if state.is_chrome_error_page => {
+            Err(chrome_error_page_error(display_url, &state.href))
+        }
+        Ok(Ok(state)) if document_is_loaded(&state) => Ok(true),
+        Ok(Ok(_)) => Ok(false),
+        Ok(Err(err)) => {
+            *last_state_error = Some(err.to_string());
+            Ok(false)
+        }
+        Err(_) => {
+            *last_state_error = Some(timeout_reason(
+                "navigation state read",
+                NAVIGATION_STATE_READ_TIMEOUT,
+            ));
+            Ok(false)
+        }
+    }
 }
 
 fn chrome_error_page_error(display_url: &str, error_href: &str) -> CdpError {
@@ -1596,7 +2324,25 @@ fn chrome_error_page_error(display_url: &str, error_href: &str) -> CdpError {
 }
 
 fn document_is_loaded(state: &NavigationState) -> bool {
-    state.href != "about:blank" && state.ready_state == "complete" && !state.is_chrome_error_page
+    document_has_navigated(state) && state.ready_state == "complete"
+}
+
+fn document_is_ready_for_capture(state: &NavigationState, allow_interactive: bool) -> bool {
+    document_has_navigated(state)
+        && (state.ready_state == "complete"
+            || (allow_interactive && state.ready_state == "interactive"))
+}
+
+fn initial_document_is_ready(state: &NavigationState) -> bool {
+    !state.is_chrome_error_page && state.ready_state == "complete"
+}
+
+fn document_has_navigated(state: &NavigationState) -> bool {
+    url_has_navigated(&state.href) && !state.is_chrome_error_page
+}
+
+fn url_has_navigated(url: &str) -> bool {
+    url != "about:blank" && url != INITIAL_PAGE_URL
 }
 
 async fn read_navigation_state(page: &Page) -> Result<NavigationState, CdpError> {
@@ -1616,6 +2362,26 @@ async fn read_navigation_state(page: &Page) -> Result<NavigationState, CdpError>
             "read navigation state: {err}"
         ))))
     })?;
+    parse_navigation_state(&raw)
+}
+
+async fn read_navigation_state_raw(
+    cdp: &mut RawCdpClient,
+    page: &RawPage,
+) -> Result<NavigationState, CdpError> {
+    let raw: String = page
+        .evaluate_value(
+            cdp,
+            "Runtime.evaluate navigation state",
+            PAGE_COMMAND_TIMEOUT,
+            "JSON.stringify({
+                href: window.location.href,
+                readyState: document.readyState,
+                isChromeErrorPage: window.location.protocol === 'chrome-error:'
+                    || document.getElementById('main-frame-error') !== null
+            })",
+        )
+        .await?;
     parse_navigation_state(&raw)
 }
 
@@ -1647,6 +2413,26 @@ fn navigation_ready_timeout_reason(
     reason
 }
 
+fn navigation_display_url(url: &str) -> &str {
+    if url.starts_with("data:") {
+        "data:<redacted>"
+    } else {
+        url
+    }
+}
+
+fn initial_document_ready_timeout_reason(last_state_error: Option<&str>) -> String {
+    let mut reason = format!(
+        "initial document exhausted {} ready-state budget",
+        timeout_budget_label(DOCUMENT_READY_TIMEOUT)
+    );
+    if let Some(err) = last_state_error {
+        reason.push_str("; last initial navigation state read failed: ");
+        reason.push_str(err);
+    }
+    reason
+}
+
 /// Wait stages that must run *after* navigation. PRD §15 — `--wait-for`
 /// and `--wait-ms`.
 ///
@@ -1657,6 +2443,20 @@ fn navigation_ready_timeout_reason(
 async fn apply_post_navigate_waits(page: &Page, target: &Target) -> Result<(), CdpError> {
     if let Some(selector) = target.wait_for_selector.as_deref() {
         wait_for_selector(page, selector).await?;
+    }
+    if let Some(ms) = target.wait_ms {
+        tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
+    }
+    Ok(())
+}
+
+async fn apply_post_navigate_waits_raw(
+    cdp: &mut RawCdpClient,
+    page: &RawPage,
+    target: &Target,
+) -> Result<(), CdpError> {
+    if let Some(selector) = target.wait_for_selector.as_deref() {
+        wait_for_selector_raw(cdp, page, selector).await?;
     }
     if let Some(ms) = target.wait_ms {
         tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
@@ -1720,6 +2520,46 @@ async fn apply_storage_state_local_storage(
     Ok(())
 }
 
+async fn apply_storage_state_local_storage_raw(
+    cdp: &mut RawCdpClient,
+    page: &RawPage,
+    target: &Target,
+    state: Option<&StorageState>,
+) -> Result<(), CdpError> {
+    let Some(state) = state else {
+        return Ok(());
+    };
+    let target_origin = origin_of(target.url.as_str()).unwrap_or_default();
+    for origin_entry in &state.origins {
+        if origin_entry.origin != target_origin {
+            continue;
+        }
+        for entry in &origin_entry.local_storage {
+            let key = serde_json::to_string(&entry.name).map_err(|err| {
+                CdpError::MalformedStorageState {
+                    path: PathBuf::new(),
+                    reason: format!("could not serialize key: {err}"),
+                }
+            })?;
+            let value = serde_json::to_string(&entry.value).map_err(|err| {
+                CdpError::MalformedStorageState {
+                    path: PathBuf::new(),
+                    reason: format!("could not serialize value: {err}"),
+                }
+            })?;
+            let script = format!("window.localStorage.setItem({key}, {value});");
+            page.evaluate_unit(
+                cdp,
+                "Runtime.evaluate localStorage",
+                PAGE_COMMAND_TIMEOUT,
+                script.as_str(),
+            )
+            .await?;
+        }
+    }
+    Ok(())
+}
+
 fn origin_of(input: &str) -> Option<String> {
     // WHATWG-compliant origin: `Url::origin().ascii_serialization()`
     // handles default-port elision (`:443` for `https`, `:80` for
@@ -1753,6 +2593,25 @@ async fn apply_deterministic_styles(page: &Page, target: &Target) -> Result<(), 
                 .map(|_| ())
                 .map_err(driver_error)
         },
+    )
+    .await?;
+    Ok(())
+}
+
+async fn apply_deterministic_styles_raw(
+    cdp: &mut RawCdpClient,
+    page: &RawPage,
+    target: &Target,
+) -> Result<(), CdpError> {
+    let Some(source) = deterministic_style_source(target) else {
+        return Ok(());
+    };
+
+    page.evaluate_unit(
+        cdp,
+        "Runtime.evaluate deterministic styles",
+        PAGE_COMMAND_TIMEOUT,
+        source.as_str(),
     )
     .await?;
     Ok(())
@@ -1827,12 +2686,47 @@ async fn inject_auth_script(page: &Page, path: &Path) -> Result<(), CdpError> {
     add_script_to_evaluate_on_new_document(page, &source).await
 }
 
+async fn inject_auth_script_raw(
+    cdp: &mut RawCdpClient,
+    page: &RawPage,
+    path: &Path,
+) -> Result<(), CdpError> {
+    let canonical = canonicalize_safe_path(path)?;
+    if canonical.extension().and_then(|s| s.to_str()) != Some("js") {
+        return Err(CdpError::InvalidPath {
+            path: path.to_path_buf(),
+            reason: "auth script must have a `.js` extension".to_owned(),
+        });
+    }
+    let source = std::fs::read_to_string(&canonical).map_err(|err| CdpError::InvalidPath {
+        path: canonical.clone(),
+        reason: format!("could not read: {err}"),
+    })?;
+    add_script_to_evaluate_on_new_document_raw(cdp, page, &source).await
+}
+
 async fn add_script_to_evaluate_on_new_document(page: &Page, source: &str) -> Result<(), CdpError> {
     let params = add_script_to_evaluate_params(source);
     with_timeout(
         "Page.addScriptToEvaluateOnNewDocument",
         PAGE_COMMAND_TIMEOUT,
         async { page.execute(params).await.map(|_| ()).map_err(driver_error) },
+    )
+    .await?;
+    Ok(())
+}
+
+async fn add_script_to_evaluate_on_new_document_raw(
+    cdp: &mut RawCdpClient,
+    page: &RawPage,
+    source: &str,
+) -> Result<(), CdpError> {
+    let params = add_script_to_evaluate_params(source);
+    page.execute(
+        cdp,
+        "Page.addScriptToEvaluateOnNewDocument",
+        PAGE_COMMAND_TIMEOUT,
+        params,
     )
     .await?;
     Ok(())
@@ -1868,6 +2762,30 @@ async fn install_extra_headers(page: &Page, headers: &[(String, String)]) -> Res
     with_timeout("Network.setExtraHTTPHeaders", PAGE_COMMAND_TIMEOUT, async {
         page.execute(params).await.map(|_| ()).map_err(driver_error)
     })
+    .await?;
+    Ok(())
+}
+
+async fn install_extra_headers_raw(
+    cdp: &mut RawCdpClient,
+    page: &RawPage,
+    headers: &[(String, String)],
+) -> Result<(), CdpError> {
+    let mut entries: Vec<(String, String)> = headers.to_vec();
+    entries.sort_by(|a, b| a.0.cmp(&b.0));
+    let mut object = serde_json::Map::with_capacity(entries.len());
+    for (name, value) in entries {
+        validate_header_name(&name)?;
+        validate_no_ctl(&value, "value", "header")?;
+        object.insert(name, serde_json::Value::String(value));
+    }
+    let params = SetExtraHttpHeadersParams::new(Headers::new(serde_json::Value::Object(object)));
+    page.execute(
+        cdp,
+        "Network.setExtraHTTPHeaders",
+        PAGE_COMMAND_TIMEOUT,
+        params,
+    )
     .await?;
     Ok(())
 }
@@ -1916,6 +2834,42 @@ async fn install_cookies(
     Ok(())
 }
 
+async fn install_cookies_raw(
+    cdp: &mut RawCdpClient,
+    page: &RawPage,
+    cookies: &[Cookie],
+    default_url: &str,
+) -> Result<(), CdpError> {
+    let mut sorted: Vec<Cookie> = cookies.to_vec();
+    sorted.sort_by(|a, b| {
+        (a.name.as_str(), a.value.as_str()).cmp(&(b.name.as_str(), b.value.as_str()))
+    });
+    for cookie in &sorted {
+        validate_cookie_name(&cookie.name)?;
+        validate_cookie_value(&cookie.value)?;
+        if let Some(domain) = cookie.domain.as_deref() {
+            validate_no_ctl(domain, "domain", "cookie")?;
+        }
+        if let Some(path) = cookie.path.as_deref() {
+            validate_no_ctl(path, "path", "cookie")?;
+        }
+    }
+    let url_for_cookies = if default_url.starts_with("http") {
+        Some(default_url)
+    } else {
+        None
+    };
+    let params = SetCookiesParams::new(
+        sorted
+            .into_iter()
+            .map(|c| c.into_cdp_param(url_for_cookies))
+            .collect(),
+    );
+    page.execute(cdp, "Network.setCookies", PAGE_COMMAND_TIMEOUT, params)
+        .await?;
+    Ok(())
+}
+
 async fn install_storage_state_cookies(page: &Page, state: &StorageState) -> Result<(), CdpError> {
     if state.cookies.is_empty() {
         return Ok(());
@@ -1943,6 +2897,33 @@ async fn install_storage_state_cookies(page: &Page, state: &StorageState) -> Res
     Ok(())
 }
 
+async fn install_storage_state_cookies_raw(
+    cdp: &mut RawCdpClient,
+    page: &RawPage,
+    state: &StorageState,
+) -> Result<(), CdpError> {
+    if state.cookies.is_empty() {
+        return Ok(());
+    }
+    let mut params: Vec<CookieParam> = Vec::with_capacity(state.cookies.len());
+    for cookie in &state.cookies {
+        let mut p = CookieParam::new(cookie.name.clone(), cookie.value.clone());
+        p.domain = Some(cookie.domain.clone());
+        p.path = Some(cookie.path.clone());
+        p.secure = Some(cookie.secure);
+        p.http_only = Some(cookie.http_only);
+        params.push(p);
+    }
+    page.execute(
+        cdp,
+        "Network.setCookies storageState",
+        PAGE_COMMAND_TIMEOUT,
+        SetCookiesParams::new(params),
+    )
+    .await?;
+    Ok(())
+}
+
 async fn wait_for_selector(page: &Page, selector: &str) -> Result<(), CdpError> {
     // Poll `find_element` with a 50ms backoff up to 10 seconds total
     // (PRD §15 default). The selector is the users contract for "the
@@ -1961,6 +2942,39 @@ async fn wait_for_selector(page: &Page, selector: &str) -> Result<(), CdpError> 
             match page.find_element(selector.to_owned()).await {
                 Ok(_) => return Ok::<(), CdpError>(()),
                 Err(_) => {
+                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                }
+            }
+        }
+    };
+    match tokio::time::timeout(std::time::Duration::from_secs(10), attempt).await {
+        Ok(result) => result,
+        Err(_) => Err(CdpError::Driver(Box::new(io::Error::other(format!(
+            "wait_for_selector `{selector}` exhausted 10s budget"
+        ))))),
+    }
+}
+
+async fn wait_for_selector_raw(
+    cdp: &mut RawCdpClient,
+    page: &RawPage,
+    selector: &str,
+) -> Result<(), CdpError> {
+    let selector = serde_json::to_string(selector).map_err(serde_driver_error)?;
+    let script = format!("document.querySelector({selector}) !== null");
+    let attempt = async {
+        loop {
+            match page
+                .evaluate_value::<bool>(
+                    cdp,
+                    "Runtime.evaluate wait_for_selector",
+                    PAGE_COMMAND_TIMEOUT,
+                    script.as_str(),
+                )
+                .await
+            {
+                Ok(true) => return Ok::<(), CdpError>(()),
+                Ok(false) | Err(_) => {
                     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
                 }
             }
@@ -2055,43 +3069,33 @@ fn chromium_install_hint() -> String {
     )
 }
 
-struct ChromiumSession {
+struct RawChromiumSession {
     browser: Browser,
-    handler_task: JoinHandle<()>,
     profile_dir: Option<TempDir>,
 }
 
-impl ChromiumSession {
+impl RawChromiumSession {
     async fn launch(launch: ChromiumLaunch) -> Result<Self, CdpError> {
-        let (browser, handler) = with_timeout("Chromium launch", BROWSER_LAUNCH_TIMEOUT, async {
+        let (browser, _handler) = with_timeout("Chromium launch", BROWSER_LAUNCH_TIMEOUT, async {
             Browser::launch(launch.config)
                 .await
                 .map_err(map_launch_error)
         })
         .await?;
-        let handler_task = poll_handler(handler);
         Ok(Self {
             browser,
-            handler_task,
             profile_dir: launch.profile_dir,
         })
     }
 
-    async fn shutdown(&mut self) -> Result<(), CdpError> {
-        let cleanup_result = close_browser_best_effort(&mut self.browser).await;
-
-        self.abort_handler().await;
-        let _profile_dir = self.profile_dir.take();
-        cleanup_result
+    fn websocket_address(&self) -> &str {
+        self.browser.websocket_address()
     }
 
-    async fn abort_handler(&mut self) {
-        self.handler_task.abort();
-        if let Err(join_err) = (&mut self.handler_task).await
-            && !join_err.is_cancelled()
-        {
-            tracing::debug!(error = %join_err, "Chromium handler task failed");
-        }
+    async fn shutdown(&mut self, cdp: &mut RawCdpClient) -> Result<(), CdpError> {
+        let cleanup_result = close_raw_browser_best_effort(cdp, &mut self.browser).await;
+        let _profile_dir = self.profile_dir.take();
+        cleanup_result
     }
 }
 
@@ -2216,6 +3220,37 @@ async fn close_browser_best_effort(browser: &mut Browser) -> Result<(), CdpError
     Ok(())
 }
 
+async fn close_raw_browser_best_effort(
+    cdp: &mut RawCdpClient,
+    browser: &mut Browser,
+) -> Result<(), CdpError> {
+    if let Err(err) = with_timeout("Browser.close", BROWSER_CLOSE_TIMEOUT, async {
+        cdp.execute(None, BrowserCloseParams::default())
+            .await
+            .map(|_: chromiumoxide::cdp::browser_protocol::browser::CloseReturns| ())
+    })
+    .await
+    {
+        tracing::debug!(error = %err, "failed to close Chromium over raw CDP");
+    }
+
+    if let Err(wait_err) = with_timeout("Chromium process wait", BROWSER_WAIT_TIMEOUT, async {
+        browser.wait().await.map_err(io_error)
+    })
+    .await
+    {
+        tracing::debug!(error = %wait_err, "failed to wait for Chromium process");
+        kill_browser(browser).await?;
+        with_timeout(
+            "Chromium process wait after kill",
+            BROWSER_WAIT_TIMEOUT,
+            async { browser.wait().await.map_err(io_error) },
+        )
+        .await?;
+    }
+    Ok(())
+}
+
 async fn kill_browser(browser: &mut Browser) -> Result<(), CdpError> {
     if let Some(result) = tokio::time::timeout(BROWSER_KILL_TIMEOUT, browser.kill())
         .await
@@ -2229,6 +3264,14 @@ async fn kill_browser(browser: &mut Browser) -> Result<(), CdpError> {
 async fn validate_browser_version(browser: &Browser) -> Result<(), CdpError> {
     let version = with_timeout("Browser.version", CDP_CONTROL_TIMEOUT, async {
         browser.version().await.map_err(driver_error)
+    })
+    .await?;
+    validate_chromium_product_major(&version.product)
+}
+
+async fn validate_browser_version_raw(cdp: &mut RawCdpClient) -> Result<(), CdpError> {
+    let version = with_timeout("Browser.version", CDP_CONTROL_TIMEOUT, async {
+        cdp.execute(None, GetVersionParams::default()).await
     })
     .await?;
     validate_chromium_product_major(&version.product)
@@ -2285,6 +3328,14 @@ fn map_launch_error(err: chromiumoxide::error::CdpError) -> CdpError {
 
 fn driver_error(err: chromiumoxide::error::CdpError) -> CdpError {
     CdpError::Driver(Box::new(err))
+}
+
+fn serde_driver_error(err: serde_json::Error) -> CdpError {
+    driver_error(chromiumoxide::error::CdpError::Serde(err))
+}
+
+fn driver_message(message: impl Into<String>) -> CdpError {
+    CdpError::Driver(Box::new(io::Error::other(message.into())))
 }
 
 fn io_error(err: io::Error) -> CdpError {
@@ -3337,6 +4388,38 @@ mod tests {
     }
 
     #[test]
+    fn initial_page_url_uses_loaded_non_blank_document() {
+        assert!(super::INITIAL_PAGE_URL.starts_with("data:text/html,"));
+        assert!(!super::INITIAL_PAGE_URL.contains("about:blank"));
+    }
+
+    #[test]
+    fn initial_document_ready_accepts_loaded_initial_url() {
+        let state = super::NavigationState {
+            href: super::INITIAL_PAGE_URL.to_string(),
+            ready_state: "complete".to_string(),
+            is_chrome_error_page: false,
+        };
+
+        assert!(super::initial_document_is_ready(&state));
+        assert!(!super::document_is_loaded(&state));
+    }
+
+    #[test]
+    fn initial_document_ready_rejects_partial_or_error_documents() {
+        assert!(!super::initial_document_is_ready(&super::NavigationState {
+            href: super::INITIAL_PAGE_URL.to_string(),
+            ready_state: "interactive".to_string(),
+            is_chrome_error_page: false,
+        }));
+        assert!(!super::initial_document_is_ready(&super::NavigationState {
+            href: "chrome-error://chromewebdata/".to_string(),
+            ready_state: "complete".to_string(),
+            is_chrome_error_page: true,
+        }));
+    }
+
+    #[test]
     fn add_script_params_registers_for_future_documents_only() {
         let params = super::add_script_to_evaluate_params("window.__plumb = true;");
 
@@ -3399,8 +4482,26 @@ mod tests {
     #[test]
     fn file_urls_keep_chromiumoxide_goto_path() {
         assert!(super::uses_chromiumoxide_goto("file:///tmp/static.html"));
-        assert!(!super::uses_chromiumoxide_goto("http://127.0.0.1:49197/"));
-        assert!(!super::uses_chromiumoxide_goto("https://example.com/"));
+        assert_eq!(
+            super::navigation_method_for_url("file:///tmp/static.html"),
+            super::NavigationMethod::ChromiumoxideGoto
+        );
+    }
+
+    #[test]
+    fn navigation_method_avoids_script_assignment_for_data_urls() {
+        assert_eq!(
+            super::navigation_method_for_url("data:text/html;base64,PHNjcmlwdD4="),
+            super::NavigationMethod::CdpNavigate
+        );
+        assert_eq!(
+            super::navigation_method_for_url("http://127.0.0.1:49197/"),
+            super::NavigationMethod::LocationAssign
+        );
+        assert_eq!(
+            super::navigation_method_for_url("https://example.com/"),
+            super::NavigationMethod::LocationAssign
+        );
     }
 
     #[test]
@@ -3421,6 +4522,11 @@ mod tests {
             is_chrome_error_page: false,
         }));
         assert!(!super::document_is_loaded(&super::NavigationState {
+            href: super::INITIAL_PAGE_URL.to_string(),
+            ready_state: "complete".to_string(),
+            is_chrome_error_page: false,
+        }));
+        assert!(!super::document_is_loaded(&super::NavigationState {
             href: "chrome-error://chromewebdata/".to_string(),
             ready_state: "complete".to_string(),
             is_chrome_error_page: true,
@@ -3428,21 +4534,66 @@ mod tests {
     }
 
     #[test]
-    fn document_navigation_failed_rejects_only_uncanceled_documents() {
-        let document_failure = parse_loading_failed(
-            r#"{"requestId":"1","timestamp":1.0,"type":"Document","errorText":"net::ERR_CONNECTION_REFUSED"}"#,
-        );
-        assert!(super::document_navigation_failed(&document_failure));
+    fn selector_gated_raw_navigation_accepts_interactive_document() {
+        let state = super::NavigationState {
+            href: "https://example.com/app".to_string(),
+            ready_state: "interactive".to_string(),
+            is_chrome_error_page: false,
+        };
 
-        let canceled_document = parse_loading_failed(
-            r#"{"requestId":"1","timestamp":1.0,"type":"Document","errorText":"net::ERR_ABORTED","canceled":true}"#,
-        );
-        assert!(!super::document_navigation_failed(&canceled_document));
+        assert!(super::document_is_ready_for_capture(&state, true));
+        assert!(!super::document_is_ready_for_capture(&state, false));
+    }
 
-        let stylesheet_failure = parse_loading_failed(
-            r#"{"requestId":"1","timestamp":1.0,"type":"Stylesheet","errorText":"net::ERR_CONNECTION_REFUSED"}"#,
-        );
-        assert!(!super::document_navigation_failed(&stylesheet_failure));
+    #[test]
+    fn selector_gated_raw_navigation_still_rejects_initial_documents() {
+        assert!(!super::document_is_ready_for_capture(
+            &super::NavigationState {
+                href: super::INITIAL_PAGE_URL.to_string(),
+                ready_state: "interactive".to_string(),
+                is_chrome_error_page: false,
+            },
+            true,
+        ));
+        assert!(!super::document_is_ready_for_capture(
+            &super::NavigationState {
+                href: "chrome-error://chromewebdata/".to_string(),
+                ready_state: "interactive".to_string(),
+                is_chrome_error_page: true,
+            },
+            true,
+        ));
+    }
+
+    #[test]
+    fn raw_navigation_events_require_navigated_main_frame() {
+        let mut events = super::RawNavigationEvents::default();
+        events.observe_load_event();
+
+        assert!(!events.is_ready_for_capture(false));
+
+        events.observe_main_frame_url(super::INITIAL_PAGE_URL);
+        events.observe_load_event();
+
+        assert!(!events.is_ready_for_capture(false));
+
+        events.observe_main_frame_url("https://example.com/app");
+
+        assert!(!events.is_ready_for_capture(false));
+
+        events.observe_load_event();
+
+        assert!(events.is_ready_for_capture(false));
+    }
+
+    #[test]
+    fn selector_gated_raw_events_accept_dom_content_after_navigation() {
+        let mut events = super::RawNavigationEvents::default();
+        events.observe_main_frame_url("https://example.com/app");
+        events.observe_dom_content_event();
+
+        assert!(events.is_ready_for_capture(true));
+        assert!(!events.is_ready_for_capture(false));
     }
 
     #[test]
@@ -3489,6 +4640,18 @@ mod tests {
     }
 
     #[test]
+    fn navigation_display_url_redacts_data_urls() {
+        assert_eq!(
+            super::navigation_display_url("data:text/html;base64,PHNjcmlwdD4="),
+            "data:<redacted>"
+        );
+        assert_eq!(
+            super::navigation_display_url("http://127.0.0.1:49197/"),
+            "http://127.0.0.1:49197/"
+        );
+    }
+
+    #[test]
     fn contextualize_request_timeout_labels_operation() {
         let err = super::contextualize_request_timeout(
             "Target.attachToTarget",
@@ -3498,6 +4661,35 @@ mod tests {
         let message = err.to_string();
         assert!(message.contains("Target.attachToTarget"));
         assert!(message.contains("Chromiumoxide request budget"));
+    }
+
+    #[test]
+    fn target_lifecycle_error_labels_pre_navigation_stage() {
+        let err = super::target_lifecycle_error(
+            "Target.createTarget",
+            &CdpError::Driver(Box::new(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "Target.createTarget exceeded 10s budget",
+            ))),
+        );
+
+        let message = err.to_string();
+        assert!(message.contains("Target.createTarget failed before navigation"));
+        assert!(message.contains("Target.createTarget exceeded 10s budget"));
+        assert!(super::is_retryable_capture_timeout(&err));
+    }
+
+    #[test]
+    fn target_lifecycle_error_keeps_non_timeout_errors_non_retryable() {
+        let err = super::target_lifecycle_error(
+            "Target.attachToTarget",
+            &CdpError::Driver(Box::new(io::Error::other("target disappeared"))),
+        );
+
+        let message = err.to_string();
+        assert!(message.contains("Target.attachToTarget failed before navigation"));
+        assert!(message.contains("target disappeared"));
+        assert!(!super::is_retryable_capture_timeout(&err));
     }
 
     #[test]
@@ -3524,13 +4716,6 @@ mod tests {
         };
 
         assert!(!super::is_retryable_capture_timeout(&err));
-    }
-
-    fn parse_loading_failed(raw: &str) -> super::EventLoadingFailed {
-        match serde_json::from_str(raw) {
-            Ok(event) => event,
-            Err(err) => panic!("loading failed event parse failed: {err}"),
-        }
     }
 
     fn test_executable_path() -> PathBuf {
