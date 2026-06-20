@@ -113,8 +113,7 @@ const PAGE_COMMAND_TIMEOUT: Duration = Duration::from_secs(25);
 const PAGE_ENABLE_TIMEOUT: Duration = Duration::from_secs(5);
 const NAVIGATION_ASSIGNMENT_TIMEOUT: Duration = Duration::from_secs(2);
 const DOCUMENT_READY_TIMEOUT: Duration = Duration::from_secs(30);
-const INITIAL_DOCUMENT_READY_TIMEOUT: Duration = Duration::from_secs(2);
-const INITIAL_NAVIGATION_STATE_READ_TIMEOUT: Duration = Duration::from_millis(500);
+const INITIAL_DOCUMENT_SETTLE_DELAY: Duration = Duration::from_millis(100);
 const NAVIGATION_STATE_READ_TIMEOUT: Duration = Duration::from_secs(2);
 const SNAPSHOT_CAPTURE_TIMEOUT: Duration = Duration::from_secs(25);
 const TRANSIENT_CAPTURE_RETRIES: usize = 1;
@@ -1011,7 +1010,7 @@ async fn capture_target_raw(
     )
     .await?;
 
-    best_effort_wait_for_initial_document_ready_raw(cdp, &page).await;
+    settle_initial_document().await;
     capture_on_raw_page(cdp, &page, target, options, apply_viewport_override).await
 }
 
@@ -1586,7 +1585,7 @@ impl PersistentBrowser {
                 hidden: None,
             };
             let page = create_page_without_load_wait(&self.inner.browser, create_params).await?;
-            best_effort_wait_for_initial_document_ready(&page).await;
+            settle_initial_document().await;
             capture_on_page(&page, target, &self.inner.options, true).await
         }
         .await;
@@ -2057,91 +2056,11 @@ async fn wait_for_document_ready(
     Err(CdpError::Driver(Box::new(io::Error::other(reason))))
 }
 
-async fn best_effort_wait_for_initial_document_ready(page: &Page) {
-    if let Err(err) = wait_for_initial_document_ready(page).await {
-        tracing::debug!(
-            error = %err,
-            "initial document did not report ready before navigation; continuing"
-        );
-    }
-}
-
-async fn wait_for_initial_document_ready(page: &Page) -> Result<(), CdpError> {
-    let mut last_state_error = None;
-    let attempt = async {
-        loop {
-            tokio::time::sleep(Duration::from_millis(50)).await;
-            match tokio::time::timeout(
-                INITIAL_NAVIGATION_STATE_READ_TIMEOUT,
-                read_navigation_state(page),
-            )
-            .await
-            {
-                Ok(Ok(state)) if initial_document_is_ready(&state) => return Ok(()),
-                Ok(Ok(_)) => {}
-                Ok(Err(err)) => last_state_error = Some(err.to_string()),
-                Err(_) => {
-                    last_state_error = Some(timeout_reason(
-                        "initial navigation state read",
-                        INITIAL_NAVIGATION_STATE_READ_TIMEOUT,
-                    ));
-                }
-            }
-        }
-    };
-
-    if let Ok(result) = tokio::time::timeout(INITIAL_DOCUMENT_READY_TIMEOUT, attempt).await {
-        return result;
-    }
-
-    Err(CdpError::Driver(Box::new(io::Error::other(
-        initial_document_ready_timeout_reason(last_state_error.as_deref()),
-    ))))
-}
-
-async fn best_effort_wait_for_initial_document_ready_raw(cdp: &mut RawCdpClient, page: &RawPage) {
-    if let Err(err) = wait_for_initial_document_ready_raw(cdp, page).await {
-        tracing::debug!(
-            error = %err,
-            "initial raw document did not report ready before navigation; continuing"
-        );
-    }
-}
-
-async fn wait_for_initial_document_ready_raw(
-    cdp: &mut RawCdpClient,
-    page: &RawPage,
-) -> Result<(), CdpError> {
-    let mut last_state_error = None;
-    let attempt = async {
-        loop {
-            tokio::time::sleep(Duration::from_millis(50)).await;
-            match tokio::time::timeout(
-                INITIAL_NAVIGATION_STATE_READ_TIMEOUT,
-                read_navigation_state_raw(cdp, page),
-            )
-            .await
-            {
-                Ok(Ok(state)) if initial_document_is_ready(&state) => return Ok(()),
-                Ok(Ok(_)) => {}
-                Ok(Err(err)) => last_state_error = Some(err.to_string()),
-                Err(_) => {
-                    last_state_error = Some(timeout_reason(
-                        "initial navigation state read",
-                        INITIAL_NAVIGATION_STATE_READ_TIMEOUT,
-                    ));
-                }
-            }
-        }
-    };
-
-    if let Ok(result) = tokio::time::timeout(INITIAL_DOCUMENT_READY_TIMEOUT, attempt).await {
-        return result;
-    }
-
-    Err(CdpError::Driver(Box::new(io::Error::other(
-        initial_document_ready_timeout_reason(last_state_error.as_deref()),
-    ))))
+async fn settle_initial_document() {
+    // Avoid Runtime.evaluate on the bootstrap page. Chrome for Testing
+    // 150 on macOS can leave that probe in flight before the real
+    // navigation, which makes the subsequent Page.navigate unreliable.
+    tokio::time::sleep(INITIAL_DOCUMENT_SETTLE_DELAY).await;
 }
 
 async fn wait_for_document_ready_raw(
@@ -2356,10 +2275,6 @@ fn document_is_ready_for_capture(state: &NavigationState, allow_interactive: boo
             || (allow_interactive && state.ready_state == "interactive"))
 }
 
-fn initial_document_is_ready(state: &NavigationState) -> bool {
-    !state.is_chrome_error_page && state.ready_state == "complete"
-}
-
 fn document_has_navigated(state: &NavigationState) -> bool {
     url_has_navigated(&state.href) && !state.is_chrome_error_page
 }
@@ -2442,18 +2357,6 @@ fn navigation_display_url(url: &str) -> &str {
     } else {
         url
     }
-}
-
-fn initial_document_ready_timeout_reason(last_state_error: Option<&str>) -> String {
-    let mut reason = format!(
-        "initial document exhausted {} ready-state budget",
-        timeout_budget_label(INITIAL_DOCUMENT_READY_TIMEOUT)
-    );
-    if let Some(err) = last_state_error {
-        reason.push_str("; last initial navigation state read failed: ");
-        reason.push_str(err);
-    }
-    reason
 }
 
 /// Wait stages that must run *after* navigation. PRD §15 — `--wait-for`
@@ -4417,32 +4320,6 @@ mod tests {
     }
 
     #[test]
-    fn initial_document_ready_accepts_loaded_initial_url() {
-        let state = super::NavigationState {
-            href: super::INITIAL_PAGE_URL.to_string(),
-            ready_state: "complete".to_string(),
-            is_chrome_error_page: false,
-        };
-
-        assert!(super::initial_document_is_ready(&state));
-        assert!(!super::document_is_loaded(&state));
-    }
-
-    #[test]
-    fn initial_document_ready_rejects_partial_or_error_documents() {
-        assert!(!super::initial_document_is_ready(&super::NavigationState {
-            href: super::INITIAL_PAGE_URL.to_string(),
-            ready_state: "interactive".to_string(),
-            is_chrome_error_page: false,
-        }));
-        assert!(!super::initial_document_is_ready(&super::NavigationState {
-            href: "chrome-error://chromewebdata/".to_string(),
-            ready_state: "complete".to_string(),
-            is_chrome_error_page: true,
-        }));
-    }
-
-    #[test]
     fn add_script_params_registers_for_future_documents_only() {
         let params = super::add_script_to_evaluate_params("window.__plumb = true;");
 
@@ -4660,18 +4537,6 @@ mod tests {
         assert!(reason.contains("exhausted 30s ready-state budget"));
         assert!(reason.contains("after initial location assignment failed"));
         assert!(reason.contains("last navigation state read failed"));
-    }
-
-    #[test]
-    fn initial_document_timeout_reason_uses_short_bootstrap_budget() {
-        let reason = super::initial_document_ready_timeout_reason(Some(
-            "initial navigation state read exceeded 500ms budget",
-        ));
-
-        assert!(reason.contains("exhausted 2s ready-state budget"));
-        assert!(reason.contains(
-            "last initial navigation state read failed: initial navigation state read exceeded 500ms budget"
-        ));
     }
 
     #[test]
