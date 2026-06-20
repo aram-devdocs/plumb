@@ -2041,7 +2041,7 @@ fn raw_navigation_events_for_wait(
     page_events_enabled: bool,
     events: RawNavigationEvents,
 ) -> Option<RawNavigationEvents> {
-    page_events_enabled.then_some(events)
+    (page_events_enabled || events.has_navigated()).then_some(events)
 }
 
 fn uses_chromiumoxide_goto(url: &str) -> bool {
@@ -4684,13 +4684,13 @@ mod tests {
     }
 
     #[test]
-    fn raw_navigation_wait_polls_without_page_events() {
+    fn raw_navigation_wait_keeps_accepted_navigation_without_page_events() {
         let mut events = super::RawNavigationEvents::default();
         events.observe_main_frame_url("https://example.com/app");
 
         let events = super::raw_navigation_events_for_wait(false, events);
 
-        assert!(events.is_none());
+        assert!(events.is_some_and(|events| events.has_navigated()));
     }
 
     #[test]
