@@ -64,6 +64,9 @@ impl Rule for GridConformance {
 
         for node in ctx.nodes() {
             for prop in SPACING_PROPERTIES {
+                if is_root_body_margin(&node.tag, &node.selector, prop) {
+                    continue;
+                }
                 let Some(raw) = node.computed_styles.get(*prop) else {
                     continue;
                 };
@@ -121,4 +124,8 @@ impl Rule for GridConformance {
             }
         }
     }
+}
+
+fn is_root_body_margin(tag: &str, selector: &str, prop: &str) -> bool {
+    tag == "body" && selector == "html > body" && prop.starts_with("margin-")
 }
