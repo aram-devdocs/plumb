@@ -1071,14 +1071,18 @@ async fn capture_target(
     options: &ChromiumOptions,
     apply_viewport_override: bool,
 ) -> Result<PlumbSnapshot, CdpError> {
-    let page = with_timeout("Browser.new_page", TARGET_ATTACH_TIMEOUT, async {
-        browser
-            .new_page(INITIAL_PAGE_URL)
-            .await
-            .map_err(driver_error)
-    })
+    let page = create_page_without_load_wait(
+        browser,
+        CreateTargetParams {
+            width: Some(i64::from(target.width)),
+            height: Some(i64::from(target.height)),
+            new_window: Some(true),
+            ..CreateTargetParams::new(INITIAL_PAGE_URL)
+        },
+    )
     .await?;
 
+    settle_initial_document().await;
     capture_on_page(&page, target, options, apply_viewport_override).await
 }
 
