@@ -140,7 +140,7 @@ enum Command {
         /// navigation.
         #[arg(long, value_name = "PATH")]
         storage_state: Option<PathBuf>,
-        /// Disable CSS animations and transitions before navigation
+        /// Disable CSS animations and transitions before capture
         /// for byte-stable snapshots. The driver already does this by
         /// default; pass `--disable-animations false` to opt out.
         #[arg(
@@ -151,7 +151,7 @@ enum Command {
             default_missing_value = "true"
         )]
         disable_animations: bool,
-        /// Inject CSS that hides scrollbars before navigation. The
+        /// Inject CSS that hides scrollbars before capture. The
         /// driver already does this by default; pass
         /// `--hide-scrollbars false` to opt out.
         #[arg(
@@ -273,7 +273,7 @@ enum Command {
         /// Path to a Playwright `storage-state.json`.
         #[arg(long, value_name = "PATH")]
         storage_state: Option<PathBuf>,
-        /// Disable CSS animations and transitions before navigation.
+        /// Disable CSS animations and transitions before capture.
         #[arg(
             long = "disable-animations",
             default_value_t = true,
@@ -282,7 +282,7 @@ enum Command {
             default_missing_value = "true"
         )]
         disable_animations: bool,
-        /// Inject CSS that hides scrollbars before navigation.
+        /// Inject CSS that hides scrollbars before capture.
         #[arg(
             long = "hide-scrollbars",
             default_value_t = true,

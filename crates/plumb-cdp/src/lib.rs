@@ -188,8 +188,8 @@ pub struct Target {
     /// Optional additional milliseconds to sleep before capturing the
     /// snapshot, after navigation (and after [`Self::wait_for_selector`]).
     pub wait_ms: Option<u64>,
-    /// Inject CSS that disables animations and transitions before the
-    /// page renders. Defaults to `true` — the historical Plumb behavior
+    /// Inject CSS that disables animations and transitions before
+    /// capture. Defaults to `true` — the historical Plumb behavior
     /// (PRD §16) — and the CLI exposes a flag that flips this value.
     pub disable_animations: bool,
     /// Inject CSS that hides page-level scrollbars. Defaults to `true`
@@ -1030,15 +1030,16 @@ async fn create_page_without_load_wait(
     .await
 }
 
-/// Apply viewport / animation hooks, install cookies and headers,
-/// navigate, capture a DOM snapshot.
+/// Apply viewport, install pre-navigation state, navigate, wait for
+/// final page state, apply deterministic styling, then capture a DOM
+/// snapshot.
 ///
 /// Shared between `ChromiumDriver::capture_target` and
 /// [`PersistentBrowser::snapshot`] so that the per-target work is
 /// expressed in exactly one place. The function is split into discrete
 /// stages — `apply_viewport` (DPR + dimensions), `pre_navigate`
-/// (cookies, headers, auth-script, storage-state, animation killer,
-/// scrollbar killer), `goto` + waits, then capture.
+/// (cookies, headers, auth-script, storage-state cookies), `goto`,
+/// waits, deterministic style injection, then capture.
 async fn capture_on_page(
     page: &Page,
     target: &Target,
@@ -1059,6 +1060,7 @@ async fn capture_on_page(
 
     apply_post_navigate_waits(page, target).await?;
     apply_storage_state_local_storage(page, target, storage_state.as_ref()).await?;
+    apply_deterministic_styles(page, target).await?;
 
     let params = CaptureSnapshotParams {
         computed_styles: COMPUTED_STYLE_WHITELIST
@@ -1416,12 +1418,11 @@ async fn apply_viewport(page: &Page, target: &Target) -> Result<(), CdpError> {
 /// All work that must happen on a fresh page before navigation.
 ///
 /// Runs in this fixed order so behavior matches what users expect:
-/// 1. Animation/scrollbar CSS killers — PRD §16 determinism.
-/// 2. Auth script — runs before any page script, so the page-side
+/// 1. Auth script — runs before any page script, so the page-side
 ///    bootstrap can set window globals before the SPA boots.
-/// 3. Cookies and HTTP headers — set on the network layer before the
+/// 2. Cookies and HTTP headers — set on the network layer before the
 ///    very first request leaves Chromium.
-/// 4. Storage-state cookies — same network layer; localStorage entries
+/// 3. Storage-state cookies — same network layer; localStorage entries
 ///    in the storage-state are deferred to [`apply_storage_state_local_storage`]
 ///    after the origin loads, since localStorage is origin-scoped.
 ///
@@ -1436,12 +1437,6 @@ async fn pre_navigate(
     target: &Target,
     options: &ChromiumOptions,
 ) -> Result<Option<StorageState>, CdpError> {
-    if target.disable_animations {
-        inject_animation_killer(page).await?;
-    }
-    if target.hide_scrollbars {
-        inject_scrollbar_killer(page).await?;
-    }
     if let Some(script_path) = options.auth_script.as_deref() {
         inject_auth_script(page, script_path).await?;
     }
@@ -1744,37 +1739,64 @@ fn origin_of(input: &str) -> Option<String> {
     }
 }
 
-async fn inject_animation_killer(page: &Page) -> Result<(), CdpError> {
-    // PRD §16 determinism mitigation: install a CSS-injection script that
-    // runs before any page script, so transitions/animations don't race
-    // with `captureSnapshot` and produce different bounds across runs.
-    let source = "(() => { \
-        const style = document.createElement('style'); \
-        style.textContent = '*, *::before, *::after { \
+async fn apply_deterministic_styles(page: &Page, target: &Target) -> Result<(), CdpError> {
+    let Some(source) = deterministic_style_source(target) else {
+        return Ok(());
+    };
+
+    with_timeout(
+        "Runtime.evaluate deterministic styles",
+        PAGE_COMMAND_TIMEOUT,
+        async {
+            page.evaluate(source.as_str())
+                .await
+                .map(|_| ())
+                .map_err(driver_error)
+        },
+    )
+    .await?;
+    Ok(())
+}
+
+fn deterministic_style_source(target: &Target) -> Option<String> {
+    if !target.disable_animations && !target.hide_scrollbars {
+        return None;
+    }
+
+    let mut css = String::new();
+    if target.disable_animations {
+        // PRD §16 determinism mitigation: transitions/animations should
+        // not race with `captureSnapshot` and produce different bounds
+        // across runs.
+        css.push_str(
+            "*, *::before, *::after { \
             animation-duration: 0s !important; \
             animation-delay: 0s !important; \
             transition-duration: 0s !important; \
             transition-delay: 0s !important; \
             caret-color: transparent !important; \
-        }'; \
-        (document.head || document.documentElement).appendChild(style); \
-    })();";
-    add_script_to_evaluate_on_new_document(page, source).await
-}
+        }",
+        );
+    }
+    if target.hide_scrollbars {
+        // The `--hide-scrollbars` Chromium launch arg is the first line
+        // of defense; this CSS covers cases where the launch arg alone
+        // is not honored or the page paints custom scrollbars.
+        css.push_str(
+            "html { overflow: hidden !important; } \
+            ::-webkit-scrollbar { display: none !important; }",
+        );
+    }
 
-async fn inject_scrollbar_killer(page: &Page) -> Result<(), CdpError> {
-    // PRD §16 determinism mitigation: scrollbar overlay differs across
-    // platforms / DPRs. The `--hide-scrollbars` Chromium launch arg is a
-    // first line of defense; this CSS injection covers the cases where
-    // the launch arg alone is not honored (Linux non-overlay scrollbars,
-    // CSS-painted scrollbars in some apps).
-    let source = "(() => { \
-        const style = document.createElement('style'); \
-        style.textContent = 'html { overflow: hidden !important; } \
-            ::-webkit-scrollbar { display: none !important; }'; \
-        (document.head || document.documentElement).appendChild(style); \
-    })();";
-    add_script_to_evaluate_on_new_document(page, source).await
+    let css_literal = serde_json::to_string(&css).ok()?;
+    Some(format!(
+        "(() => {{ \
+            const style = document.createElement('style'); \
+            style.setAttribute('data-plumb-deterministic-style', 'true'); \
+            style.textContent = {css_literal}; \
+            (document.head || document.documentElement).appendChild(style); \
+        }})();"
+    ))
 }
 
 /// Read `path` (validated as a `.js` file under the CWD) and register
@@ -3253,6 +3275,30 @@ mod tests {
         assert!(t.wait_for_selector.is_none());
         assert!(t.wait_ms.is_none());
         assert!(t.pin_dpr.is_none());
+    }
+
+    #[test]
+    fn deterministic_style_source_uses_default_capture_knobs() {
+        let Some(source) = super::deterministic_style_source(&super::Target::default()) else {
+            panic!("default target should inject deterministic CSS");
+        };
+
+        assert!(source.contains("data-plumb-deterministic-style"));
+        assert!(source.contains("animation-duration"));
+        assert!(source.contains("transition-duration"));
+        assert!(source.contains("overflow: hidden"));
+        assert!(source.contains("::-webkit-scrollbar"));
+    }
+
+    #[test]
+    fn deterministic_style_source_skips_when_knobs_disabled() {
+        let target = super::Target {
+            disable_animations: false,
+            hide_scrollbars: false,
+            ..super::Target::default()
+        };
+
+        assert!(super::deterministic_style_source(&target).is_none());
     }
 
     #[test]
