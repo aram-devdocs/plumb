@@ -78,7 +78,8 @@ use chromiumoxide::cdp::browser_protocol::network::{
     CookieParam, Headers, SetCookiesParams, SetExtraHttpHeadersParams,
 };
 use chromiumoxide::cdp::browser_protocol::page::{
-    AddScriptToEvaluateOnNewDocumentParams, EnableParams as PageEnableParams, NavigateParams,
+    AddScriptToEvaluateOnNewDocumentParams, EnableParams as PageEnableParams, GetFrameTreeParams,
+    NavigateParams,
 };
 use chromiumoxide::cdp::browser_protocol::target::{
     AttachToTargetParams, CreateBrowserContextParams, CreateTargetParams, SessionId,
@@ -2368,20 +2369,21 @@ async fn read_navigation_state_raw(
     cdp: &mut RawCdpClient,
     page: &RawPage,
 ) -> Result<NavigationState, CdpError> {
-    let raw: String = page
-        .evaluate_value(
+    let frame_tree = page
+        .execute(
             cdp,
-            "Runtime.evaluate navigation state",
+            "Page.getFrameTree navigation state",
             PAGE_COMMAND_TIMEOUT,
-            "JSON.stringify({
-                href: window.location.href,
-                readyState: document.readyState,
-                isChromeErrorPage: window.location.protocol === 'chrome-error:'
-                    || document.getElementById('main-frame-error') !== null
-            })",
+            GetFrameTreeParams::default(),
         )
-        .await?;
-    parse_navigation_state(&raw)
+        .await?
+        .frame_tree;
+    let href = frame_tree.frame.url;
+    Ok(NavigationState {
+        ready_state: "complete".to_string(),
+        is_chrome_error_page: href.starts_with("chrome-error:"),
+        href,
+    })
 }
 
 fn parse_navigation_state(raw: &str) -> Result<NavigationState, CdpError> {
