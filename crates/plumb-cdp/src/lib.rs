@@ -1507,10 +1507,10 @@ struct PersistentBrowserInner {
 impl PersistentBrowser {
     /// Launch Chromium and validate its version.
     ///
-    /// Per-call viewport and DPR are applied via
-    /// `Emulation.setDeviceMetricsOverride` inside [`Self::snapshot`],
-    /// so the launch-time defaults here are placeholders sized to a
-    /// 1280×800 desktop window.
+    /// Each snapshot creates a fresh target at the requested viewport
+    /// size. DPR overrides are still applied via
+    /// `Emulation.setDeviceMetricsOverride`, so the launch-time defaults
+    /// here are placeholders sized to a 1280×800 desktop window.
     ///
     /// # Errors
     ///
@@ -1601,19 +1601,25 @@ impl PersistentBrowser {
                 url: INITIAL_PAGE_URL.to_string(),
                 left: None,
                 top: None,
-                width: None,
-                height: None,
+                width: Some(i64::from(target.width)),
+                height: Some(i64::from(target.height)),
                 window_state: None,
                 browser_context_id: Some(ctx_id.clone()),
                 enable_begin_frame_control: None,
-                new_window: None,
+                new_window: Some(true),
                 background: None,
                 for_tab: None,
                 hidden: None,
             };
             let page = create_page_without_load_wait(&self.inner.browser, create_params).await?;
             settle_initial_document().await;
-            capture_on_page(&page, target, &self.inner.options, true).await
+            capture_on_page(
+                &page,
+                target,
+                &self.inner.options,
+                should_apply_persistent_viewport_override(target),
+            )
+            .await
         }
         .await;
 
@@ -1724,9 +1730,9 @@ fn persistent_browser_config(
 ) -> Result<ChromiumLaunch, CdpError> {
     // PRD §16: pinning launch args removes a class of nondeterminism
     // (scrollbar overlay differences across DPRs, OS-level scaling).
-    // `PersistentBrowser` does not fix a launch-time DPR — every
-    // snapshot calls `Emulation.setDeviceMetricsOverride` to drive
-    // both viewport and DPR per-call.
+    // `PersistentBrowser` creates every target at the requested
+    // viewport size. It does not fix a launch-time DPR — snapshots
+    // that request a non-default DPR use `Emulation.setDeviceMetricsOverride`.
     let builder = BrowserConfig::builder()
         .new_headless_mode()
         .chrome_detection(DetectionOptions {
@@ -1785,6 +1791,10 @@ async fn resolve_auto_fetch(options: &ChromiumOptions) -> Result<Option<PathBuf>
 
 fn should_apply_viewport_override(target_index: usize, target: &Target) -> bool {
     target_index != 0 || target.pin_dpr.is_some()
+}
+
+fn should_apply_persistent_viewport_override(target: &Target) -> bool {
+    target.pin_dpr.is_some() || (target.effective_dpr() - 1.0).abs() > f64::EPSILON
 }
 
 async fn apply_viewport(page: &Page, target: &Target) -> Result<(), CdpError> {
@@ -4487,6 +4497,33 @@ mod tests {
         let target = super::Target::default();
 
         assert!(super::should_apply_viewport_override(1, &target));
+    }
+
+    #[test]
+    fn persistent_viewport_override_skips_default_dpr_target() {
+        let target = super::Target::default();
+
+        assert!(!super::should_apply_persistent_viewport_override(&target));
+    }
+
+    #[test]
+    fn persistent_viewport_override_applies_to_pinned_dpr() {
+        let target = super::Target {
+            pin_dpr: Some(2.0),
+            ..super::Target::default()
+        };
+
+        assert!(super::should_apply_persistent_viewport_override(&target));
+    }
+
+    #[test]
+    fn persistent_viewport_override_applies_to_non_default_dpr() {
+        let target = super::Target {
+            device_pixel_ratio: 2.0,
+            ..super::Target::default()
+        };
+
+        assert!(super::should_apply_persistent_viewport_override(&target));
     }
 
     #[test]
