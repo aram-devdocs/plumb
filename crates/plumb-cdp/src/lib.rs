@@ -1317,6 +1317,31 @@ impl RawPage {
         }
         Ok(())
     }
+
+    async fn evaluate_unit_collecting_page_events(
+        &self,
+        cdp: &mut RawCdpClient,
+        operation: &str,
+        timeout: Duration,
+        expression: &str,
+        events: &mut RawNavigationEvents,
+    ) -> Result<(), CdpError> {
+        let params = EvaluateParams::builder()
+            .expression(expression)
+            .await_promise(true)
+            .return_by_value(true)
+            .build()
+            .map_err(driver_message)?;
+        let result = self
+            .execute_collecting_page_events(cdp, operation, timeout, params, events)
+            .await?;
+        if let Some(exception) = result.exception_details {
+            return Err(driver_error(
+                chromiumoxide::error::CdpError::JavascriptException(Box::new(exception)),
+            ));
+        }
+        Ok(())
+    }
 }
 
 async fn capture_on_raw_page(
@@ -1942,13 +1967,51 @@ async fn navigate_raw(
 ) -> Result<(), CdpError> {
     let page_events_enabled = enable_raw_page_events(cdp, page).await;
     let mut events = RawNavigationEvents::default();
-    let initial_result = if page_events_enabled {
+    let initial_result = if uses_raw_location_assignment(target.url.as_str()) {
+        navigate_raw_by_location_assignment(
+            cdp,
+            page,
+            target.url.as_str(),
+            page_events_enabled,
+            &mut events,
+        )
+        .await
+    } else {
+        navigate_raw_by_page_navigate(
+            cdp,
+            page,
+            target.url.as_str(),
+            page_events_enabled,
+            &mut events,
+        )
+        .await
+    };
+
+    wait_for_document_ready_raw(
+        cdp,
+        page,
+        navigation_display_url(target.url.as_str()),
+        initial_result.err(),
+        target.wait_for_selector.is_some(),
+        page_events_enabled.then_some(events),
+    )
+    .await
+}
+
+async fn navigate_raw_by_page_navigate(
+    cdp: &mut RawCdpClient,
+    page: &RawPage,
+    url: &str,
+    page_events_enabled: bool,
+    events: &mut RawNavigationEvents,
+) -> Result<(), CdpError> {
+    if page_events_enabled {
         page.execute_collecting_page_events(
             cdp,
             "Page.navigate",
             PAGE_COMMAND_TIMEOUT,
-            NavigateParams::new(target.url.as_str()),
-            &mut events,
+            NavigateParams::new(url),
+            events,
         )
         .await
     } else {
@@ -1956,7 +2019,7 @@ async fn navigate_raw(
             cdp,
             "Page.navigate",
             PAGE_COMMAND_TIMEOUT,
-            NavigateParams::new(target.url.as_str()),
+            NavigateParams::new(url),
         )
         .await
     }
@@ -1968,17 +2031,35 @@ async fn navigate_raw(
         } else {
             Ok(())
         }
-    });
+    })
+}
 
-    wait_for_document_ready_raw(
-        cdp,
-        page,
-        navigation_display_url(target.url.as_str()),
-        initial_result.err(),
-        target.wait_for_selector.is_some(),
-        page_events_enabled.then_some(events),
-    )
-    .await
+async fn navigate_raw_by_location_assignment(
+    cdp: &mut RawCdpClient,
+    page: &RawPage,
+    url: &str,
+    page_events_enabled: bool,
+    events: &mut RawNavigationEvents,
+) -> Result<(), CdpError> {
+    let script = navigation_assignment_script(url)?;
+    if page_events_enabled {
+        page.evaluate_unit_collecting_page_events(
+            cdp,
+            "navigation location assignment",
+            NAVIGATION_ASSIGNMENT_TIMEOUT,
+            script.as_str(),
+            events,
+        )
+        .await
+    } else {
+        page.evaluate_unit(
+            cdp,
+            "navigation location assignment",
+            NAVIGATION_ASSIGNMENT_TIMEOUT,
+            script.as_str(),
+        )
+        .await
+    }
 }
 
 async fn enable_raw_page_events(cdp: &mut RawCdpClient, page: &RawPage) -> bool {
@@ -2018,6 +2099,13 @@ fn navigation_method_for_url(url: &str) -> NavigationMethod {
     } else {
         NavigationMethod::LocationAssign
     }
+}
+
+fn uses_raw_location_assignment(url: &str) -> bool {
+    matches!(
+        navigation_method_for_url(url),
+        NavigationMethod::LocationAssign
+    )
 }
 
 fn navigation_assignment_script(url: &str) -> Result<String, CdpError> {
@@ -4413,6 +4501,20 @@ mod tests {
             super::navigation_method_for_url("https://example.com/"),
             super::NavigationMethod::LocationAssign
         );
+    }
+
+    #[test]
+    fn raw_navigation_uses_location_assignment_for_web_urls() {
+        assert!(super::uses_raw_location_assignment(
+            "http://127.0.0.1:49197/"
+        ));
+        assert!(super::uses_raw_location_assignment("https://example.com/"));
+        assert!(!super::uses_raw_location_assignment(
+            "data:text/html;base64,PHNjcmlwdD4="
+        ));
+        assert!(!super::uses_raw_location_assignment(
+            "file:///tmp/static.html"
+        ));
     }
 
     #[test]
