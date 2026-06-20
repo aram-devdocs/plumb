@@ -4,16 +4,16 @@
 //! engine → formatter → stdout.
 //!
 //! The orchestrator builds one [`Target`] per requested viewport and
-//! calls [`BrowserDriver::snapshot_all`] exactly once, so a real
-//! Chromium driver launches the browser only once per CLI invocation
-//! (PRD §10.3).
+//! calls [`BrowserDriver::snapshot_all`] exactly once, so real
+//! Chromium-backed linting launches the browser only once per CLI
+//! invocation (PRD §10.3).
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::{Context, Result};
 use plumb_cdp::{
-    BrowserDriver, ChromiumDriver, ChromiumOptions, Cookie, FakeDriver, Target, is_fake_url,
+    BrowserDriver, ChromiumOptions, Cookie, FakeDriver, PersistentBrowser, Target, is_fake_url,
     parse_header_kv, validate_safe_path,
 };
 use plumb_core::{Config, ViewportKey};
@@ -162,7 +162,7 @@ pub async fn run(args: LintArgs) -> Result<ExitCode> {
             .await
             .map_err(anyhow::Error::from)?
     } else {
-        let driver = ChromiumDriver::new(ChromiumOptions {
+        let driver = PersistentBrowser::launch(ChromiumOptions {
             executable_path,
             cookies: parsed_cookies,
             headers: parsed_headers,
@@ -170,11 +170,17 @@ pub async fn run(args: LintArgs) -> Result<ExitCode> {
             storage_state,
             auto_fetch_chromium,
             ..ChromiumOptions::default()
-        });
-        driver
+        })
+        .await
+        .map_err(anyhow::Error::from)?;
+        let snapshots = driver
             .snapshot_all(targets)
             .await
-            .map_err(anyhow::Error::from)?
+            .map_err(anyhow::Error::from);
+        if let Err(err) = driver.shutdown().await {
+            tracing::debug!(error = %err, "failed to shut down Chromium after lint capture");
+        }
+        snapshots?
     };
 
     // PRD §15.4 — apply `--selector` between snapshot collection and
