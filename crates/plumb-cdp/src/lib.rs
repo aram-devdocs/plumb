@@ -116,7 +116,7 @@ const NAVIGATION_ASSIGNMENT_TIMEOUT: Duration = Duration::from_secs(2);
 const DOCUMENT_READY_TIMEOUT: Duration = Duration::from_secs(30);
 const INITIAL_DOCUMENT_SETTLE_DELAY: Duration = Duration::from_millis(100);
 const NAVIGATION_STATE_READ_TIMEOUT: Duration = Duration::from_secs(2);
-const SNAPSHOT_CAPTURE_TIMEOUT: Duration = Duration::from_secs(25);
+const SNAPSHOT_CAPTURE_TIMEOUT: Duration = Duration::from_mins(1);
 const TRANSIENT_CAPTURE_RETRIES: usize = 1;
 const INITIAL_PAGE_URL: &str = "about:blank";
 
@@ -3186,10 +3186,17 @@ fn is_retryable_capture_timeout(err: &CdpError) -> bool {
     }
 
     source.downcast_ref::<io::Error>().is_some_and(|err| {
-        err.kind() == io::ErrorKind::TimedOut
+        (err.kind() == io::ErrorKind::TimedOut && !is_snapshot_capture_timeout(err))
             || is_startup_navigation_abort(err)
             || is_ready_state_read_timeout(err)
     })
+}
+
+fn is_snapshot_capture_timeout(err: &io::Error) -> bool {
+    err.kind() == io::ErrorKind::TimedOut
+        && err
+            .to_string()
+            .contains("DOMSnapshot.captureSnapshot exceeded")
 }
 
 fn is_startup_navigation_abort(err: &io::Error) -> bool {
@@ -4821,6 +4828,16 @@ mod tests {
         )));
 
         assert!(super::is_retryable_capture_timeout(&err));
+    }
+
+    #[test]
+    fn retryable_capture_timeout_rejects_snapshot_capture_timeout() {
+        let err = CdpError::Driver(Box::new(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "DOMSnapshot.captureSnapshot exceeded 60s budget",
+        )));
+
+        assert!(!super::is_retryable_capture_timeout(&err));
     }
 
     #[test]
