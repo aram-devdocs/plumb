@@ -953,6 +953,10 @@ impl BrowserDriver for ChromiumDriver {
 
 impl ChromiumDriver {
     async fn snapshot_all_once(&self, targets: &[Target]) -> Result<Vec<PlumbSnapshot>, CdpError> {
+        if should_use_raw_capture_path(targets) {
+            return self.snapshot_all_once_raw(targets).await;
+        }
+
         // Use the first target's dimensions and DPR for the initial
         // launch. Chromiumoxide's built-in viewport emulation is
         // disabled in `browser_config`; otherwise it sends its own
@@ -960,6 +964,42 @@ impl ChromiumDriver {
         // initialization. The first unpinned target can reuse the
         // launch-pinned window/DPR, while later targets and explicit
         // `--dpr` pins still use Plumb's bounded/labeled override.
+        let first = &targets[0];
+        let resolved_executable = resolve_auto_fetch(&self.options).await?;
+        let launch = self.browser_config(first, resolved_executable.as_deref())?;
+        let mut session = ChromiumSession::launch(launch).await?;
+
+        let result: Result<Vec<PlumbSnapshot>, CdpError> = async {
+            validate_browser_version(&session.browser).await?;
+            let mut snapshots = Vec::with_capacity(targets.len());
+            for (target_index, target) in targets.iter().enumerate() {
+                let snap = capture_target(
+                    &session.browser,
+                    target,
+                    &self.options,
+                    should_apply_viewport_override(target_index, target),
+                )
+                .await?;
+                snapshots.push(snap);
+            }
+            Ok(snapshots)
+        }
+        .await;
+
+        if let Err(cleanup_err) = session.shutdown().await {
+            tracing::debug!(error = %cleanup_err, "failed to clean up Chromium session");
+            if result.is_ok() {
+                return Err(cleanup_err);
+            }
+        }
+
+        result
+    }
+
+    async fn snapshot_all_once_raw(
+        &self,
+        targets: &[Target],
+    ) -> Result<Vec<PlumbSnapshot>, CdpError> {
         let first = &targets[0];
         let resolved_executable = resolve_auto_fetch(&self.options).await?;
         let launch = self.browser_config(first, resolved_executable.as_deref())?;
@@ -984,7 +1024,7 @@ impl ChromiumDriver {
         .await;
 
         if let Err(cleanup_err) = session.shutdown(&mut raw).await {
-            tracing::debug!(error = %cleanup_err, "failed to clean up Chromium session");
+            tracing::debug!(error = %cleanup_err, "failed to clean up raw Chromium session");
             if result.is_ok() {
                 return Err(cleanup_err);
             }
@@ -992,6 +1032,33 @@ impl ChromiumDriver {
 
         result
     }
+}
+
+fn should_use_raw_capture_path(targets: &[Target]) -> bool {
+    targets.iter().any(|target| {
+        target.wait_for_selector.is_some()
+            || matches!(
+                navigation_method_for_url(target.url.as_str()),
+                NavigationMethod::CdpNavigate
+            )
+    })
+}
+
+async fn capture_target(
+    browser: &Browser,
+    target: &Target,
+    options: &ChromiumOptions,
+    apply_viewport_override: bool,
+) -> Result<PlumbSnapshot, CdpError> {
+    let page = with_timeout("Browser.new_page", TARGET_ATTACH_TIMEOUT, async {
+        browser
+            .new_page(INITIAL_PAGE_URL)
+            .await
+            .map_err(driver_error)
+    })
+    .await?;
+
+    capture_on_page(&page, target, options, apply_viewport_override).await
 }
 
 async fn capture_target_raw(
@@ -1924,7 +1991,7 @@ struct NavigationState {
 }
 
 async fn navigate_page(page: &Page, url: &str) -> Result<(), CdpError> {
-    let initial_result = match navigation_method_for_url(url) {
+    let initial_result = match page_navigation_method_for_url(url) {
         NavigationMethod::ChromiumoxideGoto => {
             with_timeout("Page.navigate", DOCUMENT_READY_TIMEOUT, async {
                 page.goto(url).await.map(|_| ()).map_err(driver_error)
@@ -1965,6 +2032,14 @@ async fn navigate_page(page: &Page, url: &str) -> Result<(), CdpError> {
     };
 
     wait_for_document_ready(page, navigation_display_url(url), initial_result.err()).await
+}
+
+fn page_navigation_method_for_url(url: &str) -> NavigationMethod {
+    if url.starts_with("data:") {
+        NavigationMethod::CdpNavigate
+    } else {
+        NavigationMethod::ChromiumoxideGoto
+    }
 }
 
 async fn navigate_raw(
@@ -3094,6 +3169,43 @@ fn chromium_install_hint() -> String {
     format!(
         "Install Chrome/Chromium between major {MIN_SUPPORTED_CHROMIUM_MAJOR} and {MAX_SUPPORTED_CHROMIUM_MAJOR} (inclusive), or pass `--executable-path <path>` to a Chromium binary in that range that auto-detect missed. {platform_hint}"
     )
+}
+
+struct ChromiumSession {
+    browser: Browser,
+    handler_task: Option<JoinHandle<()>>,
+    profile_dir: Option<TempDir>,
+}
+
+impl ChromiumSession {
+    async fn launch(launch: ChromiumLaunch) -> Result<Self, CdpError> {
+        let (browser, handler) = with_timeout("Chromium launch", BROWSER_LAUNCH_TIMEOUT, async {
+            Browser::launch(launch.config)
+                .await
+                .map_err(map_launch_error)
+        })
+        .await?;
+        let handler_task = poll_handler(handler);
+        Ok(Self {
+            browser,
+            handler_task: Some(handler_task),
+            profile_dir: launch.profile_dir,
+        })
+    }
+
+    async fn shutdown(&mut self) -> Result<(), CdpError> {
+        let close_result = close_browser_best_effort(&mut self.browser).await;
+        if let Some(task) = self.handler_task.take() {
+            task.abort();
+            if let Err(join_err) = task.await
+                && !join_err.is_cancelled()
+            {
+                tracing::debug!(error = %join_err, "Chromium handler task failed");
+            }
+        }
+        let _profile_dir = self.profile_dir.take();
+        close_result
+    }
 }
 
 struct RawChromiumSession {
@@ -4614,6 +4726,44 @@ mod tests {
             super::navigation_method_for_url("https://example.com/"),
             super::NavigationMethod::LocationAssign
         );
+    }
+
+    #[test]
+    fn page_navigation_uses_chromiumoxide_goto_for_web_urls() {
+        assert_eq!(
+            super::page_navigation_method_for_url("http://127.0.0.1:49197/"),
+            super::NavigationMethod::ChromiumoxideGoto
+        );
+        assert_eq!(
+            super::page_navigation_method_for_url("https://example.com/"),
+            super::NavigationMethod::ChromiumoxideGoto
+        );
+        assert_eq!(
+            super::page_navigation_method_for_url("data:text/html;base64,PHNjcmlwdD4="),
+            super::NavigationMethod::CdpNavigate
+        );
+    }
+
+    #[test]
+    fn raw_capture_path_is_reserved_for_data_urls_and_selector_gated_pages() {
+        let web_target = super::Target {
+            url: "https://example.com/".to_owned(),
+            ..super::Target::default()
+        };
+        assert!(!super::should_use_raw_capture_path(&[web_target]));
+
+        let app_target = super::Target {
+            url: "http://127.0.0.1:49197/".to_owned(),
+            wait_for_selector: Some("html[data-plumb-ready=\"true\"]".to_owned()),
+            ..super::Target::default()
+        };
+        assert!(super::should_use_raw_capture_path(&[app_target]));
+
+        let data_target = super::Target {
+            url: "data:text/html;base64,PHNjcmlwdD4=".to_owned(),
+            ..super::Target::default()
+        };
+        assert!(super::should_use_raw_capture_path(&[data_target]));
     }
 
     #[test]
