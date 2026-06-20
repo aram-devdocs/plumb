@@ -1355,7 +1355,11 @@ async fn capture_on_raw_page(
 
     apply_post_navigate_waits_raw(cdp, page, target).await?;
     apply_storage_state_local_storage_raw(cdp, page, target, storage_state.as_ref()).await?;
-    if should_apply_post_navigation_deterministic_styles(deterministic_styles_installed, target) {
+    if should_apply_post_navigation_deterministic_styles(
+        deterministic_styles_installed,
+        page_events_enabled,
+        target,
+    ) {
         apply_deterministic_styles_raw(cdp, page, target).await?;
     }
 
@@ -2638,8 +2642,12 @@ async fn add_deterministic_styles_on_new_document_raw(
     Ok(true)
 }
 
-fn should_apply_post_navigation_deterministic_styles(preinstalled: bool, target: &Target) -> bool {
-    !preinstalled && deterministic_style_source(target).is_some()
+fn should_apply_post_navigation_deterministic_styles(
+    preinstalled: bool,
+    page_events_enabled: bool,
+    target: &Target,
+) -> bool {
+    page_events_enabled && !preinstalled && deterministic_style_source(target).is_some()
 }
 
 fn deterministic_style_source(target: &Target) -> Option<String> {
@@ -4406,10 +4414,19 @@ mod tests {
         let target = super::Target::default();
 
         assert!(!super::should_apply_post_navigation_deterministic_styles(
-            true, &target
+            true, true, &target
         ));
         assert!(super::should_apply_post_navigation_deterministic_styles(
-            false, &target
+            false, true, &target
+        ));
+    }
+
+    #[test]
+    fn raw_deterministic_styles_skip_post_navigation_when_page_events_unavailable() {
+        let target = super::Target::default();
+
+        assert!(!super::should_apply_post_navigation_deterministic_styles(
+            false, false, &target
         ));
     }
 
