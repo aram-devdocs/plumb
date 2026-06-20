@@ -932,8 +932,13 @@ impl BrowserDriver for ChromiumDriver {
         }
 
         let mut attempts = 0;
+        let mut use_raw_capture = should_use_raw_capture_path(&targets);
         loop {
-            let result = self.snapshot_all_once(&targets).await;
+            let result = if use_raw_capture {
+                self.snapshot_all_once_raw(&targets).await
+            } else {
+                self.snapshot_all_once_page(&targets).await
+            };
             if attempts < TRANSIENT_CAPTURE_RETRIES
                 && result
                     .as_ref()
@@ -942,6 +947,13 @@ impl BrowserDriver for ChromiumDriver {
             {
                 if let Err(err) = &result {
                     tracing::debug!(attempt = attempts + 1, error = %err, "retrying Chromium capture after transient timeout");
+                    if should_fallback_to_raw_capture(err) {
+                        tracing::debug!(
+                            attempt = attempts + 1,
+                            "retrying Chromium capture through raw CDP page path"
+                        );
+                        use_raw_capture = true;
+                    }
                 }
                 attempts += 1;
                 continue;
@@ -952,11 +964,10 @@ impl BrowserDriver for ChromiumDriver {
 }
 
 impl ChromiumDriver {
-    async fn snapshot_all_once(&self, targets: &[Target]) -> Result<Vec<PlumbSnapshot>, CdpError> {
-        if should_use_raw_capture_path(targets) {
-            return self.snapshot_all_once_raw(targets).await;
-        }
-
+    async fn snapshot_all_once_page(
+        &self,
+        targets: &[Target],
+    ) -> Result<Vec<PlumbSnapshot>, CdpError> {
         // Use the first target's dimensions and DPR for the initial
         // launch. Chromiumoxide's built-in viewport emulation is
         // disabled in `browser_config`; otherwise it sends its own
@@ -1041,6 +1052,16 @@ fn should_use_raw_capture_path(targets: &[Target]) -> bool {
                 navigation_method_for_url(target.url.as_str()),
                 NavigationMethod::CdpNavigate
             )
+    })
+}
+
+fn should_fallback_to_raw_capture(err: &CdpError) -> bool {
+    let CdpError::Driver(source) = err else {
+        return false;
+    };
+
+    source.downcast_ref::<io::Error>().is_some_and(|err| {
+        err.kind() == io::ErrorKind::TimedOut && err.to_string().contains("Browser.new_page")
     })
 }
 
@@ -4764,6 +4785,36 @@ mod tests {
             ..super::Target::default()
         };
         assert!(super::should_use_raw_capture_path(&[data_target]));
+    }
+
+    #[test]
+    fn raw_capture_fallback_accepts_browser_new_page_timeout() {
+        let err = CdpError::Driver(Box::new(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "Browser.new_page exceeded 75s budget",
+        )));
+
+        assert!(super::should_fallback_to_raw_capture(&err));
+    }
+
+    #[test]
+    fn raw_capture_fallback_accepts_browser_new_page_request_budget() {
+        let err = CdpError::Driver(Box::new(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "Browser.new_page hit Chromiumoxide request budget (60s)",
+        )));
+
+        assert!(super::should_fallback_to_raw_capture(&err));
+    }
+
+    #[test]
+    fn raw_capture_fallback_rejects_unrelated_timeouts() {
+        let err = CdpError::Driver(Box::new(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "DOMSnapshot.captureSnapshot exceeded 60s budget",
+        )));
+
+        assert!(!super::should_fallback_to_raw_capture(&err));
     }
 
     #[test]
