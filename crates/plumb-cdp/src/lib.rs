@@ -1329,21 +1329,6 @@ impl RawPage {
         }
         Ok(())
     }
-
-    fn submit_navigation_assignment(
-        &self,
-        cdp: &mut RawCdpClient,
-        expression: &str,
-    ) -> Result<(), CdpError> {
-        let params = EvaluateParams::builder()
-            .expression(expression)
-            .await_promise(false)
-            .return_by_value(false)
-            .build()
-            .map_err(driver_message)?;
-        cdp.submit(Some(&self.session_id), params)?;
-        Ok(())
-    }
 }
 
 async fn capture_on_raw_page(
@@ -1969,8 +1954,8 @@ async fn navigate_raw(
 ) -> Result<(), CdpError> {
     let page_events_enabled = enable_raw_page_events(cdp, page).await;
     let mut events = RawNavigationEvents::default();
-    let initial_result = if uses_raw_location_assignment(target.url.as_str()) {
-        navigate_raw_by_location_assignment(cdp, page, target.url.as_str()).await
+    let initial_result = if uses_raw_async_page_navigate(target.url.as_str()) {
+        submit_raw_page_navigate(cdp, page, target.url.as_str())
     } else {
         navigate_raw_by_page_navigate(
             cdp,
@@ -2029,13 +2014,13 @@ async fn navigate_raw_by_page_navigate(
     })
 }
 
-async fn navigate_raw_by_location_assignment(
+fn submit_raw_page_navigate(
     cdp: &mut RawCdpClient,
     page: &RawPage,
     url: &str,
 ) -> Result<(), CdpError> {
-    let script = navigation_assignment_script(url)?;
-    page.submit_navigation_assignment(cdp, script.as_str())
+    cdp.submit(Some(&page.session_id), NavigateParams::new(url))?;
+    Ok(())
 }
 
 async fn enable_raw_page_events(cdp: &mut RawCdpClient, page: &RawPage) -> bool {
@@ -2077,7 +2062,7 @@ fn navigation_method_for_url(url: &str) -> NavigationMethod {
     }
 }
 
-fn uses_raw_location_assignment(url: &str) -> bool {
+fn uses_raw_async_page_navigate(url: &str) -> bool {
     matches!(
         navigation_method_for_url(url),
         NavigationMethod::LocationAssign
@@ -4492,15 +4477,15 @@ mod tests {
     }
 
     #[test]
-    fn raw_navigation_uses_location_assignment_for_web_urls() {
-        assert!(super::uses_raw_location_assignment(
+    fn raw_navigation_submits_page_navigate_for_web_urls() {
+        assert!(super::uses_raw_async_page_navigate(
             "http://127.0.0.1:49197/"
         ));
-        assert!(super::uses_raw_location_assignment("https://example.com/"));
-        assert!(!super::uses_raw_location_assignment(
+        assert!(super::uses_raw_async_page_navigate("https://example.com/"));
+        assert!(!super::uses_raw_async_page_navigate(
             "data:text/html;base64,PHNjcmlwdD4="
         ));
-        assert!(!super::uses_raw_location_assignment(
+        assert!(!super::uses_raw_async_page_navigate(
             "file:///tmp/static.html"
         ));
     }
