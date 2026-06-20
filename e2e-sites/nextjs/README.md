@@ -13,16 +13,15 @@ post-hydration DOM via Chromium DevTools.
 
 Next.js injects a hidden `<next-route-announcer>` element with `margin:
 -1px` (the standard "visually hidden" trick used to stay accessible
-without contributing visible layout). The four longhand margin values
-are off-grid against `spacing.base_unit = 4` and off-scale against the
-configured `spacing.scale`, so they emit 4 grid + 4 scale violations
-on top of the hero's intended 4 + 4. `expected.json` documents the
-total target counts as `8` + `8` accordingly.
+without contributing visible layout). Plumb ignores that framework
+infrastructure for spacing rules because the node is hidden,
+nondeterministic across Next versions, and not actionable for an agent
+fix loop. The target counts below cover the app-owned hero violation.
 
 | Rule                        | Source                                                  | Count |
 | --------------------------- | ------------------------------------------------------- | ----- |
-| `spacing/grid-conformance`  | `<section className="p-[13px]">` + route announcer      | 8     |
-| `spacing/scale-conformance` | `<section className="p-[13px]">` + route announcer      | 8     |
+| `spacing/grid-conformance`  | `<section className="p-[13px]">`                        | 4     |
+| `spacing/scale-conformance` | `<section className="p-[13px]">`                        | 4     |
 | `color/palette-conformance` | `<p className="text-[#2e7d2e]">`                        | 1     |
 
 ## Build

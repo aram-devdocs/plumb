@@ -1,5 +1,5 @@
 {
-  "$comment": "Next.js 14 statically exported. The framework injects a hidden `<next-route-announcer>` that uses the visually-hidden `margin: -1px` trick — that contributes 4 grid + 4 scale violations on top of the intentional `p-[13px]` hero. Expected counts are doubled accordingly. The non-target rules `sibling/height-consistency` and `sibling/padding-consistency` also fire on the announcer; they're not asserted on. The `wait_for` block points at a `data-plumb-ready` sentinel server-rendered onto `<html>` in `app/layout.tsx`, which makes the captured DOM byte-stable across Linux/macOS/Windows runs.",
+  "$comment": "Next.js 14 statically exported. The framework may inject a hidden `<next-route-announcer>` that uses the visually-hidden `margin: -1px` trick; spacing rules ignore that framework infrastructure because it is nondeterministic and unactionable. The `wait_for` block points at a `data-plumb-ready` sentinel server-rendered onto `<html>` in `app/layout.tsx`, which makes the app-owned DOM byte-stable across Linux/macOS/Windows runs.",
   "target_rules": [
     "color/palette-conformance",
     "spacing/grid-conformance",
@@ -7,10 +7,10 @@
   ],
   "by_rule_id": {
     "color/palette-conformance": 1,
-    "spacing/grid-conformance": 8,
-    "spacing/scale-conformance": 8
+    "spacing/grid-conformance": 4,
+    "spacing/scale-conformance": 4
   },
-  "total_target_violations": 17,
+  "total_target_violations": 9,
   "wait_for": {
     "selector": "html[data-plumb-ready=\"true\"]",
     "timeout_ms": 30000

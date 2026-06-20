@@ -11,7 +11,7 @@ use indexmap::IndexMap;
 use crate::config::Config;
 use crate::report::{Confidence, Fix, FixKind, Severity, Violation, ViolationSink};
 use crate::rules::Rule;
-use crate::rules::spacing::SPACING_PROPERTIES;
+use crate::rules::spacing::{SPACING_PROPERTIES, is_framework_hidden_spacing_node};
 use crate::rules::util::{nearest_in_scale, parse_px};
 use crate::snapshot::SnapshotCtx;
 
@@ -47,6 +47,9 @@ impl Rule for ScaleConformance {
         }
 
         for node in ctx.nodes() {
+            if is_framework_hidden_spacing_node(node) {
+                continue;
+            }
             for prop in SPACING_PROPERTIES {
                 let Some(raw) = node.computed_styles.get(*prop) else {
                     continue;

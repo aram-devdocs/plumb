@@ -179,6 +179,40 @@ fn spacing_scale_conformance_golden() -> Result<(), serde_json::Error> {
 }
 
 #[test]
+fn spacing_scale_conformance_skips_next_route_announcer() {
+    let announcer = node(
+        2,
+        "html > body > next-route-announcer > div",
+        &[
+            ("margin-top", "-1px"),
+            ("margin-right", "-1px"),
+            ("margin-bottom", "-1px"),
+            ("margin-left", "-1px"),
+        ],
+        Some(Rect {
+            x: -1,
+            y: 333,
+            width: 1,
+            height: 1,
+        }),
+    );
+
+    let snapshot = PlumbSnapshot {
+        url: "plumb-fake://spacing-scale-next-route-announcer".into(),
+        viewport: ViewportKey::new("desktop"),
+        viewport_width: 1280,
+        viewport_height: 800,
+        nodes: vec![root_html(), body_node(), announcer],
+        text_boxes: Vec::new(),
+    };
+    let has_violation = run(&snapshot, &fixture_config())
+        .into_iter()
+        .any(|v| v.rule_id == "spacing/scale-conformance");
+
+    assert!(!has_violation);
+}
+
+#[test]
 fn spacing_scale_conformance_run_is_deterministic() -> Result<(), serde_json::Error> {
     let snapshot = fixture_snapshot();
     let config = fixture_config();

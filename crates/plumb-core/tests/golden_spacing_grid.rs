@@ -270,6 +270,40 @@ fn spacing_grid_conformance_skips_root_body_margins() {
     assert!(violations[0].message.contains("padding-top 13px"));
 }
 
+#[test]
+fn spacing_grid_conformance_skips_next_route_announcer() {
+    let announcer = node(
+        2,
+        "html > body > next-route-announcer > div",
+        &[
+            ("margin-top", "-1px"),
+            ("margin-right", "-1px"),
+            ("margin-bottom", "-1px"),
+            ("margin-left", "-1px"),
+        ],
+        Some(Rect {
+            x: -1,
+            y: 333,
+            width: 1,
+            height: 1,
+        }),
+    );
+
+    let snapshot = PlumbSnapshot {
+        url: "plumb-fake://spacing-grid-next-route-announcer".into(),
+        viewport: ViewportKey::new("desktop"),
+        viewport_width: 1280,
+        viewport_height: 800,
+        nodes: vec![root_html_with_body(), body_node(), announcer],
+        text_boxes: Vec::new(),
+    };
+    let has_violation = run(&snapshot, &fixture_config())
+        .into_iter()
+        .any(|v| v.rule_id == "spacing/grid-conformance");
+
+    assert!(!has_violation);
+}
+
 /// Build a one-node snapshot carrying a single spacing property and
 /// count `spacing/grid-conformance` violations under `config`. Lets the
 /// scale-deferral tests vary both the property value and the configured
