@@ -111,12 +111,13 @@ const CDP_CONTROL_TIMEOUT: Duration = Duration::from_secs(10);
 const TARGET_CREATE_TIMEOUT: Duration = Duration::from_secs(10);
 const TARGET_ATTACH_TIMEOUT: Duration = Duration::from_secs(75);
 const PAGE_COMMAND_TIMEOUT: Duration = Duration::from_secs(25);
-const PAGE_ENABLE_TIMEOUT: Duration = Duration::from_secs(5);
+const PAGE_ENABLE_TIMEOUT: Duration = Duration::from_secs(25);
 const NAVIGATION_ASSIGNMENT_TIMEOUT: Duration = Duration::from_secs(2);
 const DOCUMENT_READY_TIMEOUT: Duration = Duration::from_secs(30);
 const INITIAL_DOCUMENT_SETTLE_DELAY: Duration = Duration::from_millis(100);
 const NAVIGATION_STATE_READ_TIMEOUT: Duration = Duration::from_secs(2);
-const SNAPSHOT_CAPTURE_TIMEOUT: Duration = Duration::from_mins(1);
+const SNAPSHOT_CAPTURE_TIMEOUT_SECS: u64 = 60;
+const SNAPSHOT_CAPTURE_TIMEOUT: Duration = Duration::from_secs(SNAPSHOT_CAPTURE_TIMEOUT_SECS);
 const TRANSIENT_CAPTURE_RETRIES: usize = 1;
 const INITIAL_PAGE_URL: &str = "about:blank";
 
@@ -1343,7 +1344,7 @@ async fn capture_on_raw_page(
         apply_viewport_raw(cdp, page, target).await?;
     }
     let storage_state = pre_navigate_raw(cdp, page, target, options).await?;
-    let page_events_enabled = enable_raw_page_events(cdp, page).await;
+    let page_events_enabled = enable_raw_page_events(cdp, page).await?;
     let deterministic_styles_installed =
         if should_preinstall_deterministic_styles(page_events_enabled, target) {
             add_deterministic_styles_on_new_document_raw(cdp, page, target).await?
@@ -2046,22 +2047,15 @@ fn should_preinstall_deterministic_styles(page_events_enabled: bool, target: &Ta
     page_events_enabled && deterministic_style_source(target).is_some()
 }
 
-async fn enable_raw_page_events(cdp: &mut RawCdpClient, page: &RawPage) -> bool {
-    match page
-        .execute(
-            cdp,
-            "Page.enable",
-            PAGE_ENABLE_TIMEOUT,
-            PageEnableParams::default(),
-        )
-        .await
-    {
-        Ok(_) => true,
-        Err(err) => {
-            tracing::debug!(error = %err, "Page.enable failed; falling back to raw ready-state polling");
-            false
-        }
-    }
+async fn enable_raw_page_events(cdp: &mut RawCdpClient, page: &RawPage) -> Result<bool, CdpError> {
+    page.execute(
+        cdp,
+        "Page.enable",
+        PAGE_ENABLE_TIMEOUT,
+        PageEnableParams::default(),
+    )
+    .await?;
+    Ok(true)
 }
 
 fn uses_chromiumoxide_goto(url: &str) -> bool {
