@@ -117,7 +117,7 @@ const INITIAL_DOCUMENT_SETTLE_DELAY: Duration = Duration::from_millis(100);
 const NAVIGATION_STATE_READ_TIMEOUT: Duration = Duration::from_secs(2);
 const SNAPSHOT_CAPTURE_TIMEOUT: Duration = Duration::from_secs(25);
 const TRANSIENT_CAPTURE_RETRIES: usize = 1;
-const INITIAL_PAGE_URL: &str = "data:text/html,%3C!doctype%20html%3E%3Ctitle%3Eplumb%3C%2Ftitle%3E";
+const INITIAL_PAGE_URL: &str = "about:blank";
 
 /// CSS property whitelist passed to `DOMSnapshot.captureSnapshot` as the
 /// `computedStyles` argument.
@@ -2057,9 +2057,9 @@ async fn wait_for_document_ready(
 }
 
 async fn settle_initial_document() {
-    // Avoid Runtime.evaluate on the bootstrap page. Chrome for Testing
-    // 150 on macOS can leave that probe in flight before the real
-    // navigation, which makes the subsequent Page.navigate unreliable.
+    // Avoid probing the bootstrap page before the real navigation. On
+    // macOS CFT 150, pre-navigation probes and interrupted data: loads
+    // can make the subsequent Page.navigate unreliable.
     tokio::time::sleep(INITIAL_DOCUMENT_SETTLE_DELAY).await;
 }
 
@@ -2280,7 +2280,7 @@ fn document_has_navigated(state: &NavigationState) -> bool {
 }
 
 fn url_has_navigated(url: &str) -> bool {
-    url != "about:blank" && url != INITIAL_PAGE_URL
+    url != INITIAL_PAGE_URL
 }
 
 async fn read_navigation_state(page: &Page) -> Result<NavigationState, CdpError> {
@@ -4314,9 +4314,8 @@ mod tests {
     }
 
     #[test]
-    fn initial_page_url_uses_loaded_non_blank_document() {
-        assert!(super::INITIAL_PAGE_URL.starts_with("data:text/html,"));
-        assert!(!super::INITIAL_PAGE_URL.contains("about:blank"));
+    fn initial_page_url_uses_blank_bootstrap_document() {
+        assert_eq!(super::INITIAL_PAGE_URL, "about:blank");
     }
 
     #[test]
@@ -4414,11 +4413,6 @@ mod tests {
         assert!(!super::document_is_loaded(&super::NavigationState {
             href: "https://example.com/login".to_string(),
             ready_state: "interactive".to_string(),
-            is_chrome_error_page: false,
-        }));
-        assert!(!super::document_is_loaded(&super::NavigationState {
-            href: "about:blank".to_string(),
-            ready_state: "complete".to_string(),
             is_chrome_error_page: false,
         }));
         assert!(!super::document_is_loaded(&super::NavigationState {
