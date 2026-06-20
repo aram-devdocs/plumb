@@ -113,6 +113,8 @@ const PAGE_COMMAND_TIMEOUT: Duration = Duration::from_secs(25);
 const PAGE_ENABLE_TIMEOUT: Duration = Duration::from_secs(5);
 const NAVIGATION_ASSIGNMENT_TIMEOUT: Duration = Duration::from_secs(2);
 const DOCUMENT_READY_TIMEOUT: Duration = Duration::from_secs(30);
+const INITIAL_DOCUMENT_READY_TIMEOUT: Duration = Duration::from_secs(2);
+const INITIAL_NAVIGATION_STATE_READ_TIMEOUT: Duration = Duration::from_millis(500);
 const NAVIGATION_STATE_READ_TIMEOUT: Duration = Duration::from_secs(2);
 const SNAPSHOT_CAPTURE_TIMEOUT: Duration = Duration::from_secs(25);
 const TRANSIENT_CAPTURE_RETRIES: usize = 1;
@@ -1009,7 +1011,7 @@ async fn capture_target_raw(
     )
     .await?;
 
-    wait_for_initial_document_ready_raw(cdp, &page).await?;
+    best_effort_wait_for_initial_document_ready_raw(cdp, &page).await;
     capture_on_raw_page(cdp, &page, target, options, apply_viewport_override).await
 }
 
@@ -1584,7 +1586,7 @@ impl PersistentBrowser {
                 hidden: None,
             };
             let page = create_page_without_load_wait(&self.inner.browser, create_params).await?;
-            wait_for_initial_document_ready(&page).await?;
+            best_effort_wait_for_initial_document_ready(&page).await;
             capture_on_page(&page, target, &self.inner.options, true).await
         }
         .await;
@@ -2055,13 +2057,25 @@ async fn wait_for_document_ready(
     Err(CdpError::Driver(Box::new(io::Error::other(reason))))
 }
 
+async fn best_effort_wait_for_initial_document_ready(page: &Page) {
+    if let Err(err) = wait_for_initial_document_ready(page).await {
+        tracing::debug!(
+            error = %err,
+            "initial document did not report ready before navigation; continuing"
+        );
+    }
+}
+
 async fn wait_for_initial_document_ready(page: &Page) -> Result<(), CdpError> {
     let mut last_state_error = None;
     let attempt = async {
         loop {
             tokio::time::sleep(Duration::from_millis(50)).await;
-            match tokio::time::timeout(NAVIGATION_STATE_READ_TIMEOUT, read_navigation_state(page))
-                .await
+            match tokio::time::timeout(
+                INITIAL_NAVIGATION_STATE_READ_TIMEOUT,
+                read_navigation_state(page),
+            )
+            .await
             {
                 Ok(Ok(state)) if initial_document_is_ready(&state) => return Ok(()),
                 Ok(Ok(_)) => {}
@@ -2069,20 +2083,29 @@ async fn wait_for_initial_document_ready(page: &Page) -> Result<(), CdpError> {
                 Err(_) => {
                     last_state_error = Some(timeout_reason(
                         "initial navigation state read",
-                        NAVIGATION_STATE_READ_TIMEOUT,
+                        INITIAL_NAVIGATION_STATE_READ_TIMEOUT,
                     ));
                 }
             }
         }
     };
 
-    if let Ok(result) = tokio::time::timeout(DOCUMENT_READY_TIMEOUT, attempt).await {
+    if let Ok(result) = tokio::time::timeout(INITIAL_DOCUMENT_READY_TIMEOUT, attempt).await {
         return result;
     }
 
     Err(CdpError::Driver(Box::new(io::Error::other(
         initial_document_ready_timeout_reason(last_state_error.as_deref()),
     ))))
+}
+
+async fn best_effort_wait_for_initial_document_ready_raw(cdp: &mut RawCdpClient, page: &RawPage) {
+    if let Err(err) = wait_for_initial_document_ready_raw(cdp, page).await {
+        tracing::debug!(
+            error = %err,
+            "initial raw document did not report ready before navigation; continuing"
+        );
+    }
 }
 
 async fn wait_for_initial_document_ready_raw(
@@ -2094,7 +2117,7 @@ async fn wait_for_initial_document_ready_raw(
         loop {
             tokio::time::sleep(Duration::from_millis(50)).await;
             match tokio::time::timeout(
-                NAVIGATION_STATE_READ_TIMEOUT,
+                INITIAL_NAVIGATION_STATE_READ_TIMEOUT,
                 read_navigation_state_raw(cdp, page),
             )
             .await
@@ -2105,14 +2128,14 @@ async fn wait_for_initial_document_ready_raw(
                 Err(_) => {
                     last_state_error = Some(timeout_reason(
                         "initial navigation state read",
-                        NAVIGATION_STATE_READ_TIMEOUT,
+                        INITIAL_NAVIGATION_STATE_READ_TIMEOUT,
                     ));
                 }
             }
         }
     };
 
-    if let Ok(result) = tokio::time::timeout(DOCUMENT_READY_TIMEOUT, attempt).await {
+    if let Ok(result) = tokio::time::timeout(INITIAL_DOCUMENT_READY_TIMEOUT, attempt).await {
         return result;
     }
 
@@ -2424,7 +2447,7 @@ fn navigation_display_url(url: &str) -> &str {
 fn initial_document_ready_timeout_reason(last_state_error: Option<&str>) -> String {
     let mut reason = format!(
         "initial document exhausted {} ready-state budget",
-        timeout_budget_label(DOCUMENT_READY_TIMEOUT)
+        timeout_budget_label(INITIAL_DOCUMENT_READY_TIMEOUT)
     );
     if let Some(err) = last_state_error {
         reason.push_str("; last initial navigation state read failed: ");
@@ -4637,6 +4660,18 @@ mod tests {
         assert!(reason.contains("exhausted 30s ready-state budget"));
         assert!(reason.contains("after initial location assignment failed"));
         assert!(reason.contains("last navigation state read failed"));
+    }
+
+    #[test]
+    fn initial_document_timeout_reason_uses_short_bootstrap_budget() {
+        let reason = super::initial_document_ready_timeout_reason(Some(
+            "initial navigation state read exceeded 500ms budget",
+        ));
+
+        assert!(reason.contains("exhausted 2s ready-state budget"));
+        assert!(reason.contains(
+            "last initial navigation state read failed: initial navigation state read exceeded 500ms budget"
+        ));
     }
 
     #[test]
