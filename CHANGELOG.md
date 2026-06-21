@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 From the first release onward, this file is maintained automatically by [`release-please`](https://github.com/googleapis/release-please) based on [Conventional Commits](https://www.conventionalcommits.org/) on `main`. Do not edit released sections by hand.
 
+## [0.0.14](https://github.com/aram-devdocs/plumb/compare/v0.0.13...v0.0.14) (2026-06-21)
+
+
+### Features
+
+* **codegen:** infer workspace token modules ([#311](https://github.com/aram-devdocs/plumb/issues/311)) ([ab126c9](https://github.com/aram-devdocs/plumb/commit/ab126c975e860ae240c3ef84a3b9b875a5938de9))
+
+
+### Bug Fixes
+
+* **cdp,mcp:** stabilize page linting noise ([#309](https://github.com/aram-devdocs/plumb/issues/309)) ([627c4ec](https://github.com/aram-devdocs/plumb/commit/627c4ec2689a9195114903e93d200cd9695c99c9))
+* **cdp:** keep default raw readiness best effort ([#310](https://github.com/aram-devdocs/plumb/issues/310)) ([8c952d5](https://github.com/aram-devdocs/plumb/commit/8c952d5de87734fa80ed686a08aa812bfe02ffa4))
+* **codegen:** parse rem token lengths ([#313](https://github.com/aram-devdocs/plumb/issues/313)) ([8c2a3bf](https://github.com/aram-devdocs/plumb/commit/8c2a3bf02aa684e11784b6a187818bd5f2099935))
+* **codegen:** prefer light token exports ([#312](https://github.com/aram-devdocs/plumb/issues/312)) ([8be27ec](https://github.com/aram-devdocs/plumb/commit/8be27ec8011ca4f46aeeab608ff589ab046321fe))
+
+
+### Documentation
+
+* ship the full brand kit and polish the book theme ([#307](https://github.com/aram-devdocs/plumb/issues/307)) ([59d1046](https://github.com/aram-devdocs/plumb/commit/59d1046674706915db696486d3c34143129c66fe))
+
 ## [0.0.13](https://github.com/aram-devdocs/plumb/compare/v0.0.12...v0.0.13) (2026-06-19)
 
 
