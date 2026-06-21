@@ -23,10 +23,11 @@
 //!
 //! [`ChromiumDriver::snapshot_all`] launches Chromium exactly once,
 //! validates [`Browser::version`](chromiumoxide::Browser::version),
-//! and then loops over the requested targets — for each it opens a
-//! fresh page, applies the per-target viewport via CDP
-//! `Emulation.setDeviceMetricsOverride`, navigates to the URL, and
-//! calls `DOMSnapshot.captureSnapshot` with the
+//! and then loops over the requested targets — the first target's
+//! viewport is pinned at launch through Chromium's window size and DPR
+//! flags, later targets and explicit DPR pins are applied via CDP
+//! `Emulation.setDeviceMetricsOverride`, then Plumb navigates to the
+//! URL and calls `DOMSnapshot.captureSnapshot` with the
 //! [`COMPUTED_STYLE_WHITELIST`] from PRD §10.3. Each CDP response is
 //! flattened into a [`PlumbSnapshot`] with deterministic ordering
 //! (nodes sorted by `dom_order`, computed styles inserted in
@@ -57,12 +58,18 @@ use indexmap::IndexMap;
 use plumb_core::report::Rect;
 use plumb_core::snapshot::{SnapshotNode, TextBox};
 use plumb_core::{PlumbSnapshot, ViewportKey};
+use std::future::Future;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
+use tempfile::TempDir;
 
 use chromiumoxide::Page;
-use chromiumoxide::cdp::browser_protocol::browser::CloseParams as BrowserCloseParams;
+use chromiumoxide::browser::BrowserConfigBuilder;
+use chromiumoxide::cdp::browser_protocol::browser::{
+    CloseParams as BrowserCloseParams, GetVersionParams,
+};
 use chromiumoxide::cdp::browser_protocol::dom_snapshot::{
     CaptureSnapshotParams, CaptureSnapshotReturns, DocumentSnapshot,
 };
@@ -70,12 +77,17 @@ use chromiumoxide::cdp::browser_protocol::emulation::SetDeviceMetricsOverridePar
 use chromiumoxide::cdp::browser_protocol::network::{
     CookieParam, Headers, SetCookiesParams, SetExtraHttpHeadersParams,
 };
-use chromiumoxide::cdp::browser_protocol::page::AddScriptToEvaluateOnNewDocumentParams;
-use chromiumoxide::cdp::browser_protocol::target::{
-    CreateBrowserContextParams, CreateTargetParams,
+use chromiumoxide::cdp::browser_protocol::page::{
+    AddScriptToEvaluateOnNewDocumentParams, GetFrameTreeParams, NavigateParams,
 };
+use chromiumoxide::cdp::browser_protocol::target::{
+    AttachToTargetParams, CreateBrowserContextParams, CreateTargetParams, SessionId,
+};
+use chromiumoxide::cdp::js_protocol::runtime::EvaluateParams;
+use chromiumoxide::cdp::{CdpEvent, CdpEventMessage};
 use chromiumoxide::detection::DetectionOptions;
-use chromiumoxide::{Browser, BrowserConfig, Handler};
+use chromiumoxide::types::{CallId, Command, Message, MethodId, Response};
+use chromiumoxide::{Browser, BrowserConfig, Connection, Handler};
 use futures_util::StreamExt;
 use serde::Deserialize;
 use tokio::task::JoinHandle;
@@ -88,6 +100,26 @@ pub const MIN_SUPPORTED_CHROMIUM_MAJOR: u32 = 131;
 /// Chromium binary with a larger major refuses to run; bump this
 /// constant after running the e2e suite against the new major.
 pub const MAX_SUPPORTED_CHROMIUM_MAJOR: u32 = 150;
+
+const BROWSER_LAUNCH_TIMEOUT: Duration = Duration::from_secs(30);
+const BROWSER_CLOSE_TIMEOUT: Duration = Duration::from_secs(5);
+const BROWSER_WAIT_TIMEOUT: Duration = Duration::from_secs(5);
+const BROWSER_KILL_TIMEOUT: Duration = Duration::from_secs(5);
+const CHROMIUMOXIDE_REQUEST_TIMEOUT: Duration = Duration::from_mins(1);
+const CDP_CONTROL_TIMEOUT: Duration = Duration::from_secs(10);
+const TARGET_CREATE_TIMEOUT: Duration = Duration::from_secs(10);
+const TARGET_ATTACH_TIMEOUT: Duration = Duration::from_secs(75);
+const PAGE_COMMAND_TIMEOUT: Duration = Duration::from_secs(25);
+const NAVIGATION_ASSIGNMENT_TIMEOUT: Duration = Duration::from_secs(2);
+const DOCUMENT_READY_TIMEOUT: Duration = Duration::from_secs(30);
+const INITIAL_DOCUMENT_SETTLE_DELAY: Duration = Duration::from_millis(100);
+const POST_READY_SETTLE_DELAY: Duration = Duration::from_millis(100);
+const NAVIGATION_STATE_READ_TIMEOUT: Duration = Duration::from_secs(10);
+const SNAPSHOT_CAPTURE_TIMEOUT_SECS: u64 = 60;
+const SNAPSHOT_CAPTURE_TIMEOUT: Duration = Duration::from_secs(SNAPSHOT_CAPTURE_TIMEOUT_SECS);
+const TRANSIENT_CAPTURE_RETRIES: usize = 1;
+const INITIAL_PAGE_URL: &str = "about:blank";
+const RAW_DEFAULT_READY_SELECTOR: &str = "body";
 
 /// CSS property whitelist passed to `DOMSnapshot.captureSnapshot` as the
 /// `computedStyles` argument.
@@ -166,8 +198,8 @@ pub struct Target {
     /// Optional additional milliseconds to sleep before capturing the
     /// snapshot, after navigation (and after [`Self::wait_for_selector`]).
     pub wait_ms: Option<u64>,
-    /// Inject CSS that disables animations and transitions before the
-    /// page renders. Defaults to `true` — the historical Plumb behavior
+    /// Inject CSS that disables animations and transitions before
+    /// capture. Defaults to `true` — the historical Plumb behavior
     /// (PRD §16) — and the CLI exposes a flag that flips this value.
     pub disable_animations: bool,
     /// Inject CSS that hides page-level scrollbars. Defaults to `true`
@@ -777,11 +809,9 @@ pub struct ChromiumOptions {
     /// Explicit Chrome or Chromium executable path. When unset, Plumb asks
     /// `chromiumoxide` to detect stable Chrome/Chromium installations.
     pub executable_path: Option<PathBuf>,
-    /// Override the Chromium profile directory. When unset, `chromiumoxide`
-    /// reuses a single temp directory across all launches — which is fine
-    /// for sequential CLI invocations but causes profile-singleton lock
-    /// contention when multiple drivers run concurrently (e.g. the e2e
-    /// test suite). Tests pass per-thread tempdirs here.
+    /// Override the Chromium profile directory. When unset, Plumb creates an
+    /// isolated temporary profile per browser launch so concurrent or
+    /// back-to-back drivers never contend on Chromium's SingletonLock.
     ///
     /// Profile contents do not flow into [`PlumbSnapshot`] output, so
     /// varying this path does not violate the determinism invariant.
@@ -821,6 +851,11 @@ pub struct ChromiumDriver {
     options: ChromiumOptions,
 }
 
+struct ChromiumLaunch {
+    config: BrowserConfig,
+    profile_dir: Option<TempDir>,
+}
+
 impl ChromiumDriver {
     /// Build a driver with explicit options.
     #[must_use]
@@ -832,16 +867,20 @@ impl ChromiumDriver {
         &self,
         target: &Target,
         resolved_executable: Option<&Path>,
-    ) -> Result<BrowserConfig, CdpError> {
+    ) -> Result<ChromiumLaunch, CdpError> {
         // PRD §16: pinning launch args removes a class of nondeterminism
         // (scrollbar overlay differences across DPRs, OS-level scaling).
         let scale_factor_arg = format!("--force-device-scale-factor={}", target.device_pixel_ratio);
         let builder = BrowserConfig::builder()
+            .new_headless_mode()
             .chrome_detection(DetectionOptions {
                 msedge: false,
                 unstable: false,
             })
+            .request_timeout(CHROMIUMOXIDE_REQUEST_TIMEOUT)
+            .launch_timeout(BROWSER_LAUNCH_TIMEOUT)
             .window_size(target.width, target.height)
+            .viewport(None)
             .arg("--hide-scrollbars")
             .arg(scale_factor_arg);
 
@@ -864,13 +903,14 @@ impl ChromiumDriver {
             builder
         };
 
-        let builder = if let Some(profile) = &self.options.user_data_dir {
-            builder.user_data_dir(profile)
-        } else {
-            builder
-        };
+        let (builder, profile_dir) =
+            apply_user_data_dir(builder, self.options.user_data_dir.as_deref())?;
 
-        builder.build().map_err(|_| chromium_not_found())
+        let config = builder.build().map_err(|_| chromium_not_found())?;
+        Ok(ChromiumLaunch {
+            config,
+            profile_dir,
+        })
     }
 }
 
@@ -892,22 +932,66 @@ impl BrowserDriver for ChromiumDriver {
             return Ok(Vec::new());
         }
 
+        let mut attempts = 0;
+        let mut use_raw_capture = should_use_raw_capture_path(&targets);
+        loop {
+            let result = if use_raw_capture {
+                self.snapshot_all_once_raw(&targets).await
+            } else {
+                self.snapshot_all_once_page(&targets).await
+            };
+            if attempts < TRANSIENT_CAPTURE_RETRIES
+                && result
+                    .as_ref()
+                    .err()
+                    .is_some_and(is_retryable_capture_timeout)
+            {
+                if let Err(err) = &result {
+                    tracing::debug!(attempt = attempts + 1, error = %err, "retrying Chromium capture after transient timeout");
+                    if should_fallback_to_raw_capture(err) {
+                        tracing::debug!(
+                            attempt = attempts + 1,
+                            "retrying Chromium capture through raw CDP page path"
+                        );
+                        use_raw_capture = true;
+                    }
+                }
+                attempts += 1;
+                continue;
+            }
+            return result;
+        }
+    }
+}
+
+impl ChromiumDriver {
+    async fn snapshot_all_once_page(
+        &self,
+        targets: &[Target],
+    ) -> Result<Vec<PlumbSnapshot>, CdpError> {
         // Use the first target's dimensions and DPR for the initial
-        // launch (the `--force-device-scale-factor` arg is fixed at
-        // launch time). Per-target viewport / DPR is then applied via
-        // CDP `Emulation.setDeviceMetricsOverride` inside
-        // `capture_target`, which overrides the launch-time scale
-        // factor for every page after the first.
+        // launch. Chromiumoxide's built-in viewport emulation is
+        // disabled in `browser_config`; otherwise it sends its own
+        // unlabelled page-level Emulation commands during target
+        // initialization. The first unpinned target can reuse the
+        // launch-pinned window/DPR, while later targets and explicit
+        // `--dpr` pins still use Plumb's bounded/labeled override.
         let first = &targets[0];
         let resolved_executable = resolve_auto_fetch(&self.options).await?;
-        let config = self.browser_config(first, resolved_executable.as_deref())?;
-        let mut session = ChromiumSession::launch(config).await?;
+        let launch = self.browser_config(first, resolved_executable.as_deref())?;
+        let mut session = ChromiumSession::launch(launch).await?;
 
         let result: Result<Vec<PlumbSnapshot>, CdpError> = async {
             validate_browser_version(&session.browser).await?;
             let mut snapshots = Vec::with_capacity(targets.len());
-            for target in &targets {
-                let snap = capture_target(&session.browser, target, &self.options).await?;
+            for (target_index, target) in targets.iter().enumerate() {
+                let snap = capture_target(
+                    &session.browser,
+                    target,
+                    &self.options,
+                    should_apply_viewport_override(target_index, target),
+                )
+                .await?;
                 snapshots.push(snap);
             }
             Ok(snapshots)
@@ -923,48 +1007,457 @@ impl BrowserDriver for ChromiumDriver {
 
         result
     }
+
+    async fn snapshot_all_once_raw(
+        &self,
+        targets: &[Target],
+    ) -> Result<Vec<PlumbSnapshot>, CdpError> {
+        let first = &targets[0];
+        let resolved_executable = resolve_auto_fetch(&self.options).await?;
+        let launch = self.browser_config(first, resolved_executable.as_deref())?;
+        let mut session = RawChromiumSession::launch(launch).await?;
+        let mut raw = RawCdpClient::connect(session.websocket_address()).await?;
+
+        let result: Result<Vec<PlumbSnapshot>, CdpError> = async {
+            validate_browser_version_raw(&mut raw).await?;
+            let mut snapshots = Vec::with_capacity(targets.len());
+            for (target_index, target) in targets.iter().enumerate() {
+                let snap = capture_target_raw(
+                    &mut raw,
+                    target,
+                    &self.options,
+                    should_apply_viewport_override(target_index, target),
+                )
+                .await?;
+                snapshots.push(snap);
+            }
+            Ok(snapshots)
+        }
+        .await;
+
+        if let Err(cleanup_err) = session.shutdown(&mut raw).await {
+            tracing::debug!(error = %cleanup_err, "failed to clean up raw Chromium session");
+            if result.is_ok() {
+                return Err(cleanup_err);
+            }
+        }
+
+        result
+    }
+}
+
+fn should_use_raw_capture_path(targets: &[Target]) -> bool {
+    targets.iter().any(|target| {
+        target.wait_for_selector.is_some()
+            || matches!(
+                navigation_method_for_url(target.url.as_str()),
+                NavigationMethod::CdpNavigate
+            )
+    })
+}
+
+fn should_fallback_to_raw_capture(err: &CdpError) -> bool {
+    let CdpError::Driver(source) = err else {
+        return false;
+    };
+
+    source.downcast_ref::<io::Error>().is_some_and(|err| {
+        let message = err.to_string();
+        (err.kind() == io::ErrorKind::TimedOut && message.contains("Browser.new_page"))
+            || is_page_navigation_init_timeout(&message)
+    })
+}
+
+fn is_page_navigation_init_timeout(message: &str) -> bool {
+    message.contains("exhausted 30s ready-state budget")
+        && message.contains("Page.navigate exceeded 30s budget")
 }
 
 async fn capture_target(
     browser: &Browser,
     target: &Target,
     options: &ChromiumOptions,
+    apply_viewport_override: bool,
 ) -> Result<PlumbSnapshot, CdpError> {
-    let page = browser
-        .new_page("about:blank")
-        .await
-        .map_err(driver_error)?;
+    let page = create_page_without_load_wait(
+        browser,
+        CreateTargetParams {
+            width: Some(i64::from(target.width)),
+            height: Some(i64::from(target.height)),
+            new_window: Some(true),
+            ..CreateTargetParams::new(INITIAL_PAGE_URL)
+        },
+    )
+    .await?;
 
-    capture_on_page(&page, target, options).await
+    settle_initial_document().await;
+    capture_on_page(&page, target, options, apply_viewport_override).await
 }
 
-/// Apply viewport / animation hooks, install cookies and headers,
-/// navigate, capture a DOM snapshot.
-///
-/// Shared between `ChromiumDriver::capture_target` and
-/// [`PersistentBrowser::snapshot`] so that the per-target work is
-/// expressed in exactly one place. The function is split into discrete
-/// stages — `apply_viewport` (DPR + dimensions), `pre_navigate`
-/// (cookies, headers, auth-script, storage-state, animation killer,
-/// scrollbar killer), `goto` + waits, then capture.
-async fn capture_on_page(
-    page: &Page,
+async fn capture_target_raw(
+    cdp: &mut RawCdpClient,
     target: &Target,
     options: &ChromiumOptions,
+    apply_viewport_override: bool,
 ) -> Result<PlumbSnapshot, CdpError> {
-    apply_viewport(page, target).await?;
-    // `pre_navigate` returns the parsed `StorageState` (when one is
-    // configured) so the post-navigate localStorage step reuses the
-    // same parsed value. Loading the file twice would open a
-    // time-of-check / time-of-use race where the file changes between
-    // cookie installation and localStorage replay.
-    let storage_state = pre_navigate(page, target, options).await?;
+    let page = RawPage::create(
+        cdp,
+        CreateTargetParams {
+            width: Some(i64::from(target.width)),
+            height: Some(i64::from(target.height)),
+            new_window: Some(true),
+            ..CreateTargetParams::new(INITIAL_PAGE_URL)
+        },
+    )
+    .await?;
 
-    page.goto(target.url.as_str()).await.map_err(driver_error)?;
-    page.wait_for_navigation().await.map_err(driver_error)?;
+    settle_initial_document().await;
+    capture_on_raw_page(cdp, &page, target, options, apply_viewport_override).await
+}
 
-    apply_post_navigate_waits(page, target).await?;
-    apply_storage_state_local_storage(page, target, storage_state.as_ref()).await?;
+struct RawCdpClient {
+    conn: Connection<CdpEventMessage>,
+}
+
+impl RawCdpClient {
+    async fn connect(websocket_address: &str) -> Result<Self, CdpError> {
+        let conn = with_timeout("CDP websocket connect", CDP_CONTROL_TIMEOUT, async {
+            Connection::<CdpEventMessage>::connect(websocket_address)
+                .await
+                .map_err(driver_error)
+        })
+        .await?;
+        Ok(Self { conn })
+    }
+
+    async fn execute<T: Command>(
+        &mut self,
+        session_id: Option<&SessionId>,
+        cmd: T,
+    ) -> Result<T::Response, CdpError> {
+        let method = cmd.identifier();
+        let call_id = self.submit(session_id, cmd)?;
+        self.wait_for_response::<T>(call_id, method).await
+    }
+
+    fn submit<T: Command>(
+        &mut self,
+        session_id: Option<&SessionId>,
+        cmd: T,
+    ) -> Result<CallId, CdpError> {
+        let method = cmd.identifier();
+        let params = serde_json::to_value(cmd).map_err(serde_driver_error)?;
+        self.conn
+            .submit_command(method, session_id.cloned(), params)
+            .map_err(serde_driver_error)
+    }
+
+    async fn execute_collecting_page_events<T: Command>(
+        &mut self,
+        session_id: &SessionId,
+        cmd: T,
+        events: &mut RawNavigationEvents,
+    ) -> Result<T::Response, CdpError> {
+        let method = cmd.identifier();
+        let params = serde_json::to_value(cmd).map_err(serde_driver_error)?;
+        let call_id = self
+            .conn
+            .submit_command(method.clone(), Some(session_id.clone()), params)
+            .map_err(serde_driver_error)?;
+        self.wait_for_response_collecting_page_events::<T>(call_id, method, session_id, events)
+            .await
+    }
+
+    async fn wait_for_response<T: Command>(
+        &mut self,
+        call_id: CallId,
+        method: MethodId,
+    ) -> Result<T::Response, CdpError> {
+        loop {
+            match self.conn.next().await {
+                Some(Ok(Message::Response(response))) if response.id == call_id => {
+                    return raw_command_response::<T>(response, &method);
+                }
+                Some(Ok(Message::Response(_) | Message::Event(_))) => {}
+                Some(Err(err)) => return Err(driver_error(err)),
+                None => {
+                    return Err(CdpError::Driver(Box::new(io::Error::new(
+                        io::ErrorKind::UnexpectedEof,
+                        format!("{method} received no response from Chromium"),
+                    ))));
+                }
+            }
+        }
+    }
+
+    async fn wait_for_response_collecting_page_events<T: Command>(
+        &mut self,
+        call_id: CallId,
+        method: MethodId,
+        session_id: &SessionId,
+        events: &mut RawNavigationEvents,
+    ) -> Result<T::Response, CdpError> {
+        loop {
+            match self.conn.next().await {
+                Some(Ok(Message::Response(response))) if response.id == call_id => {
+                    return raw_command_response::<T>(response, &method);
+                }
+                Some(Ok(Message::Event(event))) => {
+                    events.observe_message(&event, session_id);
+                }
+                Some(Ok(Message::Response(_))) => {}
+                Some(Err(err)) => return Err(driver_error(err)),
+                None => {
+                    return Err(CdpError::Driver(Box::new(io::Error::new(
+                        io::ErrorKind::UnexpectedEof,
+                        format!("{method} received no response from Chromium"),
+                    ))));
+                }
+            }
+        }
+    }
+
+    async fn collect_next_page_event(
+        &mut self,
+        session_id: &SessionId,
+        events: &mut RawNavigationEvents,
+    ) -> Result<(), CdpError> {
+        loop {
+            match self.conn.next().await {
+                Some(Ok(Message::Event(event))) => {
+                    if events.observe_message(&event, session_id) {
+                        return Ok(());
+                    }
+                }
+                Some(Ok(Message::Response(_))) => {}
+                Some(Err(err)) => return Err(driver_error(err)),
+                None => {
+                    return Err(CdpError::Driver(Box::new(io::Error::new(
+                        io::ErrorKind::UnexpectedEof,
+                        "raw CDP event stream ended before navigation completed",
+                    ))));
+                }
+            }
+        }
+    }
+}
+
+fn raw_command_response<T: Command>(
+    response: Response,
+    method: &MethodId,
+) -> Result<T::Response, CdpError> {
+    if let Some(result) = response.result {
+        return T::response_from_value(result).map_err(serde_driver_error);
+    }
+    if let Some(err) = response.error {
+        return Err(CdpError::Driver(Box::new(io::Error::other(format!(
+            "{method} failed: {err}"
+        )))));
+    }
+    Err(CdpError::Driver(Box::new(io::Error::other(format!(
+        "{method} returned neither result nor error"
+    )))))
+}
+
+struct RawPage {
+    session_id: SessionId,
+}
+
+#[derive(Default)]
+struct RawNavigationEvents {
+    main_frame_url: Option<String>,
+    dom_content_event: bool,
+    load_event: bool,
+}
+
+impl RawNavigationEvents {
+    fn observe_message(&mut self, event: &CdpEventMessage, session_id: &SessionId) -> bool {
+        if event.session_id.as_deref() != Some(session_id.as_ref()) {
+            return false;
+        }
+        match &event.params {
+            CdpEvent::PageFrameNavigated(frame) if frame.frame.parent_id.is_none() => {
+                self.observe_main_frame_url(&frame.frame.url);
+                true
+            }
+            CdpEvent::PageDomContentEventFired(_) => {
+                self.observe_dom_content_event();
+                true
+            }
+            CdpEvent::PageLoadEventFired(_) => {
+                self.observe_load_event();
+                true
+            }
+            _ => false,
+        }
+    }
+
+    fn observe_main_frame_url(&mut self, url: &str) {
+        if url_has_navigated(url) {
+            self.main_frame_url = Some(url.to_owned());
+            self.dom_content_event = false;
+            self.load_event = false;
+        }
+    }
+
+    fn observe_dom_content_event(&mut self) {
+        self.dom_content_event = true;
+    }
+
+    fn observe_load_event(&mut self) {
+        self.load_event = true;
+    }
+
+    fn is_ready_for_capture(&self, allow_interactive: bool) -> bool {
+        self.main_frame_url.is_some()
+            && (self.load_event || (allow_interactive && self.dom_content_event))
+    }
+
+    fn has_navigated(&self) -> bool {
+        self.main_frame_url.is_some()
+    }
+
+    fn is_chrome_error_page(&self) -> bool {
+        self.main_frame_url
+            .as_deref()
+            .is_some_and(|url| url.starts_with("chrome-error:"))
+    }
+
+    fn main_frame_url(&self) -> Option<&str> {
+        self.main_frame_url.as_deref()
+    }
+}
+
+impl RawPage {
+    async fn create(cdp: &mut RawCdpClient, params: CreateTargetParams) -> Result<Self, CdpError> {
+        let target_id = with_timeout("Target.createTarget", TARGET_CREATE_TIMEOUT, async {
+            cdp.execute(None, params)
+                .await
+                .map(|response| response.target_id)
+        })
+        .await
+        .map_err(|err| target_lifecycle_error("Target.createTarget", &err))?;
+
+        let attach = AttachToTargetParams::builder()
+            .target_id(target_id)
+            .flatten(true)
+            .build()
+            .map_err(driver_message)?;
+        let session_id = with_timeout("Target.attachToTarget", TARGET_ATTACH_TIMEOUT, async {
+            cdp.execute(None, attach)
+                .await
+                .map(|response| response.session_id)
+        })
+        .await
+        .map_err(|err| target_lifecycle_error("Target.attachToTarget", &err))?;
+
+        Ok(Self { session_id })
+    }
+
+    async fn execute<T: Command>(
+        &self,
+        cdp: &mut RawCdpClient,
+        operation: &str,
+        timeout: Duration,
+        cmd: T,
+    ) -> Result<T::Response, CdpError> {
+        with_timeout(operation, timeout, async {
+            cdp.execute(Some(&self.session_id), cmd).await
+        })
+        .await
+    }
+
+    async fn execute_collecting_page_events<T: Command>(
+        &self,
+        cdp: &mut RawCdpClient,
+        operation: &str,
+        timeout: Duration,
+        cmd: T,
+        events: &mut RawNavigationEvents,
+    ) -> Result<T::Response, CdpError> {
+        with_timeout(operation, timeout, async {
+            cdp.execute_collecting_page_events(&self.session_id, cmd, events)
+                .await
+        })
+        .await
+    }
+
+    async fn evaluate_value<T: serde::de::DeserializeOwned>(
+        &self,
+        cdp: &mut RawCdpClient,
+        operation: &str,
+        timeout: Duration,
+        expression: &str,
+    ) -> Result<T, CdpError> {
+        let params = EvaluateParams::builder()
+            .expression(expression)
+            .await_promise(true)
+            .return_by_value(true)
+            .build()
+            .map_err(driver_message)?;
+        let result = self.execute(cdp, operation, timeout, params).await?;
+        if let Some(exception) = result.exception_details {
+            return Err(driver_error(
+                chromiumoxide::error::CdpError::JavascriptException(Box::new(exception)),
+            ));
+        }
+        let value = result.result.value.ok_or_else(|| {
+            CdpError::Driver(Box::new(io::Error::other(format!(
+                "{operation} returned no value"
+            ))))
+        })?;
+        serde_json::from_value(value).map_err(serde_driver_error)
+    }
+
+    async fn evaluate_unit(
+        &self,
+        cdp: &mut RawCdpClient,
+        operation: &str,
+        timeout: Duration,
+        expression: &str,
+    ) -> Result<(), CdpError> {
+        let params = EvaluateParams::builder()
+            .expression(expression)
+            .await_promise(true)
+            .return_by_value(true)
+            .build()
+            .map_err(driver_message)?;
+        let result = self.execute(cdp, operation, timeout, params).await?;
+        if let Some(exception) = result.exception_details {
+            return Err(driver_error(
+                chromiumoxide::error::CdpError::JavascriptException(Box::new(exception)),
+            ));
+        }
+        Ok(())
+    }
+}
+
+async fn capture_on_raw_page(
+    cdp: &mut RawCdpClient,
+    page: &RawPage,
+    target: &Target,
+    options: &ChromiumOptions,
+    apply_viewport_override: bool,
+) -> Result<PlumbSnapshot, CdpError> {
+    if apply_viewport_override {
+        apply_viewport_raw(cdp, page, target).await?;
+    }
+    let storage_state = pre_navigate_raw(cdp, page, target, options).await?;
+    let deterministic_styles_installed = false;
+    let page_events_enabled = false;
+
+    navigate_raw(cdp, page, target, page_events_enabled).await?;
+    settle_ready_document().await;
+
+    apply_post_navigate_waits_raw(cdp, page, target).await?;
+    apply_storage_state_local_storage_raw(cdp, page, target, storage_state.as_ref()).await?;
+    if should_apply_raw_post_navigation_deterministic_styles(
+        deterministic_styles_installed,
+        target,
+        page_events_enabled,
+    ) {
+        apply_deterministic_styles_raw_best_effort(cdp, page, target).await?;
+    }
 
     let params = CaptureSnapshotParams {
         computed_styles: COMPUTED_STYLE_WHITELIST
@@ -977,7 +1470,107 @@ async fn capture_on_page(
         include_text_color_opacities: None,
     };
 
-    let response = page.execute(params).await.map_err(driver_error)?;
+    let response = page
+        .execute(
+            cdp,
+            "DOMSnapshot.captureSnapshot",
+            SNAPSHOT_CAPTURE_TIMEOUT,
+            params,
+        )
+        .await?;
+    flatten_snapshot(target, &response)
+}
+
+async fn create_page_without_load_wait(
+    browser: &Browser,
+    params: CreateTargetParams,
+) -> Result<Page, CdpError> {
+    let target_id = with_timeout("Target.createTarget", TARGET_CREATE_TIMEOUT, async {
+        browser
+            .execute(params)
+            .await
+            .map(|response| response.result.target_id)
+            .map_err(driver_error)
+    })
+    .await
+    .map_err(|err| target_lifecycle_error("Target.createTarget", &err))?;
+
+    with_timeout("Target.attachToTarget", TARGET_ATTACH_TIMEOUT, async {
+        loop {
+            match browser.get_page(target_id.clone()).await {
+                Ok(page) => return Ok(page),
+                Err(chromiumoxide::error::CdpError::NotFound) => {
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                }
+                Err(err) => return Err(driver_error(err)),
+            }
+        }
+    })
+    .await
+    .map_err(|err| target_lifecycle_error("Target.attachToTarget", &err))
+}
+
+fn target_lifecycle_error(stage: &str, err: &CdpError) -> CdpError {
+    let kind = if is_retryable_capture_timeout(err) {
+        io::ErrorKind::TimedOut
+    } else {
+        io::ErrorKind::Other
+    };
+    CdpError::Driver(Box::new(io::Error::new(
+        kind,
+        format!("{stage} failed before navigation: {err}"),
+    )))
+}
+
+/// Apply viewport, install pre-navigation state, navigate, wait for
+/// final page state, apply deterministic styling, then capture a DOM
+/// snapshot.
+///
+/// Shared between `ChromiumDriver::capture_target` and
+/// [`PersistentBrowser::snapshot`] so that the per-target work is
+/// expressed in exactly one place. The function is split into discrete
+/// stages — `apply_viewport` (DPR + dimensions), `pre_navigate`
+/// (cookies, headers, auth-script, storage-state cookies), `goto`,
+/// waits, deterministic style injection, then capture.
+async fn capture_on_page(
+    page: &Page,
+    target: &Target,
+    options: &ChromiumOptions,
+    apply_viewport_override: bool,
+) -> Result<PlumbSnapshot, CdpError> {
+    if apply_viewport_override {
+        apply_viewport(page, target).await?;
+    }
+    // `pre_navigate` returns the parsed `StorageState` (when one is
+    // configured) so the post-navigate localStorage step reuses the
+    // same parsed value. Loading the file twice would open a
+    // time-of-check / time-of-use race where the file changes between
+    // cookie installation and localStorage replay.
+    let storage_state = pre_navigate(page, target, options).await?;
+
+    navigate_page(page, target.url.as_str()).await?;
+
+    apply_post_navigate_waits(page, target).await?;
+    apply_storage_state_local_storage(page, target, storage_state.as_ref()).await?;
+    apply_deterministic_styles(page, target).await?;
+
+    let params = CaptureSnapshotParams {
+        computed_styles: COMPUTED_STYLE_WHITELIST
+            .iter()
+            .map(|s| (*s).to_string())
+            .collect(),
+        include_paint_order: Some(true),
+        include_dom_rects: Some(true),
+        include_blended_background_colors: Some(true),
+        include_text_color_opacities: None,
+    };
+
+    let response = with_timeout(
+        "DOMSnapshot.captureSnapshot",
+        SNAPSHOT_CAPTURE_TIMEOUT,
+        async { page.execute(params).await.map_err(driver_error) },
+    )
+    .await?;
     flatten_snapshot(target, &response.result)
 }
 
@@ -1002,16 +1595,17 @@ pub struct PersistentBrowser {
 struct PersistentBrowserInner {
     browser: Browser,
     handler_task: Mutex<Option<JoinHandle<()>>>,
+    _profile_dir: Option<TempDir>,
     options: ChromiumOptions,
 }
 
 impl PersistentBrowser {
     /// Launch Chromium and validate its version.
     ///
-    /// Per-call viewport and DPR are applied via
-    /// `Emulation.setDeviceMetricsOverride` inside [`Self::snapshot`],
-    /// so the launch-time defaults here are placeholders sized to a
-    /// 1280×800 desktop window.
+    /// Each snapshot creates a fresh target at the requested viewport
+    /// size. DPR overrides are still applied via
+    /// `Emulation.setDeviceMetricsOverride`, so the launch-time defaults
+    /// here are placeholders sized to a 1280×800 desktop window.
     ///
     /// # Errors
     ///
@@ -1021,16 +1615,31 @@ impl PersistentBrowser {
     /// range, or [`CdpError::Driver`] for any other launch failure.
     pub async fn launch(options: ChromiumOptions) -> Result<Self, CdpError> {
         let resolved_executable = resolve_auto_fetch(&options).await?;
-        let config = persistent_browser_config(&options, resolved_executable.as_deref())?;
-        let (browser, handler) = Browser::launch(config).await.map_err(map_launch_error)?;
+        let launch = persistent_browser_config(&options, resolved_executable.as_deref())?;
+        let ChromiumLaunch {
+            config,
+            profile_dir,
+        } = launch;
+        let (mut browser, handler) =
+            with_timeout("Chromium launch", BROWSER_LAUNCH_TIMEOUT, async {
+                Browser::launch(config).await.map_err(map_launch_error)
+            })
+            .await?;
         let handler_task = poll_handler(handler);
 
         // Validate the version before stashing the browser in `Arc` —
-        // on failure, dropping the browser here causes
-        // `Browser::drop` to reap the child synchronously.
+        // on failure, explicitly close/wait before the isolated
+        // profile is dropped so Windows does not retain locked files.
         if let Err(err) = validate_browser_version(&browser).await {
-            handler_task.abort();
-            drop(browser);
+            if let Err(cleanup_err) =
+                cleanup_failed_persistent_launch(&mut browser, handler_task).await
+            {
+                tracing::debug!(
+                    error = %cleanup_err,
+                    "failed to clean up Chromium after version validation failure"
+                );
+            }
+            let _profile_dir = profile_dir;
             return Err(err);
         }
 
@@ -1038,6 +1647,7 @@ impl PersistentBrowser {
             inner: Arc::new(PersistentBrowserInner {
                 browser,
                 handler_task: Mutex::new(Some(handler_task)),
+                _profile_dir: profile_dir,
                 options,
             }),
         })
@@ -1052,47 +1662,73 @@ impl PersistentBrowser {
     /// [`CdpError::MalformedSnapshot`] when the response cannot be
     /// flattened.
     pub async fn snapshot(&self, target: Target) -> Result<PlumbSnapshot, CdpError> {
-        let ctx_id = self
-            .inner
-            .browser
-            .create_browser_context(CreateBrowserContextParams::default())
-            .await
-            .map_err(driver_error)?;
+        let mut attempts = 0;
+        loop {
+            let result = self.snapshot_once(&target).await;
+            if attempts < TRANSIENT_CAPTURE_RETRIES
+                && result
+                    .as_ref()
+                    .err()
+                    .is_some_and(is_retryable_capture_timeout)
+            {
+                if let Err(err) = &result {
+                    tracing::debug!(attempt = attempts + 1, error = %err, "retrying persistent Chromium capture after transient timeout");
+                }
+                attempts += 1;
+                continue;
+            }
+            return result;
+        }
+    }
+
+    async fn snapshot_once(&self, target: &Target) -> Result<PlumbSnapshot, CdpError> {
+        let ctx_id = with_timeout("Target.createBrowserContext", CDP_CONTROL_TIMEOUT, async {
+            self.inner
+                .browser
+                .create_browser_context(CreateBrowserContextParams::default())
+                .await
+                .map_err(driver_error)
+        })
+        .await?;
 
         let result: Result<PlumbSnapshot, CdpError> = async {
             let create_params = CreateTargetParams {
-                url: "about:blank".to_string(),
+                url: INITIAL_PAGE_URL.to_string(),
                 left: None,
                 top: None,
-                width: None,
-                height: None,
+                width: Some(i64::from(target.width)),
+                height: Some(i64::from(target.height)),
                 window_state: None,
                 browser_context_id: Some(ctx_id.clone()),
                 enable_begin_frame_control: None,
-                new_window: None,
+                new_window: Some(true),
                 background: None,
                 for_tab: None,
                 hidden: None,
             };
-            let page = self
-                .inner
-                .browser
-                .new_page(create_params)
-                .await
-                .map_err(driver_error)?;
-            capture_on_page(&page, &target, &self.inner.options).await
+            let page = create_page_without_load_wait(&self.inner.browser, create_params).await?;
+            settle_initial_document().await;
+            capture_on_page(
+                &page,
+                target,
+                &self.inner.options,
+                should_apply_persistent_viewport_override(target),
+            )
+            .await
         }
         .await;
 
         // Always dispose the incognito context, even on failure. Mirror
         // the swallow-and-log pattern from `ChromiumSession::shutdown`
         // so cleanup errors never mask the underlying snapshot result.
-        if let Err(err) = self
-            .inner
-            .browser
-            .dispose_browser_context(ctx_id)
-            .await
-            .map_err(driver_error)
+        if let Err(err) = with_timeout("Target.disposeBrowserContext", CDP_CONTROL_TIMEOUT, async {
+            self.inner
+                .browser
+                .dispose_browser_context(ctx_id)
+                .await
+                .map_err(driver_error)
+        })
+        .await
         {
             tracing::debug!(error = %err, "failed to dispose incognito browser context");
         }
@@ -1163,21 +1799,45 @@ impl BrowserDriver for PersistentBrowser {
     }
 }
 
+fn apply_user_data_dir(
+    builder: BrowserConfigBuilder,
+    user_data_dir: Option<&Path>,
+) -> Result<(BrowserConfigBuilder, Option<TempDir>), CdpError> {
+    if let Some(profile) = user_data_dir {
+        return Ok((builder.user_data_dir(profile), None));
+    }
+
+    let profile = tempfile::Builder::new()
+        .prefix("plumb-chromium-")
+        .tempdir()
+        .map_err(|err| {
+            CdpError::Driver(Box::new(io::Error::other(format!(
+                "create isolated Chromium profile: {err}"
+            ))))
+        })?;
+    let builder = builder.user_data_dir(profile.path());
+    Ok((builder, Some(profile)))
+}
+
 fn persistent_browser_config(
     options: &ChromiumOptions,
     resolved_executable: Option<&Path>,
-) -> Result<BrowserConfig, CdpError> {
+) -> Result<ChromiumLaunch, CdpError> {
     // PRD §16: pinning launch args removes a class of nondeterminism
     // (scrollbar overlay differences across DPRs, OS-level scaling).
-    // `PersistentBrowser` does not fix a launch-time DPR — every
-    // snapshot calls `Emulation.setDeviceMetricsOverride` to drive
-    // both viewport and DPR per-call.
+    // `PersistentBrowser` creates every target at the requested
+    // viewport size. It does not fix a launch-time DPR — snapshots
+    // that request a non-default DPR use `Emulation.setDeviceMetricsOverride`.
     let builder = BrowserConfig::builder()
+        .new_headless_mode()
         .chrome_detection(DetectionOptions {
             msedge: false,
             unstable: false,
         })
+        .request_timeout(CHROMIUMOXIDE_REQUEST_TIMEOUT)
+        .launch_timeout(BROWSER_LAUNCH_TIMEOUT)
         .window_size(1280, 800)
+        .viewport(None)
         .arg("--hide-scrollbars");
 
     // Same precedence rule as `ChromiumDriver::browser_config`.
@@ -1193,13 +1853,13 @@ fn persistent_browser_config(
         builder
     };
 
-    let builder = if let Some(profile) = &options.user_data_dir {
-        builder.user_data_dir(profile)
-    } else {
-        builder
-    };
+    let (builder, profile_dir) = apply_user_data_dir(builder, options.user_data_dir.as_deref())?;
 
-    builder.build().map_err(|_| chromium_not_found())
+    let config = builder.build().map_err(|_| chromium_not_found())?;
+    Ok(ChromiumLaunch {
+        config,
+        profile_dir,
+    })
 }
 
 /// When auto-fetch is enabled and the user didn't pin an
@@ -1224,6 +1884,14 @@ async fn resolve_auto_fetch(options: &ChromiumOptions) -> Result<Option<PathBuf>
     Ok(Some(path))
 }
 
+fn should_apply_viewport_override(target_index: usize, target: &Target) -> bool {
+    target_index != 0 || target.pin_dpr.is_some()
+}
+
+fn should_apply_persistent_viewport_override(target: &Target) -> bool {
+    target.pin_dpr.is_some() || (target.effective_dpr() - 1.0).abs() > f64::EPSILON
+}
+
 async fn apply_viewport(page: &Page, target: &Target) -> Result<(), CdpError> {
     // `pin_dpr` (PRD §15 — `--dpr`) wins over `device_pixel_ratio` so
     // that callers can stress determinism by pinning a hidpi factor
@@ -1242,19 +1910,52 @@ async fn apply_viewport(page: &Page, target: &Target) -> Result<(), CdpError> {
         screen_orientation: None,
         viewport: None,
     };
-    page.execute(params).await.map_err(driver_error)?;
+    with_timeout(
+        "Emulation.setDeviceMetricsOverride",
+        PAGE_COMMAND_TIMEOUT,
+        async { page.execute(params).await.map(|_| ()).map_err(driver_error) },
+    )
+    .await?;
+    Ok(())
+}
+
+async fn apply_viewport_raw(
+    cdp: &mut RawCdpClient,
+    page: &RawPage,
+    target: &Target,
+) -> Result<(), CdpError> {
+    let params = SetDeviceMetricsOverrideParams {
+        width: i64::from(target.width),
+        height: i64::from(target.height),
+        device_scale_factor: target.effective_dpr(),
+        mobile: false,
+        scale: None,
+        screen_width: None,
+        screen_height: None,
+        position_x: None,
+        position_y: None,
+        dont_set_visible_size: None,
+        screen_orientation: None,
+        viewport: None,
+    };
+    page.execute(
+        cdp,
+        "Emulation.setDeviceMetricsOverride",
+        PAGE_COMMAND_TIMEOUT,
+        params,
+    )
+    .await?;
     Ok(())
 }
 
 /// All work that must happen on a fresh page before navigation.
 ///
 /// Runs in this fixed order so behavior matches what users expect:
-/// 1. Animation/scrollbar CSS killers — PRD §16 determinism.
-/// 2. Auth script — runs before any page script, so the page-side
+/// 1. Auth script — runs before any page script, so the page-side
 ///    bootstrap can set window globals before the SPA boots.
-/// 3. Cookies and HTTP headers — set on the network layer before the
+/// 2. Cookies and HTTP headers — set on the network layer before the
 ///    very first request leaves Chromium.
-/// 4. Storage-state cookies — same network layer; localStorage entries
+/// 3. Storage-state cookies — same network layer; localStorage entries
 ///    in the storage-state are deferred to [`apply_storage_state_local_storage`]
 ///    after the origin loads, since localStorage is origin-scoped.
 ///
@@ -1269,12 +1970,6 @@ async fn pre_navigate(
     target: &Target,
     options: &ChromiumOptions,
 ) -> Result<Option<StorageState>, CdpError> {
-    if target.disable_animations {
-        inject_animation_killer(page).await?;
-    }
-    if target.hide_scrollbars {
-        inject_scrollbar_killer(page).await?;
-    }
     if let Some(script_path) = options.auth_script.as_deref() {
         inject_auth_script(page, script_path).await?;
     }
@@ -1294,6 +1989,558 @@ async fn pre_navigate(
     Ok(storage_state)
 }
 
+async fn pre_navigate_raw(
+    cdp: &mut RawCdpClient,
+    page: &RawPage,
+    target: &Target,
+    options: &ChromiumOptions,
+) -> Result<Option<StorageState>, CdpError> {
+    if let Some(script_path) = options.auth_script.as_deref() {
+        inject_auth_script_raw(cdp, page, script_path).await?;
+    }
+    if !options.headers.is_empty() {
+        install_extra_headers_raw(cdp, page, &options.headers).await?;
+    }
+    if !options.cookies.is_empty() {
+        install_cookies_raw(cdp, page, &options.cookies, target.url.as_str()).await?;
+    }
+    let storage_state = if let Some(state_path) = options.storage_state.as_deref() {
+        let state = StorageState::load_from_path(state_path)?;
+        install_storage_state_cookies_raw(cdp, page, &state).await?;
+        Some(state)
+    } else {
+        None
+    };
+    Ok(storage_state)
+}
+
+#[derive(Debug, Deserialize)]
+struct NavigationState {
+    href: String,
+    #[serde(rename = "readyState")]
+    ready_state: String,
+    #[serde(rename = "isChromeErrorPage", default)]
+    is_chrome_error_page: bool,
+}
+
+async fn navigate_page(page: &Page, url: &str) -> Result<(), CdpError> {
+    let initial_result = match page_navigation_method_for_url(url) {
+        NavigationMethod::ChromiumoxideGoto => {
+            with_timeout("Page.navigate", DOCUMENT_READY_TIMEOUT, async {
+                page.goto(url).await.map(|_| ()).map_err(driver_error)
+            })
+            .await
+        }
+        NavigationMethod::CdpNavigate => {
+            with_timeout("Page.navigate", PAGE_COMMAND_TIMEOUT, async {
+                page.execute(NavigateParams::new(url))
+                    .await
+                    .map_err(driver_error)
+                    .and_then(|response| {
+                        if let Some(error_text) = &response.error_text {
+                            Err(CdpError::Driver(Box::new(io::Error::other(format!(
+                                "Page.navigate failed: {error_text}"
+                            )))))
+                        } else {
+                            Ok(())
+                        }
+                    })
+            })
+            .await
+        }
+        NavigationMethod::LocationAssign => {
+            let script = navigation_assignment_script(url)?;
+            with_timeout(
+                "navigation location assignment",
+                NAVIGATION_ASSIGNMENT_TIMEOUT,
+                async {
+                    page.evaluate(script.as_str())
+                        .await
+                        .map(|_| ())
+                        .map_err(driver_error)
+                },
+            )
+            .await
+        }
+    };
+
+    wait_for_document_ready(page, navigation_display_url(url), initial_result.err()).await
+}
+
+fn page_navigation_method_for_url(url: &str) -> NavigationMethod {
+    if url.starts_with("data:") {
+        NavigationMethod::CdpNavigate
+    } else {
+        NavigationMethod::ChromiumoxideGoto
+    }
+}
+
+async fn navigate_raw(
+    cdp: &mut RawCdpClient,
+    page: &RawPage,
+    target: &Target,
+    page_events_enabled: bool,
+) -> Result<(), CdpError> {
+    let mut events = RawNavigationEvents::default();
+    let initial_result = navigate_raw_by_page_navigate(
+        cdp,
+        page,
+        target.url.as_str(),
+        page_events_enabled,
+        &mut events,
+        uses_raw_tolerant_page_navigate(target.url.as_str()),
+    )
+    .await;
+
+    wait_for_document_ready_raw(
+        cdp,
+        page,
+        navigation_display_url(target.url.as_str()),
+        initial_result.err(),
+        target.wait_for_selector.is_some(),
+        raw_navigation_events_for_wait(page_events_enabled, events),
+    )
+    .await
+}
+
+async fn navigate_raw_by_page_navigate(
+    cdp: &mut RawCdpClient,
+    page: &RawPage,
+    url: &str,
+    page_events_enabled: bool,
+    events: &mut RawNavigationEvents,
+    tolerate_navigation_abort: bool,
+) -> Result<(), CdpError> {
+    if page_events_enabled {
+        page.execute_collecting_page_events(
+            cdp,
+            "Page.navigate",
+            PAGE_COMMAND_TIMEOUT,
+            NavigateParams::new(url),
+            events,
+        )
+        .await
+    } else {
+        page.execute(
+            cdp,
+            "Page.navigate",
+            PAGE_COMMAND_TIMEOUT,
+            NavigateParams::new(url),
+        )
+        .await
+    }
+    .and_then(|response| {
+        if let Some(error_text) = response.error_text {
+            if tolerate_navigation_abort && raw_page_navigate_error_is_tolerated(&error_text) {
+                events.observe_main_frame_url(url);
+                return Ok(());
+            }
+            Err(CdpError::Driver(Box::new(io::Error::other(format!(
+                "Page.navigate failed: {error_text}"
+            )))))
+        } else {
+            events.observe_main_frame_url(url);
+            Ok(())
+        }
+    })
+}
+
+fn raw_page_navigate_error_is_tolerated(error_text: &str) -> bool {
+    error_text == "net::ERR_ABORTED"
+}
+
+fn raw_navigation_events_for_wait(
+    page_events_enabled: bool,
+    events: RawNavigationEvents,
+) -> Option<RawNavigationEvents> {
+    (page_events_enabled || events.has_navigated()).then_some(events)
+}
+
+fn uses_chromiumoxide_goto(url: &str) -> bool {
+    url.starts_with("file://")
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NavigationMethod {
+    ChromiumoxideGoto,
+    CdpNavigate,
+    LocationAssign,
+}
+
+fn navigation_method_for_url(url: &str) -> NavigationMethod {
+    if uses_chromiumoxide_goto(url) {
+        NavigationMethod::ChromiumoxideGoto
+    } else if url.starts_with("data:") {
+        NavigationMethod::CdpNavigate
+    } else {
+        NavigationMethod::LocationAssign
+    }
+}
+
+fn uses_raw_tolerant_page_navigate(url: &str) -> bool {
+    matches!(
+        navigation_method_for_url(url),
+        NavigationMethod::LocationAssign
+    )
+}
+
+fn navigation_assignment_script(url: &str) -> Result<String, CdpError> {
+    let quoted_url = serde_json::to_string(url).map_err(|err| {
+        CdpError::Driver(Box::new(io::Error::other(format!(
+            "serialize navigation URL: {err}"
+        ))))
+    })?;
+    Ok(format!("window.location.assign({quoted_url});"))
+}
+
+async fn wait_for_document_ready(
+    page: &Page,
+    display_url: &str,
+    initial_error: Option<CdpError>,
+) -> Result<(), CdpError> {
+    let mut last_state_error = None;
+    let attempt = async {
+        loop {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            if poll_document_ready(page, display_url, &mut last_state_error).await? {
+                return Ok(());
+            }
+        }
+    };
+
+    if let Ok(result) = tokio::time::timeout(DOCUMENT_READY_TIMEOUT, attempt).await {
+        return result;
+    }
+
+    let reason = navigation_ready_timeout_reason(
+        display_url,
+        initial_error.as_ref().map(ToString::to_string).as_deref(),
+        last_state_error.as_deref(),
+    );
+    Err(CdpError::Driver(Box::new(io::Error::other(reason))))
+}
+
+async fn settle_initial_document() {
+    // Avoid probing the bootstrap page before the real navigation. On
+    // macOS CFT 150, pre-navigation probes and interrupted data: loads
+    // can make the subsequent Page.navigate unreliable.
+    tokio::time::sleep(INITIAL_DOCUMENT_SETTLE_DELAY).await;
+}
+
+async fn settle_ready_document() {
+    tokio::time::sleep(POST_READY_SETTLE_DELAY).await;
+}
+
+async fn wait_for_document_ready_raw(
+    cdp: &mut RawCdpClient,
+    page: &RawPage,
+    display_url: &str,
+    initial_error: Option<CdpError>,
+    allow_interactive: bool,
+    events: Option<RawNavigationEvents>,
+) -> Result<(), CdpError> {
+    let Some(mut events) = events else {
+        return wait_for_document_ready_raw_by_polling(
+            cdp,
+            page,
+            display_url,
+            initial_error,
+            allow_interactive,
+        )
+        .await;
+    };
+
+    let mut last_state_error = None;
+    if !events.is_ready_for_capture(allow_interactive) {
+        match wait_for_raw_navigation_events(cdp, page, &mut events, allow_interactive).await {
+            Ok(()) => {}
+            Err(err) => {
+                last_state_error = Some(err.to_string());
+            }
+        }
+    }
+
+    if events.is_chrome_error_page() {
+        return Err(chrome_error_page_error(
+            display_url,
+            events
+                .main_frame_url()
+                .unwrap_or("chrome-error://chromewebdata/"),
+        ));
+    }
+
+    if raw_navigation_can_skip_state_read(&events, allow_interactive) {
+        return Ok(());
+    }
+
+    match tokio::time::timeout(
+        NAVIGATION_STATE_READ_TIMEOUT,
+        read_navigation_state_raw(cdp, page),
+    )
+    .await
+    {
+        Ok(Ok(state)) if state.is_chrome_error_page => {
+            return Err(chrome_error_page_error(display_url, &state.href));
+        }
+        Ok(Ok(state)) if document_is_ready_for_capture(&state, allow_interactive) => return Ok(()),
+        Ok(Ok(state))
+            if events.is_ready_for_capture(allow_interactive) && document_has_navigated(&state) =>
+        {
+            return Ok(());
+        }
+        Ok(Ok(_)) if events.is_ready_for_capture(allow_interactive) => return Ok(()),
+        Ok(Ok(_)) => {}
+        Ok(Err(err)) if events.is_ready_for_capture(allow_interactive) => {
+            tracing::debug!(error = %err, "raw navigation state check failed after page event readiness");
+            return Ok(());
+        }
+        Ok(Err(err)) => last_state_error = Some(err.to_string()),
+        Err(_) if events.is_ready_for_capture(allow_interactive) => {
+            tracing::debug!("raw navigation state check timed out after page event readiness");
+            return Ok(());
+        }
+        Err(_) => {
+            last_state_error = Some(timeout_reason(
+                "navigation state read",
+                NAVIGATION_STATE_READ_TIMEOUT,
+            ));
+        }
+    }
+
+    let reason = navigation_ready_timeout_reason(
+        display_url,
+        initial_error.as_ref().map(ToString::to_string).as_deref(),
+        last_state_error.as_deref(),
+    );
+    Err(CdpError::Driver(Box::new(io::Error::other(reason))))
+}
+
+fn raw_navigation_can_skip_state_read(
+    events: &RawNavigationEvents,
+    allow_interactive: bool,
+) -> bool {
+    events.is_ready_for_capture(allow_interactive) || events.has_navigated()
+}
+
+async fn wait_for_document_ready_raw_by_polling(
+    cdp: &mut RawCdpClient,
+    page: &RawPage,
+    display_url: &str,
+    initial_error: Option<CdpError>,
+    allow_interactive: bool,
+) -> Result<(), CdpError> {
+    let mut last_state_error = None;
+    let attempt = async {
+        loop {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            if poll_document_ready_raw(
+                cdp,
+                page,
+                display_url,
+                &mut last_state_error,
+                allow_interactive,
+            )
+            .await?
+            {
+                return Ok(());
+            }
+        }
+    };
+
+    if let Ok(result) = tokio::time::timeout(DOCUMENT_READY_TIMEOUT, attempt).await {
+        return result;
+    }
+
+    let reason = navigation_ready_timeout_reason(
+        display_url,
+        initial_error.as_ref().map(ToString::to_string).as_deref(),
+        last_state_error.as_deref(),
+    );
+    Err(CdpError::Driver(Box::new(io::Error::other(reason))))
+}
+
+async fn wait_for_raw_navigation_events(
+    cdp: &mut RawCdpClient,
+    page: &RawPage,
+    events: &mut RawNavigationEvents,
+    allow_interactive: bool,
+) -> Result<(), CdpError> {
+    let attempt = async {
+        loop {
+            if events.is_ready_for_capture(allow_interactive) {
+                return Ok(());
+            }
+            cdp.collect_next_page_event(&page.session_id, events)
+                .await?;
+        }
+    };
+
+    match tokio::time::timeout(DOCUMENT_READY_TIMEOUT, attempt).await {
+        Ok(result) => result,
+        Err(_) => Err(CdpError::Driver(Box::new(io::Error::other(
+            timeout_reason("raw navigation page event", DOCUMENT_READY_TIMEOUT),
+        )))),
+    }
+}
+
+async fn poll_document_ready_raw(
+    cdp: &mut RawCdpClient,
+    page: &RawPage,
+    display_url: &str,
+    last_state_error: &mut Option<String>,
+    allow_interactive: bool,
+) -> Result<bool, CdpError> {
+    match tokio::time::timeout(
+        NAVIGATION_STATE_READ_TIMEOUT,
+        read_navigation_state_raw(cdp, page),
+    )
+    .await
+    {
+        Ok(Ok(state)) if state.is_chrome_error_page => {
+            Err(chrome_error_page_error(display_url, &state.href))
+        }
+        Ok(Ok(state)) if document_is_ready_for_capture(&state, allow_interactive) => Ok(true),
+        Ok(Ok(_)) => Ok(false),
+        Ok(Err(err)) => {
+            *last_state_error = Some(err.to_string());
+            Ok(false)
+        }
+        Err(_) => {
+            *last_state_error = Some(timeout_reason(
+                "navigation state read",
+                NAVIGATION_STATE_READ_TIMEOUT,
+            ));
+            Ok(false)
+        }
+    }
+}
+
+async fn poll_document_ready(
+    page: &Page,
+    display_url: &str,
+    last_state_error: &mut Option<String>,
+) -> Result<bool, CdpError> {
+    match tokio::time::timeout(NAVIGATION_STATE_READ_TIMEOUT, read_navigation_state(page)).await {
+        Ok(Ok(state)) if state.is_chrome_error_page => {
+            Err(chrome_error_page_error(display_url, &state.href))
+        }
+        Ok(Ok(state)) if document_is_loaded(&state) => Ok(true),
+        Ok(Ok(_)) => Ok(false),
+        Ok(Err(err)) => {
+            *last_state_error = Some(err.to_string());
+            Ok(false)
+        }
+        Err(_) => {
+            *last_state_error = Some(timeout_reason(
+                "navigation state read",
+                NAVIGATION_STATE_READ_TIMEOUT,
+            ));
+            Ok(false)
+        }
+    }
+}
+
+fn chrome_error_page_error(display_url: &str, error_href: &str) -> CdpError {
+    CdpError::Driver(Box::new(io::Error::other(format!(
+        "navigation to `{display_url}` failed: Chrome rendered error page `{error_href}`"
+    ))))
+}
+
+fn document_is_loaded(state: &NavigationState) -> bool {
+    document_has_navigated(state) && state.ready_state == "complete"
+}
+
+fn document_is_ready_for_capture(state: &NavigationState, allow_interactive: bool) -> bool {
+    document_has_navigated(state)
+        && (state.ready_state == "complete"
+            || (allow_interactive && state.ready_state == "interactive"))
+}
+
+fn document_has_navigated(state: &NavigationState) -> bool {
+    url_has_navigated(&state.href) && !state.is_chrome_error_page
+}
+
+fn url_has_navigated(url: &str) -> bool {
+    url != INITIAL_PAGE_URL
+}
+
+async fn read_navigation_state(page: &Page) -> Result<NavigationState, CdpError> {
+    let result = page
+        .evaluate(
+            "JSON.stringify({
+                href: window.location.href,
+                readyState: document.readyState,
+                isChromeErrorPage: window.location.protocol === 'chrome-error:'
+                    || document.getElementById('main-frame-error') !== null
+            })",
+        )
+        .await
+        .map_err(driver_error)?;
+    let raw: String = result.into_value().map_err(|err| {
+        CdpError::Driver(Box::new(io::Error::other(format!(
+            "read navigation state: {err}"
+        ))))
+    })?;
+    parse_navigation_state(&raw)
+}
+
+async fn read_navigation_state_raw(
+    cdp: &mut RawCdpClient,
+    page: &RawPage,
+) -> Result<NavigationState, CdpError> {
+    let frame_tree = page
+        .execute(
+            cdp,
+            "Page.getFrameTree navigation state",
+            PAGE_COMMAND_TIMEOUT,
+            GetFrameTreeParams::default(),
+        )
+        .await?
+        .frame_tree;
+    let href = frame_tree.frame.url;
+    Ok(NavigationState {
+        ready_state: "complete".to_string(),
+        is_chrome_error_page: href.starts_with("chrome-error:"),
+        href,
+    })
+}
+
+fn parse_navigation_state(raw: &str) -> Result<NavigationState, CdpError> {
+    serde_json::from_str(raw).map_err(|err| {
+        CdpError::Driver(Box::new(io::Error::other(format!(
+            "parse navigation state `{raw}`: {err}"
+        ))))
+    })
+}
+
+fn navigation_ready_timeout_reason(
+    display_url: &str,
+    initial_error: Option<&str>,
+    last_state_error: Option<&str>,
+) -> String {
+    let mut reason = format!(
+        "navigation to `{display_url}` exhausted {} ready-state budget",
+        timeout_budget_label(DOCUMENT_READY_TIMEOUT)
+    );
+    if let Some(err) = initial_error {
+        reason.push_str(" after initial location assignment failed: ");
+        reason.push_str(err);
+    }
+    if let Some(err) = last_state_error {
+        reason.push_str("; last navigation state read failed: ");
+        reason.push_str(err);
+    }
+    reason
+}
+
+fn navigation_display_url(url: &str) -> &str {
+    if url.starts_with("data:") {
+        "data:<redacted>"
+    } else {
+        url
+    }
+}
+
 /// Wait stages that must run *after* navigation. PRD §15 — `--wait-for`
 /// and `--wait-ms`.
 ///
@@ -1309,6 +2556,25 @@ async fn apply_post_navigate_waits(page: &Page, target: &Target) -> Result<(), C
         tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
     }
     Ok(())
+}
+
+async fn apply_post_navigate_waits_raw(
+    cdp: &mut RawCdpClient,
+    page: &RawPage,
+    target: &Target,
+) -> Result<(), CdpError> {
+    wait_for_selector_raw(cdp, page, raw_ready_selector(target)).await?;
+    if let Some(ms) = target.wait_ms {
+        tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
+    }
+    Ok(())
+}
+
+fn raw_ready_selector(target: &Target) -> &str {
+    target
+        .wait_for_selector
+        .as_deref()
+        .unwrap_or(RAW_DEFAULT_READY_SELECTOR)
 }
 
 /// Install localStorage entries from an already-parsed Playwright
@@ -1351,7 +2617,57 @@ async fn apply_storage_state_local_storage(
                 }
             })?;
             let script = format!("window.localStorage.setItem({key}, {value});");
-            page.evaluate(script.as_str()).await.map_err(driver_error)?;
+            with_timeout(
+                "Runtime.evaluate localStorage",
+                PAGE_COMMAND_TIMEOUT,
+                async {
+                    page.evaluate(script.as_str())
+                        .await
+                        .map(|_| ())
+                        .map_err(driver_error)
+                },
+            )
+            .await?;
+        }
+    }
+    Ok(())
+}
+
+async fn apply_storage_state_local_storage_raw(
+    cdp: &mut RawCdpClient,
+    page: &RawPage,
+    target: &Target,
+    state: Option<&StorageState>,
+) -> Result<(), CdpError> {
+    let Some(state) = state else {
+        return Ok(());
+    };
+    let target_origin = origin_of(target.url.as_str()).unwrap_or_default();
+    for origin_entry in &state.origins {
+        if origin_entry.origin != target_origin {
+            continue;
+        }
+        for entry in &origin_entry.local_storage {
+            let key = serde_json::to_string(&entry.name).map_err(|err| {
+                CdpError::MalformedStorageState {
+                    path: PathBuf::new(),
+                    reason: format!("could not serialize key: {err}"),
+                }
+            })?;
+            let value = serde_json::to_string(&entry.value).map_err(|err| {
+                CdpError::MalformedStorageState {
+                    path: PathBuf::new(),
+                    reason: format!("could not serialize value: {err}"),
+                }
+            })?;
+            let script = format!("window.localStorage.setItem({key}, {value});");
+            page.evaluate_unit(
+                cdp,
+                "Runtime.evaluate localStorage",
+                PAGE_COMMAND_TIMEOUT,
+                script.as_str(),
+            )
+            .await?;
         }
     }
     Ok(())
@@ -1376,37 +2692,110 @@ fn origin_of(input: &str) -> Option<String> {
     }
 }
 
-async fn inject_animation_killer(page: &Page) -> Result<(), CdpError> {
-    // PRD §16 determinism mitigation: install a CSS-injection script that
-    // runs before any page script, so transitions/animations don't race
-    // with `captureSnapshot` and produce different bounds across runs.
-    let source = "(() => { \
-        const style = document.createElement('style'); \
-        style.textContent = '*, *::before, *::after { \
+async fn apply_deterministic_styles(page: &Page, target: &Target) -> Result<(), CdpError> {
+    let Some(source) = deterministic_style_source(target) else {
+        return Ok(());
+    };
+
+    with_timeout(
+        "Runtime.evaluate deterministic styles",
+        PAGE_COMMAND_TIMEOUT,
+        async {
+            page.evaluate(source.as_str())
+                .await
+                .map(|_| ())
+                .map_err(driver_error)
+        },
+    )
+    .await?;
+    Ok(())
+}
+
+async fn apply_deterministic_styles_raw(
+    cdp: &mut RawCdpClient,
+    page: &RawPage,
+    target: &Target,
+) -> Result<(), CdpError> {
+    let Some(source) = deterministic_style_source(target) else {
+        return Ok(());
+    };
+
+    page.evaluate_unit(
+        cdp,
+        "Runtime.evaluate deterministic styles",
+        PAGE_COMMAND_TIMEOUT,
+        source.as_str(),
+    )
+    .await?;
+    Ok(())
+}
+
+async fn apply_deterministic_styles_raw_best_effort(
+    cdp: &mut RawCdpClient,
+    page: &RawPage,
+    target: &Target,
+) -> Result<(), CdpError> {
+    match apply_deterministic_styles_raw(cdp, page, target).await {
+        Ok(()) => Ok(()),
+        Err(err) if is_deterministic_styles_timeout(&err) => {
+            tracing::debug!(error = %err, "skipping raw deterministic styles after CDP timeout");
+            Ok(())
+        }
+        Err(err) => Err(err),
+    }
+}
+
+fn should_apply_post_navigation_deterministic_styles(preinstalled: bool, target: &Target) -> bool {
+    !preinstalled && deterministic_style_source(target).is_some()
+}
+
+fn should_apply_raw_post_navigation_deterministic_styles(
+    preinstalled: bool,
+    target: &Target,
+    page_events_enabled: bool,
+) -> bool {
+    page_events_enabled && should_apply_post_navigation_deterministic_styles(preinstalled, target)
+}
+
+fn deterministic_style_source(target: &Target) -> Option<String> {
+    if !target.disable_animations && !target.hide_scrollbars {
+        return None;
+    }
+
+    let mut css = String::new();
+    if target.disable_animations {
+        // PRD §16 determinism mitigation: transitions/animations should
+        // not race with `captureSnapshot` and produce different bounds
+        // across runs.
+        css.push_str(
+            "*, *::before, *::after { \
             animation-duration: 0s !important; \
             animation-delay: 0s !important; \
             transition-duration: 0s !important; \
             transition-delay: 0s !important; \
             caret-color: transparent !important; \
-        }'; \
-        (document.head || document.documentElement).appendChild(style); \
-    })();";
-    add_script_to_evaluate_on_new_document(page, source).await
-}
+        }",
+        );
+    }
+    if target.hide_scrollbars {
+        // The `--hide-scrollbars` Chromium launch arg is the first line
+        // of defense; this CSS covers cases where the launch arg alone
+        // is not honored or the page paints custom scrollbars.
+        css.push_str(
+            "html { overflow: hidden !important; } \
+            ::-webkit-scrollbar { display: none !important; }",
+        );
+    }
 
-async fn inject_scrollbar_killer(page: &Page) -> Result<(), CdpError> {
-    // PRD §16 determinism mitigation: scrollbar overlay differs across
-    // platforms / DPRs. The `--hide-scrollbars` Chromium launch arg is a
-    // first line of defense; this CSS injection covers the cases where
-    // the launch arg alone is not honored (Linux non-overlay scrollbars,
-    // CSS-painted scrollbars in some apps).
-    let source = "(() => { \
-        const style = document.createElement('style'); \
-        style.textContent = 'html { overflow: hidden !important; } \
-            ::-webkit-scrollbar { display: none !important; }'; \
-        (document.head || document.documentElement).appendChild(style); \
-    })();";
-    add_script_to_evaluate_on_new_document(page, source).await
+    let css_literal = serde_json::to_string(&css).ok()?;
+    Some(format!(
+        "(() => {{ \
+            const style = document.createElement('style'); \
+            style.setAttribute('data-plumb-deterministic-style', 'true'); \
+            style.textContent = {css_literal}; \
+            (document.head || document.documentElement).appendChild(style); \
+        }})();"
+    ))
 }
 
 /// Read `path` (validated as a `.js` file under the CWD) and register
@@ -1437,15 +2826,59 @@ async fn inject_auth_script(page: &Page, path: &Path) -> Result<(), CdpError> {
     add_script_to_evaluate_on_new_document(page, &source).await
 }
 
+async fn inject_auth_script_raw(
+    cdp: &mut RawCdpClient,
+    page: &RawPage,
+    path: &Path,
+) -> Result<(), CdpError> {
+    let canonical = canonicalize_safe_path(path)?;
+    if canonical.extension().and_then(|s| s.to_str()) != Some("js") {
+        return Err(CdpError::InvalidPath {
+            path: path.to_path_buf(),
+            reason: "auth script must have a `.js` extension".to_owned(),
+        });
+    }
+    let source = std::fs::read_to_string(&canonical).map_err(|err| CdpError::InvalidPath {
+        path: canonical.clone(),
+        reason: format!("could not read: {err}"),
+    })?;
+    add_script_to_evaluate_on_new_document_raw(cdp, page, &source).await
+}
+
 async fn add_script_to_evaluate_on_new_document(page: &Page, source: &str) -> Result<(), CdpError> {
-    let params = AddScriptToEvaluateOnNewDocumentParams {
+    let params = add_script_to_evaluate_params(source);
+    with_timeout(
+        "Page.addScriptToEvaluateOnNewDocument",
+        PAGE_COMMAND_TIMEOUT,
+        async { page.execute(params).await.map(|_| ()).map_err(driver_error) },
+    )
+    .await?;
+    Ok(())
+}
+
+async fn add_script_to_evaluate_on_new_document_raw(
+    cdp: &mut RawCdpClient,
+    page: &RawPage,
+    source: &str,
+) -> Result<(), CdpError> {
+    let params = add_script_to_evaluate_params(source);
+    page.execute(
+        cdp,
+        "Page.addScriptToEvaluateOnNewDocument",
+        PAGE_COMMAND_TIMEOUT,
+        params,
+    )
+    .await?;
+    Ok(())
+}
+
+fn add_script_to_evaluate_params(source: &str) -> AddScriptToEvaluateOnNewDocumentParams {
+    AddScriptToEvaluateOnNewDocumentParams {
         source: source.to_owned(),
         world_name: None,
         include_command_line_api: None,
-        run_immediately: Some(true),
-    };
-    page.execute(params).await.map_err(driver_error)?;
-    Ok(())
+        run_immediately: None,
+    }
 }
 
 async fn install_extra_headers(page: &Page, headers: &[(String, String)]) -> Result<(), CdpError> {
@@ -1466,7 +2899,34 @@ async fn install_extra_headers(page: &Page, headers: &[(String, String)]) -> Res
         object.insert(name, serde_json::Value::String(value));
     }
     let params = SetExtraHttpHeadersParams::new(Headers::new(serde_json::Value::Object(object)));
-    page.execute(params).await.map_err(driver_error)?;
+    with_timeout("Network.setExtraHTTPHeaders", PAGE_COMMAND_TIMEOUT, async {
+        page.execute(params).await.map(|_| ()).map_err(driver_error)
+    })
+    .await?;
+    Ok(())
+}
+
+async fn install_extra_headers_raw(
+    cdp: &mut RawCdpClient,
+    page: &RawPage,
+    headers: &[(String, String)],
+) -> Result<(), CdpError> {
+    let mut entries: Vec<(String, String)> = headers.to_vec();
+    entries.sort_by(|a, b| a.0.cmp(&b.0));
+    let mut object = serde_json::Map::with_capacity(entries.len());
+    for (name, value) in entries {
+        validate_header_name(&name)?;
+        validate_no_ctl(&value, "value", "header")?;
+        object.insert(name, serde_json::Value::String(value));
+    }
+    let params = SetExtraHttpHeadersParams::new(Headers::new(serde_json::Value::Object(object)));
+    page.execute(
+        cdp,
+        "Network.setExtraHTTPHeaders",
+        PAGE_COMMAND_TIMEOUT,
+        params,
+    )
+    .await?;
     Ok(())
 }
 
@@ -1507,7 +2967,46 @@ async fn install_cookies(
             .map(|c| c.into_cdp_param(url_for_cookies))
             .collect(),
     );
-    page.execute(params).await.map_err(driver_error)?;
+    with_timeout("Network.setCookies", PAGE_COMMAND_TIMEOUT, async {
+        page.execute(params).await.map(|_| ()).map_err(driver_error)
+    })
+    .await?;
+    Ok(())
+}
+
+async fn install_cookies_raw(
+    cdp: &mut RawCdpClient,
+    page: &RawPage,
+    cookies: &[Cookie],
+    default_url: &str,
+) -> Result<(), CdpError> {
+    let mut sorted: Vec<Cookie> = cookies.to_vec();
+    sorted.sort_by(|a, b| {
+        (a.name.as_str(), a.value.as_str()).cmp(&(b.name.as_str(), b.value.as_str()))
+    });
+    for cookie in &sorted {
+        validate_cookie_name(&cookie.name)?;
+        validate_cookie_value(&cookie.value)?;
+        if let Some(domain) = cookie.domain.as_deref() {
+            validate_no_ctl(domain, "domain", "cookie")?;
+        }
+        if let Some(path) = cookie.path.as_deref() {
+            validate_no_ctl(path, "path", "cookie")?;
+        }
+    }
+    let url_for_cookies = if default_url.starts_with("http") {
+        Some(default_url)
+    } else {
+        None
+    };
+    let params = SetCookiesParams::new(
+        sorted
+            .into_iter()
+            .map(|c| c.into_cdp_param(url_for_cookies))
+            .collect(),
+    );
+    page.execute(cdp, "Network.setCookies", PAGE_COMMAND_TIMEOUT, params)
+        .await?;
     Ok(())
 }
 
@@ -1524,9 +3023,44 @@ async fn install_storage_state_cookies(page: &Page, state: &StorageState) -> Res
         p.http_only = Some(cookie.http_only);
         params.push(p);
     }
-    page.execute(SetCookiesParams::new(params))
-        .await
-        .map_err(driver_error)?;
+    with_timeout(
+        "Network.setCookies storageState",
+        PAGE_COMMAND_TIMEOUT,
+        async {
+            page.execute(SetCookiesParams::new(params))
+                .await
+                .map(|_| ())
+                .map_err(driver_error)
+        },
+    )
+    .await?;
+    Ok(())
+}
+
+async fn install_storage_state_cookies_raw(
+    cdp: &mut RawCdpClient,
+    page: &RawPage,
+    state: &StorageState,
+) -> Result<(), CdpError> {
+    if state.cookies.is_empty() {
+        return Ok(());
+    }
+    let mut params: Vec<CookieParam> = Vec::with_capacity(state.cookies.len());
+    for cookie in &state.cookies {
+        let mut p = CookieParam::new(cookie.name.clone(), cookie.value.clone());
+        p.domain = Some(cookie.domain.clone());
+        p.path = Some(cookie.path.clone());
+        p.secure = Some(cookie.secure);
+        p.http_only = Some(cookie.http_only);
+        params.push(p);
+    }
+    page.execute(
+        cdp,
+        "Network.setCookies storageState",
+        PAGE_COMMAND_TIMEOUT,
+        SetCookiesParams::new(params),
+    )
+    .await?;
     Ok(())
 }
 
@@ -1548,6 +3082,39 @@ async fn wait_for_selector(page: &Page, selector: &str) -> Result<(), CdpError> 
             match page.find_element(selector.to_owned()).await {
                 Ok(_) => return Ok::<(), CdpError>(()),
                 Err(_) => {
+                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                }
+            }
+        }
+    };
+    match tokio::time::timeout(std::time::Duration::from_secs(10), attempt).await {
+        Ok(result) => result,
+        Err(_) => Err(CdpError::Driver(Box::new(io::Error::other(format!(
+            "wait_for_selector `{selector}` exhausted 10s budget"
+        ))))),
+    }
+}
+
+async fn wait_for_selector_raw(
+    cdp: &mut RawCdpClient,
+    page: &RawPage,
+    selector: &str,
+) -> Result<(), CdpError> {
+    let selector = serde_json::to_string(selector).map_err(serde_driver_error)?;
+    let script = format!("document.querySelector({selector}) !== null");
+    let attempt = async {
+        loop {
+            match page
+                .evaluate_value::<bool>(
+                    cdp,
+                    "Runtime.evaluate wait_for_selector",
+                    PAGE_COMMAND_TIMEOUT,
+                    script.as_str(),
+                )
+                .await
+            {
+                Ok(true) => return Ok::<(), CdpError>(()),
+                Ok(false) | Err(_) => {
                     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
                 }
             }
@@ -1644,49 +3211,68 @@ fn chromium_install_hint() -> String {
 
 struct ChromiumSession {
     browser: Browser,
-    handler_task: JoinHandle<()>,
+    handler_task: Option<JoinHandle<()>>,
+    profile_dir: Option<TempDir>,
 }
 
 impl ChromiumSession {
-    async fn launch(config: BrowserConfig) -> Result<Self, CdpError> {
-        let (browser, handler) = Browser::launch(config).await.map_err(map_launch_error)?;
+    async fn launch(launch: ChromiumLaunch) -> Result<Self, CdpError> {
+        let (browser, handler) = with_timeout("Chromium launch", BROWSER_LAUNCH_TIMEOUT, async {
+            Browser::launch(launch.config)
+                .await
+                .map_err(map_launch_error)
+        })
+        .await?;
         let handler_task = poll_handler(handler);
         Ok(Self {
             browser,
-            handler_task,
+            handler_task: Some(handler_task),
+            profile_dir: launch.profile_dir,
         })
     }
 
     async fn shutdown(&mut self) -> Result<(), CdpError> {
-        let close_result = self.browser.close().await.map_err(driver_error);
-        if let Err(close_err) = close_result {
-            if let Err(kill_err) = kill_browser(&mut self.browser).await {
-                tracing::debug!(error = %kill_err, "failed to kill Chromium after close error");
+        let close_result = close_browser_best_effort(&mut self.browser).await;
+        if let Some(task) = self.handler_task.take() {
+            task.abort();
+            if let Err(join_err) = task.await
+                && !join_err.is_cancelled()
+            {
+                tracing::debug!(error = %join_err, "Chromium handler task failed");
             }
-            self.abort_handler().await;
-            return Err(close_err);
         }
+        let _profile_dir = self.profile_dir.take();
+        close_result
+    }
+}
 
-        if let Err(wait_err) = self.browser.wait().await {
-            let cleanup_err = io_error(wait_err);
-            if let Err(kill_err) = kill_browser(&mut self.browser).await {
-                tracing::debug!(error = %kill_err, "failed to kill Chromium after wait error");
-            }
-            self.abort_handler().await;
-            return Err(cleanup_err);
-        }
+struct RawChromiumSession {
+    browser: Browser,
+    profile_dir: Option<TempDir>,
+}
 
-        self.abort_handler().await;
-        Ok(())
+impl RawChromiumSession {
+    async fn launch(launch: ChromiumLaunch) -> Result<Self, CdpError> {
+        let (browser, _handler) = with_timeout("Chromium launch", BROWSER_LAUNCH_TIMEOUT, async {
+            Browser::launch(launch.config)
+                .await
+                .map_err(map_launch_error)
+        })
+        .await?;
+        Ok(Self {
+            browser,
+            profile_dir: launch.profile_dir,
+        })
     }
 
-    async fn abort_handler(&mut self) {
-        self.handler_task.abort();
-        if let Err(join_err) = (&mut self.handler_task).await
-            && !join_err.is_cancelled()
-        {
-            tracing::debug!(error = %join_err, "Chromium handler task failed");
-        }
+    fn websocket_address(&self) -> &str {
+        self.browser.websocket_address()
+    }
+
+    async fn shutdown(&mut self, cdp: &mut RawCdpClient) -> Result<(), CdpError> {
+        let cleanup_result = close_raw_browser_best_effort(cdp, &mut self.browser).await;
+        let _profile_dir = self.profile_dir.take();
+        cleanup_result
     }
 }
 
@@ -1700,15 +3286,215 @@ fn poll_handler(mut handler: Handler) -> JoinHandle<()> {
     })
 }
 
+async fn with_timeout<T, F>(operation: &str, timeout: Duration, future: F) -> Result<T, CdpError>
+where
+    F: Future<Output = Result<T, CdpError>>,
+{
+    match tokio::time::timeout(timeout, future).await {
+        Ok(result) => result.map_err(|err| contextualize_request_timeout(operation, err)),
+        Err(_) => Err(timeout_error(operation, timeout)),
+    }
+}
+
+fn contextualize_request_timeout(operation: &str, err: CdpError) -> CdpError {
+    let CdpError::Driver(source) = &err else {
+        return err;
+    };
+
+    if matches!(
+        source.downcast_ref::<chromiumoxide::error::CdpError>(),
+        Some(chromiumoxide::error::CdpError::Timeout)
+    ) {
+        return CdpError::Driver(Box::new(io::Error::new(
+            io::ErrorKind::TimedOut,
+            format!(
+                "{operation} hit Chromiumoxide request budget ({})",
+                timeout_budget_label(CHROMIUMOXIDE_REQUEST_TIMEOUT)
+            ),
+        )));
+    }
+
+    err
+}
+
+fn is_retryable_capture_timeout(err: &CdpError) -> bool {
+    let CdpError::Driver(source) = err else {
+        return false;
+    };
+
+    if matches!(
+        source.downcast_ref::<chromiumoxide::error::CdpError>(),
+        Some(chromiumoxide::error::CdpError::Timeout)
+    ) {
+        return true;
+    }
+
+    source.downcast_ref::<io::Error>().is_some_and(|err| {
+        (err.kind() == io::ErrorKind::TimedOut && !is_snapshot_capture_timeout(err))
+            || is_startup_navigation_abort(err)
+            || is_ready_state_read_timeout(err)
+    })
+}
+
+fn is_snapshot_capture_timeout(err: &io::Error) -> bool {
+    err.kind() == io::ErrorKind::TimedOut
+        && err
+            .to_string()
+            .contains("DOMSnapshot.captureSnapshot exceeded")
+}
+
+fn is_startup_navigation_abort(err: &io::Error) -> bool {
+    if err.kind() != io::ErrorKind::Other {
+        return false;
+    }
+
+    let message = err.to_string();
+    message.contains("exhausted 30s ready-state budget")
+        && message.contains("after initial location assignment failed:")
+        && message.contains("Page.navigate failed: net::ERR_ABORTED")
+        && message.contains("last navigation state read failed: navigation state read exceeded")
+}
+
+fn is_ready_state_read_timeout(err: &io::Error) -> bool {
+    if err.kind() != io::ErrorKind::Other {
+        return false;
+    }
+
+    let message = err.to_string();
+    message.contains("exhausted 30s ready-state budget")
+        && message.contains("last navigation state read failed: navigation state read exceeded")
+}
+
+fn is_deterministic_styles_timeout(err: &CdpError) -> bool {
+    let CdpError::Driver(source) = err else {
+        return false;
+    };
+
+    source.downcast_ref::<io::Error>().is_some_and(|err| {
+        err.kind() == io::ErrorKind::TimedOut
+            && err
+                .to_string()
+                .contains("Runtime.evaluate deterministic styles")
+    })
+}
+
+fn timeout_error(operation: &str, timeout: Duration) -> CdpError {
+    CdpError::Driver(Box::new(io::Error::new(
+        io::ErrorKind::TimedOut,
+        timeout_reason(operation, timeout),
+    )))
+}
+
+fn timeout_reason(operation: &str, timeout: Duration) -> String {
+    format!(
+        "{operation} exceeded {} budget",
+        timeout_budget_label(timeout)
+    )
+}
+
+fn timeout_budget_label(timeout: Duration) -> String {
+    if timeout.as_millis().is_multiple_of(1_000) {
+        format!("{}s", timeout.as_secs())
+    } else {
+        format!("{}ms", timeout.as_millis())
+    }
+}
+
+async fn cleanup_failed_persistent_launch(
+    browser: &mut Browser,
+    handler_task: JoinHandle<()>,
+) -> Result<(), CdpError> {
+    let close_result = close_browser_best_effort(browser).await;
+    handler_task.abort();
+    if let Err(join_err) = handler_task.await
+        && !join_err.is_cancelled()
+    {
+        tracing::debug!(error = %join_err, "Chromium handler task failed");
+    }
+
+    close_result
+}
+
+async fn close_browser_best_effort(browser: &mut Browser) -> Result<(), CdpError> {
+    if let Err(err) = with_timeout("Browser.close", BROWSER_CLOSE_TIMEOUT, async {
+        browser.close().await.map_err(driver_error)
+    })
+    .await
+    {
+        tracing::debug!(error = %err, "failed to close Chromium");
+    }
+
+    if let Err(wait_err) = with_timeout("Chromium process wait", BROWSER_WAIT_TIMEOUT, async {
+        browser.wait().await.map_err(io_error)
+    })
+    .await
+    {
+        tracing::debug!(error = %wait_err, "failed to wait for Chromium process");
+        kill_browser(browser).await?;
+        with_timeout(
+            "Chromium process wait after kill",
+            BROWSER_WAIT_TIMEOUT,
+            async { browser.wait().await.map_err(io_error) },
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+async fn close_raw_browser_best_effort(
+    cdp: &mut RawCdpClient,
+    browser: &mut Browser,
+) -> Result<(), CdpError> {
+    if let Err(err) = with_timeout("Browser.close", BROWSER_CLOSE_TIMEOUT, async {
+        cdp.execute(None, BrowserCloseParams::default())
+            .await
+            .map(|_: chromiumoxide::cdp::browser_protocol::browser::CloseReturns| ())
+    })
+    .await
+    {
+        tracing::debug!(error = %err, "failed to close Chromium over raw CDP");
+    }
+
+    if let Err(wait_err) = with_timeout("Chromium process wait", BROWSER_WAIT_TIMEOUT, async {
+        browser.wait().await.map_err(io_error)
+    })
+    .await
+    {
+        tracing::debug!(error = %wait_err, "failed to wait for Chromium process");
+        kill_browser(browser).await?;
+        with_timeout(
+            "Chromium process wait after kill",
+            BROWSER_WAIT_TIMEOUT,
+            async { browser.wait().await.map_err(io_error) },
+        )
+        .await?;
+    }
+    Ok(())
+}
+
 async fn kill_browser(browser: &mut Browser) -> Result<(), CdpError> {
-    if let Some(result) = browser.kill().await {
+    if let Some(result) = tokio::time::timeout(BROWSER_KILL_TIMEOUT, browser.kill())
+        .await
+        .map_err(|_| timeout_error("Chromium kill", BROWSER_KILL_TIMEOUT))?
+    {
         result.map_err(io_error)?;
     }
     Ok(())
 }
 
 async fn validate_browser_version(browser: &Browser) -> Result<(), CdpError> {
-    let version = browser.version().await.map_err(driver_error)?;
+    let version = with_timeout("Browser.version", CDP_CONTROL_TIMEOUT, async {
+        browser.version().await.map_err(driver_error)
+    })
+    .await?;
+    validate_chromium_product_major(&version.product)
+}
+
+async fn validate_browser_version_raw(cdp: &mut RawCdpClient) -> Result<(), CdpError> {
+    let version = with_timeout("Browser.version", CDP_CONTROL_TIMEOUT, async {
+        cdp.execute(None, GetVersionParams::default()).await
+    })
+    .await?;
     validate_chromium_product_major(&version.product)
 }
 
@@ -1763,6 +3549,14 @@ fn map_launch_error(err: chromiumoxide::error::CdpError) -> CdpError {
 
 fn driver_error(err: chromiumoxide::error::CdpError) -> CdpError {
     CdpError::Driver(Box::new(err))
+}
+
+fn serde_driver_error(err: serde_json::Error) -> CdpError {
+    driver_error(chromiumoxide::error::CdpError::Serde(err))
+}
+
+fn driver_message(message: impl Into<String>) -> CdpError {
+    CdpError::Driver(Box::new(io::Error::other(message.into())))
 }
 
 fn io_error(err: io::Error) -> CdpError {
@@ -2359,6 +4153,9 @@ fn rect_from_bounds(inner: &[f64]) -> Rect {
 
 #[cfg(test)]
 mod tests {
+    use std::io;
+    use std::path::PathBuf;
+
     use super::{
         COMPUTED_STYLE_WHITELIST, CdpError, MAX_SUPPORTED_CHROMIUM_MAJOR,
         MIN_SUPPORTED_CHROMIUM_MAJOR,
@@ -2753,6 +4550,71 @@ mod tests {
     }
 
     #[test]
+    fn deterministic_style_source_uses_default_capture_knobs() {
+        let Some(source) = super::deterministic_style_source(&super::Target::default()) else {
+            panic!("default target should inject deterministic CSS");
+        };
+
+        assert!(source.contains("data-plumb-deterministic-style"));
+        assert!(source.contains("animation-duration"));
+        assert!(source.contains("transition-duration"));
+        assert!(source.contains("overflow: hidden"));
+        assert!(source.contains("::-webkit-scrollbar"));
+    }
+
+    #[test]
+    fn deterministic_style_source_skips_when_knobs_disabled() {
+        let target = super::Target {
+            disable_animations: false,
+            hide_scrollbars: false,
+            ..super::Target::default()
+        };
+
+        assert!(super::deterministic_style_source(&target).is_none());
+    }
+
+    #[test]
+    fn raw_deterministic_styles_skip_post_navigation_when_preinstalled() {
+        let target = super::Target::default();
+
+        assert!(!super::should_apply_post_navigation_deterministic_styles(
+            true, &target
+        ));
+        assert!(super::should_apply_post_navigation_deterministic_styles(
+            false, &target
+        ));
+    }
+
+    #[test]
+    fn raw_deterministic_styles_skip_post_navigation_without_page_events() {
+        let target = super::Target::default();
+
+        assert!(
+            !super::should_apply_raw_post_navigation_deterministic_styles(false, &target, false)
+        );
+    }
+
+    #[test]
+    fn raw_deterministic_styles_apply_post_navigation_with_page_events() {
+        let target = super::Target::default();
+
+        assert!(super::should_apply_raw_post_navigation_deterministic_styles(false, &target, true));
+    }
+
+    #[test]
+    fn raw_deterministic_styles_skip_post_navigation_without_source() {
+        let target = super::Target {
+            disable_animations: false,
+            hide_scrollbars: false,
+            ..super::Target::default()
+        };
+
+        assert!(
+            !super::should_apply_raw_post_navigation_deterministic_styles(false, &target, true)
+        );
+    }
+
+    #[test]
     fn target_effective_dpr_prefers_pin_over_default() {
         let mut t = super::Target {
             device_pixel_ratio: 1.0,
@@ -2761,6 +4623,586 @@ mod tests {
         assert!((t.effective_dpr() - 1.0).abs() < f64::EPSILON);
         t.pin_dpr = Some(3.0);
         assert!((t.effective_dpr() - 3.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn viewport_override_skips_first_unpinned_target() {
+        let target = super::Target::default();
+
+        assert!(!super::should_apply_viewport_override(0, &target));
+    }
+
+    #[test]
+    fn viewport_override_applies_to_first_pinned_target() {
+        let target = super::Target {
+            pin_dpr: Some(2.0),
+            ..super::Target::default()
+        };
+
+        assert!(super::should_apply_viewport_override(0, &target));
+    }
+
+    #[test]
+    fn viewport_override_applies_to_later_targets() {
+        let target = super::Target::default();
+
+        assert!(super::should_apply_viewport_override(1, &target));
+    }
+
+    #[test]
+    fn persistent_viewport_override_skips_default_dpr_target() {
+        let target = super::Target::default();
+
+        assert!(!super::should_apply_persistent_viewport_override(&target));
+    }
+
+    #[test]
+    fn persistent_viewport_override_applies_to_pinned_dpr() {
+        let target = super::Target {
+            pin_dpr: Some(2.0),
+            ..super::Target::default()
+        };
+
+        assert!(super::should_apply_persistent_viewport_override(&target));
+    }
+
+    #[test]
+    fn persistent_viewport_override_applies_to_non_default_dpr() {
+        let target = super::Target {
+            device_pixel_ratio: 2.0,
+            ..super::Target::default()
+        };
+
+        assert!(super::should_apply_persistent_viewport_override(&target));
+    }
+
+    #[test]
+    fn initial_page_url_uses_blank_bootstrap_document() {
+        assert_eq!(super::INITIAL_PAGE_URL, "about:blank");
+    }
+
+    #[test]
+    fn add_script_params_registers_for_future_documents_only() {
+        let params = super::add_script_to_evaluate_params("window.__plumb = true;");
+
+        assert_eq!(params.source, "window.__plumb = true;");
+        assert!(params.world_name.is_none());
+        assert!(params.include_command_line_api.is_none());
+        assert!(params.run_immediately.is_none());
+    }
+
+    #[test]
+    fn browser_config_creates_isolated_profile_by_default() {
+        let driver = super::ChromiumDriver::new(super::ChromiumOptions {
+            executable_path: Some(test_executable_path()),
+            ..super::ChromiumOptions::default()
+        });
+        let launch = match driver.browser_config(&super::Target::default(), None) {
+            Ok(launch) => launch,
+            Err(err) => panic!("browser config failed: {err}"),
+        };
+
+        assert!(launch.profile_dir.is_some());
+        let Some(configured) = launch.config.user_data_dir.as_deref() else {
+            panic!("expected generated user data dir");
+        };
+        assert!(configured.exists());
+    }
+
+    #[test]
+    fn browser_config_preserves_explicit_profile() {
+        let profile = match tempfile::tempdir() {
+            Ok(profile) => profile,
+            Err(err) => panic!("tempdir failed: {err}"),
+        };
+        let driver = super::ChromiumDriver::new(super::ChromiumOptions {
+            executable_path: Some(test_executable_path()),
+            user_data_dir: Some(profile.path().to_path_buf()),
+            ..super::ChromiumOptions::default()
+        });
+        let launch = match driver.browser_config(&super::Target::default(), None) {
+            Ok(launch) => launch,
+            Err(err) => panic!("browser config failed: {err}"),
+        };
+
+        assert!(launch.profile_dir.is_none());
+        assert_eq!(launch.config.user_data_dir.as_deref(), Some(profile.path()));
+    }
+
+    #[test]
+    fn navigation_assignment_script_json_escapes_url() {
+        let script = match super::navigation_assignment_script("https://example.com/a\"b\nc") {
+            Ok(script) => script,
+            Err(err) => panic!("script generation failed: {err}"),
+        };
+        assert_eq!(
+            script,
+            "window.location.assign(\"https://example.com/a\\\"b\\nc\");"
+        );
+    }
+
+    #[test]
+    fn file_urls_keep_chromiumoxide_goto_path() {
+        assert!(super::uses_chromiumoxide_goto("file:///tmp/static.html"));
+        assert_eq!(
+            super::navigation_method_for_url("file:///tmp/static.html"),
+            super::NavigationMethod::ChromiumoxideGoto
+        );
+    }
+
+    #[test]
+    fn navigation_method_avoids_script_assignment_for_data_urls() {
+        assert_eq!(
+            super::navigation_method_for_url("data:text/html;base64,PHNjcmlwdD4="),
+            super::NavigationMethod::CdpNavigate
+        );
+        assert_eq!(
+            super::navigation_method_for_url("http://127.0.0.1:49197/"),
+            super::NavigationMethod::LocationAssign
+        );
+        assert_eq!(
+            super::navigation_method_for_url("https://example.com/"),
+            super::NavigationMethod::LocationAssign
+        );
+    }
+
+    #[test]
+    fn page_navigation_uses_chromiumoxide_goto_for_web_urls() {
+        assert_eq!(
+            super::page_navigation_method_for_url("http://127.0.0.1:49197/"),
+            super::NavigationMethod::ChromiumoxideGoto
+        );
+        assert_eq!(
+            super::page_navigation_method_for_url("https://example.com/"),
+            super::NavigationMethod::ChromiumoxideGoto
+        );
+        assert_eq!(
+            super::page_navigation_method_for_url("data:text/html;base64,PHNjcmlwdD4="),
+            super::NavigationMethod::CdpNavigate
+        );
+    }
+
+    #[test]
+    fn raw_capture_path_is_reserved_for_data_urls_and_selector_gated_pages() {
+        let web_target = super::Target {
+            url: "https://example.com/".to_owned(),
+            ..super::Target::default()
+        };
+        assert!(!super::should_use_raw_capture_path(&[web_target]));
+
+        let app_target = super::Target {
+            url: "http://127.0.0.1:49197/".to_owned(),
+            wait_for_selector: Some("html[data-plumb-ready=\"true\"]".to_owned()),
+            ..super::Target::default()
+        };
+        assert!(super::should_use_raw_capture_path(&[app_target]));
+
+        let data_target = super::Target {
+            url: "data:text/html;base64,PHNjcmlwdD4=".to_owned(),
+            ..super::Target::default()
+        };
+        assert!(super::should_use_raw_capture_path(&[data_target]));
+    }
+
+    #[test]
+    fn raw_capture_fallback_accepts_browser_new_page_timeout() {
+        let err = CdpError::Driver(Box::new(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "Browser.new_page exceeded 75s budget",
+        )));
+
+        assert!(super::should_fallback_to_raw_capture(&err));
+    }
+
+    #[test]
+    fn raw_capture_fallback_accepts_browser_new_page_request_budget() {
+        let err = CdpError::Driver(Box::new(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "Browser.new_page hit Chromiumoxide request budget (60s)",
+        )));
+
+        assert!(super::should_fallback_to_raw_capture(&err));
+    }
+
+    #[test]
+    fn raw_capture_fallback_accepts_page_navigation_init_timeout() {
+        let err = CdpError::Driver(Box::new(io::Error::other(
+            "navigation to `http://127.0.0.1:49196/` exhausted 30s ready-state \
+             budget after initial location assignment failed: driver failure: \
+             Page.navigate exceeded 30s budget; last navigation state read failed: \
+             navigation state read exceeded 10s budget",
+        )));
+
+        assert!(super::should_fallback_to_raw_capture(&err));
+    }
+
+    #[test]
+    fn raw_capture_fallback_rejects_unrelated_timeouts() {
+        let err = CdpError::Driver(Box::new(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "DOMSnapshot.captureSnapshot exceeded 60s budget",
+        )));
+
+        assert!(!super::should_fallback_to_raw_capture(&err));
+    }
+
+    #[test]
+    fn raw_ready_selector_defaults_to_body() {
+        let target = super::Target::default();
+
+        assert_eq!(super::raw_ready_selector(&target), "body");
+    }
+
+    #[test]
+    fn raw_ready_selector_preserves_user_selector() {
+        let target = super::Target {
+            wait_for_selector: Some("#app-ready".to_owned()),
+            ..super::Target::default()
+        };
+
+        assert_eq!(super::raw_ready_selector(&target), "#app-ready");
+    }
+
+    #[test]
+    fn raw_navigation_tolerates_page_navigate_abort_for_web_urls() {
+        assert!(super::uses_raw_tolerant_page_navigate(
+            "http://127.0.0.1:49197/"
+        ));
+        assert!(super::uses_raw_tolerant_page_navigate(
+            "https://example.com/"
+        ));
+        assert!(!super::uses_raw_tolerant_page_navigate(
+            "data:text/html;base64,PHNjcmlwdD4="
+        ));
+        assert!(!super::uses_raw_tolerant_page_navigate(
+            "file:///tmp/static.html"
+        ));
+    }
+
+    #[test]
+    fn raw_page_navigate_tolerates_only_abort_errors() {
+        assert!(super::raw_page_navigate_error_is_tolerated(
+            "net::ERR_ABORTED"
+        ));
+        assert!(!super::raw_page_navigate_error_is_tolerated(
+            "net::ERR_CONNECTION_REFUSED"
+        ));
+    }
+
+    #[test]
+    fn document_load_wait_accepts_redirected_complete_document_only() {
+        assert!(super::document_is_loaded(&super::NavigationState {
+            href: "https://example.com/login".to_string(),
+            ready_state: "complete".to_string(),
+            is_chrome_error_page: false,
+        }));
+        assert!(!super::document_is_loaded(&super::NavigationState {
+            href: "https://example.com/login".to_string(),
+            ready_state: "interactive".to_string(),
+            is_chrome_error_page: false,
+        }));
+        assert!(!super::document_is_loaded(&super::NavigationState {
+            href: super::INITIAL_PAGE_URL.to_string(),
+            ready_state: "complete".to_string(),
+            is_chrome_error_page: false,
+        }));
+        assert!(!super::document_is_loaded(&super::NavigationState {
+            href: "chrome-error://chromewebdata/".to_string(),
+            ready_state: "complete".to_string(),
+            is_chrome_error_page: true,
+        }));
+    }
+
+    #[test]
+    fn selector_gated_raw_navigation_accepts_interactive_document() {
+        let state = super::NavigationState {
+            href: "https://example.com/app".to_string(),
+            ready_state: "interactive".to_string(),
+            is_chrome_error_page: false,
+        };
+
+        assert!(super::document_is_ready_for_capture(&state, true));
+        assert!(!super::document_is_ready_for_capture(&state, false));
+    }
+
+    #[test]
+    fn selector_gated_raw_navigation_still_rejects_initial_documents() {
+        assert!(!super::document_is_ready_for_capture(
+            &super::NavigationState {
+                href: super::INITIAL_PAGE_URL.to_string(),
+                ready_state: "interactive".to_string(),
+                is_chrome_error_page: false,
+            },
+            true,
+        ));
+        assert!(!super::document_is_ready_for_capture(
+            &super::NavigationState {
+                href: "chrome-error://chromewebdata/".to_string(),
+                ready_state: "interactive".to_string(),
+                is_chrome_error_page: true,
+            },
+            true,
+        ));
+    }
+
+    #[test]
+    fn raw_navigation_events_require_navigated_main_frame() {
+        let mut events = super::RawNavigationEvents::default();
+        events.observe_load_event();
+
+        assert!(!events.is_ready_for_capture(false));
+
+        events.observe_main_frame_url(super::INITIAL_PAGE_URL);
+        events.observe_load_event();
+
+        assert!(!events.is_ready_for_capture(false));
+
+        events.observe_main_frame_url("https://example.com/app");
+
+        assert!(events.has_navigated());
+        assert!(!events.is_ready_for_capture(false));
+
+        events.observe_load_event();
+
+        assert!(events.is_ready_for_capture(false));
+    }
+
+    #[test]
+    fn selector_gated_raw_events_accept_dom_content_after_navigation() {
+        let mut events = super::RawNavigationEvents::default();
+        events.observe_main_frame_url("https://example.com/app");
+        events.observe_dom_content_event();
+
+        assert!(events.is_ready_for_capture(true));
+        assert!(!events.is_ready_for_capture(false));
+    }
+
+    #[test]
+    fn raw_navigation_wait_keeps_accepted_navigation_without_page_events() {
+        let mut events = super::RawNavigationEvents::default();
+        events.observe_main_frame_url("https://example.com/app");
+
+        let events = super::raw_navigation_events_for_wait(false, events);
+
+        assert!(events.is_some_and(|events| events.has_navigated()));
+    }
+
+    #[test]
+    fn raw_navigation_wait_keeps_events_when_page_events_enabled() {
+        let mut events = super::RawNavigationEvents::default();
+        events.observe_main_frame_url("https://example.com/app");
+
+        let events = super::raw_navigation_events_for_wait(true, events);
+
+        assert!(events.is_some_and(|events| events.has_navigated()));
+    }
+
+    #[test]
+    fn raw_navigation_skips_state_read_after_event_timeout_with_navigation() {
+        let mut events = super::RawNavigationEvents::default();
+        events.observe_main_frame_url("https://example.com/app");
+
+        assert!(super::raw_navigation_can_skip_state_read(&events, false));
+    }
+
+    #[test]
+    fn parse_navigation_state_reads_href_and_ready_state() {
+        let state = match super::parse_navigation_state(
+            r#"{"href":"http://127.0.0.1:49197/","readyState":"complete"}"#,
+        ) {
+            Ok(state) => state,
+            Err(err) => panic!("navigation state parse failed: {err}"),
+        };
+        assert_eq!(state.href, "http://127.0.0.1:49197/");
+        assert_eq!(state.ready_state, "complete");
+        assert!(!state.is_chrome_error_page);
+    }
+
+    #[test]
+    fn parse_navigation_state_reads_chrome_error_page_marker() {
+        let state = match super::parse_navigation_state(
+            r#"{"href":"chrome-error://chromewebdata/","readyState":"complete","isChromeErrorPage":true}"#,
+        ) {
+            Ok(state) => state,
+            Err(err) => panic!("navigation state parse failed: {err}"),
+        };
+        assert!(state.is_chrome_error_page);
+    }
+
+    #[test]
+    fn parse_navigation_state_rejects_malformed_json() {
+        let err = super::parse_navigation_state("not json");
+        assert!(matches!(err, Err(CdpError::Driver(_))));
+    }
+
+    #[test]
+    fn navigation_ready_timeout_reason_preserves_stage_errors() {
+        let reason = super::navigation_ready_timeout_reason(
+            "http://127.0.0.1:49197/",
+            Some("navigation location assignment exceeded 2s budget"),
+            Some("navigation state read exceeded 2s budget"),
+        );
+
+        assert!(reason.contains("exhausted 30s ready-state budget"));
+        assert!(reason.contains("after initial location assignment failed"));
+        assert!(reason.contains("last navigation state read failed"));
+    }
+
+    #[test]
+    fn navigation_display_url_redacts_data_urls() {
+        assert_eq!(
+            super::navigation_display_url("data:text/html;base64,PHNjcmlwdD4="),
+            "data:<redacted>"
+        );
+        assert_eq!(
+            super::navigation_display_url("http://127.0.0.1:49197/"),
+            "http://127.0.0.1:49197/"
+        );
+    }
+
+    #[test]
+    fn contextualize_request_timeout_labels_operation() {
+        let err = super::contextualize_request_timeout(
+            "Target.attachToTarget",
+            CdpError::Driver(Box::new(chromiumoxide::error::CdpError::Timeout)),
+        );
+
+        let message = err.to_string();
+        assert!(message.contains("Target.attachToTarget"));
+        assert!(message.contains("Chromiumoxide request budget"));
+    }
+
+    #[test]
+    fn target_lifecycle_error_labels_pre_navigation_stage() {
+        let err = super::target_lifecycle_error(
+            "Target.createTarget",
+            &CdpError::Driver(Box::new(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "Target.createTarget exceeded 10s budget",
+            ))),
+        );
+
+        let message = err.to_string();
+        assert!(message.contains("Target.createTarget failed before navigation"));
+        assert!(message.contains("Target.createTarget exceeded 10s budget"));
+        assert!(super::is_retryable_capture_timeout(&err));
+    }
+
+    #[test]
+    fn target_lifecycle_error_keeps_non_timeout_errors_non_retryable() {
+        let err = super::target_lifecycle_error(
+            "Target.attachToTarget",
+            &CdpError::Driver(Box::new(io::Error::other("target disappeared"))),
+        );
+
+        let message = err.to_string();
+        assert!(message.contains("Target.attachToTarget failed before navigation"));
+        assert!(message.contains("target disappeared"));
+        assert!(!super::is_retryable_capture_timeout(&err));
+    }
+
+    #[test]
+    fn retryable_capture_timeout_accepts_chromiumoxide_timeout() {
+        let err = CdpError::Driver(Box::new(chromiumoxide::error::CdpError::Timeout));
+
+        assert!(super::is_retryable_capture_timeout(&err));
+    }
+
+    #[test]
+    fn retryable_capture_timeout_accepts_plumb_timed_out_io() {
+        let err = CdpError::Driver(Box::new(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "Emulation.setDeviceMetricsOverride exceeded 25s budget",
+        )));
+
+        assert!(super::is_retryable_capture_timeout(&err));
+    }
+
+    #[test]
+    fn retryable_capture_timeout_rejects_snapshot_capture_timeout() {
+        let err = CdpError::Driver(Box::new(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "DOMSnapshot.captureSnapshot exceeded 60s budget",
+        )));
+
+        assert!(!super::is_retryable_capture_timeout(&err));
+    }
+
+    #[test]
+    fn retryable_capture_timeout_accepts_startup_navigation_abort() {
+        let err = CdpError::Driver(Box::new(io::Error::other(
+            "navigation to `http://127.0.0.1:49216/` exhausted 30s ready-state budget \
+             after initial location assignment failed: driver failure: Page.navigate failed: \
+             net::ERR_ABORTED; last navigation state read failed: navigation state read \
+             exceeded 2s budget",
+        )));
+
+        assert!(super::is_retryable_capture_timeout(&err));
+    }
+
+    #[test]
+    fn retryable_capture_timeout_accepts_ready_state_read_timeout() {
+        let err = CdpError::Driver(Box::new(io::Error::other(
+            "navigation to `http://127.0.0.1:49216/` exhausted 30s ready-state \
+             budget; last navigation state read failed: navigation state read exceeded \
+             2s budget",
+        )));
+
+        assert!(super::is_retryable_capture_timeout(&err));
+    }
+
+    #[test]
+    fn deterministic_styles_timeout_is_skippable() {
+        let err = CdpError::Driver(Box::new(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "Runtime.evaluate deterministic styles exceeded 25s budget",
+        )));
+
+        assert!(super::is_deterministic_styles_timeout(&err));
+    }
+
+    #[test]
+    fn deterministic_styles_timeout_rejects_unrelated_timeouts() {
+        let err = CdpError::Driver(Box::new(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "Runtime.evaluate wait_for_selector exceeded 25s budget",
+        )));
+
+        assert!(!super::is_deterministic_styles_timeout(&err));
+    }
+
+    #[test]
+    fn deterministic_styles_timeout_rejects_non_timeout_errors() {
+        let err = CdpError::Driver(Box::new(io::Error::other(
+            "Runtime.evaluate deterministic styles failed: detached target",
+        )));
+
+        assert!(!super::is_deterministic_styles_timeout(&err));
+    }
+
+    #[test]
+    fn retryable_capture_timeout_rejects_bare_navigation_abort() {
+        let err = CdpError::Driver(Box::new(io::Error::other(
+            "Page.navigate failed: net::ERR_ABORTED",
+        )));
+
+        assert!(!super::is_retryable_capture_timeout(&err));
+    }
+
+    #[test]
+    fn retryable_capture_timeout_rejects_non_timeout_errors() {
+        let err = CdpError::MalformedSnapshot {
+            reason: "missing document".to_owned(),
+        };
+
+        assert!(!super::is_retryable_capture_timeout(&err));
+    }
+
+    fn test_executable_path() -> PathBuf {
+        match std::env::current_exe() {
+            Ok(path) => path,
+            Err(err) => panic!("current executable path unavailable: {err}"),
+        }
     }
 
     #[test]

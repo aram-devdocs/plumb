@@ -404,9 +404,10 @@ impl PlumbServer {
 
         let config = self.resolve_config_object(args.working_dir.as_deref())?;
 
+        let guarded_html = lint_page_html_guarded_document(&args.html);
         let data_url = format!(
             "data:text/html;base64,{}",
-            base64_encode(args.html.as_bytes())
+            base64_encode(guarded_html.as_bytes())
         );
         let target = Target {
             url: data_url,
@@ -821,6 +822,74 @@ const LINT_PAGE_HTML_INPUT_BYTE_CAP: usize = 1024 * 1024;
 /// Hard cap on the number of opening tags `lint_page_html` will render
 /// (10 000), estimated cheaply from the raw HTML before rendering.
 const LINT_PAGE_HTML_ELEMENT_CAP: usize = 10_000;
+
+const LINT_PAGE_HTML_CSP_META: &str = concat!(
+    r#"<meta http-equiv="Content-Security-Policy" content=""#,
+    "default-src 'none'; ",
+    "base-uri 'none'; ",
+    "connect-src 'none'; ",
+    "font-src data:; ",
+    "form-action 'none'; ",
+    "frame-src 'none'; ",
+    "img-src data:; ",
+    "manifest-src 'none'; ",
+    "media-src data:; ",
+    "object-src 'none'; ",
+    "script-src 'none'; ",
+    "style-src 'unsafe-inline'; ",
+    "worker-src 'none'",
+    r#"">"#
+);
+
+fn lint_page_html_guarded_document(html: &str) -> String {
+    let mut guarded = String::with_capacity(LINT_PAGE_HTML_CSP_META.len() + html.len());
+    if let Some(index) = lint_page_html_csp_insert_index(html) {
+        guarded.push_str(&html[..index]);
+        guarded.push_str(LINT_PAGE_HTML_CSP_META);
+        guarded.push_str(&html[index..]);
+    } else {
+        guarded.push_str(LINT_PAGE_HTML_CSP_META);
+        guarded.push_str(html);
+    }
+    guarded
+}
+
+fn lint_page_html_csp_insert_index(html: &str) -> Option<usize> {
+    find_head_tag_end(html).or_else(|| find_doctype_end(html))
+}
+
+fn find_head_tag_end(html: &str) -> Option<usize> {
+    let bytes = html.as_bytes();
+    let needle = b"<head";
+    for (index, window) in bytes.windows(needle.len()).enumerate() {
+        if !window.eq_ignore_ascii_case(needle) {
+            continue;
+        }
+        let after = index + needle.len();
+        if after < bytes.len() && !is_html_tag_boundary(bytes[after]) {
+            continue;
+        }
+        return html[after..].find('>').map(|offset| after + offset + 1);
+    }
+    None
+}
+
+fn find_doctype_end(html: &str) -> Option<usize> {
+    let start = html
+        .char_indices()
+        .find(|(_, ch)| !ch.is_ascii_whitespace())
+        .map_or(html.len(), |(index, _)| index);
+    let rest = &html[start..];
+    let needle = b"<!doctype";
+    if rest.len() < needle.len() || !rest.as_bytes()[..needle.len()].eq_ignore_ascii_case(needle) {
+        return None;
+    }
+    rest.find('>').map(|offset| start + offset + 1)
+}
+
+fn is_html_tag_boundary(byte: u8) -> bool {
+    matches!(byte, b'>' | b'/' | b' ' | b'\t' | b'\n' | b'\r' | 0x0c)
+}
 
 /// Conservative pre-render estimate of an HTML document's element count:
 /// the number of `<` bytes immediately followed by an ASCII letter (an
@@ -1252,9 +1321,7 @@ async fn authenticate_http_request(
 /// on transport errors.
 pub async fn run_stdio(cwd: PathBuf) -> Result<(), McpError> {
     let handler = PlumbServer::new(cwd);
-    let service = handler
-        .clone()
-        .serve(stdio())
+    let service = Box::pin(handler.clone().serve(stdio()))
         .await
         .map_err(|e| McpError::Service(e.to_string()))?;
     let service_result = service
@@ -1381,5 +1448,49 @@ mod tests {
                 .contains("detail=full payload exceeds 50 KB response cap"),
             "unexpected error: {err:?}"
         );
+    }
+
+    #[test]
+    fn lint_page_html_guarded_document_prepends_fetch_blocking_csp() {
+        let html = r#"<!doctype html><p style="padding:13px">x</p>"#;
+        let guarded = lint_page_html_guarded_document(html);
+
+        assert!(
+            guarded.starts_with(r#"<!doctype html><meta http-equiv="Content-Security-Policy""#),
+            "doctype must remain first, then CSP must guard the rendered data document: {guarded}"
+        );
+        assert!(guarded.contains("default-src 'none'"));
+        assert!(guarded.contains("script-src 'none'"));
+        assert!(guarded.contains("connect-src 'none'"));
+        assert!(guarded.contains("style-src 'unsafe-inline'"));
+        assert!(guarded.ends_with(r#"<p style="padding:13px">x</p>"#));
+    }
+
+    #[test]
+    fn lint_page_html_guarded_document_inserts_csp_before_head_resources() {
+        let html = r#"<!doctype html><html><head><link rel="stylesheet" href="https://example.com/app.css"></head><body>x</body></html>"#;
+        let guarded = lint_page_html_guarded_document(html);
+
+        assert!(guarded.starts_with("<!doctype html><html><head>"));
+        let csp_index = guarded
+            .find(r#"<meta http-equiv="Content-Security-Policy""#)
+            .expect("CSP meta should be present");
+        let link_index = guarded.find("<link").expect("link should be present");
+        assert!(
+            csp_index < link_index,
+            "CSP must appear before fetch-capable head resources: {guarded}"
+        );
+    }
+
+    #[test]
+    fn lint_page_html_guarded_document_prepends_csp_for_snippets() {
+        let html = r#"<p style="padding:13px">x</p>"#;
+        let guarded = lint_page_html_guarded_document(html);
+
+        assert!(
+            guarded.starts_with(r#"<meta http-equiv="Content-Security-Policy""#),
+            "snippet HTML has no structural insertion point: {guarded}"
+        );
+        assert!(guarded.ends_with(html));
     }
 }

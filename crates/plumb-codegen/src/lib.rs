@@ -127,8 +127,8 @@ pub struct TokenSource {
 #[non_exhaustive]
 pub enum TokenSourceKind {
     /// `tailwind.config.{js,ts,mjs,cjs,mts,cts}` at the project root.
-    /// V0 records the presence in the header comment; full theme
-    /// resolution is on the linter side.
+    /// The codegen crate records the presence in the header comment;
+    /// CLI callers may resolve the theme before rendering.
     TailwindConfig,
     /// CSS file containing one or more `:root` blocks.
     CssCustomProperties,

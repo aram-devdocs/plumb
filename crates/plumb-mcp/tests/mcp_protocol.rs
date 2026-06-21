@@ -8,7 +8,17 @@
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::missing_panics_doc)]
 
 use std::collections::BTreeSet;
+#[cfg(feature = "e2e-chromium")]
+use std::io::{Read, Write};
+#[cfg(feature = "e2e-chromium")]
+use std::net::TcpListener;
 use std::path::PathBuf;
+#[cfg(feature = "e2e-chromium")]
+use std::sync::Arc;
+#[cfg(feature = "e2e-chromium")]
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+#[cfg(feature = "e2e-chromium")]
+use std::time::Duration;
 
 use plumb_core::register_builtin;
 use plumb_mcp::{
@@ -16,10 +26,44 @@ use plumb_mcp::{
     LintUrlArgs, LintUrlDetail, PlumbServer, documented_rule_ids,
 };
 use rmcp::ServerHandler;
-use rmcp::model::ErrorCode;
+use rmcp::model::{CallToolResult, ErrorCode};
 
 fn server() -> PlumbServer {
     PlumbServer::new(PathBuf::from("/"))
+}
+
+fn tool_text(result: &CallToolResult) -> Option<String> {
+    result
+        .content
+        .iter()
+        .find_map(|content| content.as_text().map(|text| text.text.clone()))
+}
+
+#[cfg(feature = "e2e-chromium")]
+fn chromium_unavailable_result(result: &CallToolResult) -> bool {
+    if !result.is_error.unwrap_or(false) {
+        return false;
+    }
+
+    tool_text(result).is_some_and(|text| {
+        text.contains("Chromium executable not found")
+            || text.contains("Chromium major version")
+            || text.contains("Chromium auto-fetch failed")
+    })
+}
+
+#[cfg(feature = "e2e-chromium")]
+fn assert_rendered_or_skip_unavailable(result: &CallToolResult, context: &str) -> bool {
+    if chromium_unavailable_result(result) {
+        return false;
+    }
+
+    assert!(
+        !result.is_error.unwrap_or(false),
+        "{context}: {}",
+        tool_text(result).unwrap_or_else(|| "<missing text content>".to_owned())
+    );
+    true
 }
 
 #[test]
@@ -351,11 +395,7 @@ async fn lint_page_html_defect_html_never_returns_false_clean() {
     if result.is_error.unwrap_or(false) {
         // Chromium unavailable (or another driver failure): the response
         // must be a clear error, not a misleading clean.
-        let text = result
-            .content
-            .iter()
-            .find_map(|content| content.as_text().map(|text| text.text.clone()))
-            .expect("error response must include a text content block");
+        let text = tool_text(&result).expect("error response must include a text content block");
         assert!(
             text.contains("lint_page_html failed"),
             "driver failure must be explicit, got: {text}"
@@ -395,8 +435,10 @@ async fn lint_page_html_renders_embedded_style_into_grid_finding() {
         .await
         .expect("lint_page_html must not raise a JSON-RPC error for valid input");
 
-    if result.is_error.unwrap_or(false) {
-        // No usable Chromium on this host — skip, same as the cdp e2e suite.
+    if !assert_rendered_or_skip_unavailable(
+        &result,
+        "lint_page_html must render embedded styles when Chromium is available",
+    ) {
         return;
     }
 
@@ -410,6 +452,94 @@ async fn lint_page_html_renders_embedded_style_into_grid_finding() {
     assert!(
         by_rule.contains_key("spacing/grid-conformance"),
         "embedded off-grid padding must render into a grid-conformance finding: {structured}",
+    );
+
+    server.shutdown().await.expect("shutdown must succeed");
+}
+
+#[cfg(feature = "e2e-chromium")]
+#[tokio::test]
+async fn lint_page_html_blocks_external_resource_fetches() {
+    let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind local canary server");
+    listener
+        .set_nonblocking(true)
+        .expect("listener must be nonblocking");
+    let port = listener.local_addr().expect("local addr").port();
+    let hits = Arc::new(AtomicUsize::new(0));
+    let stop = Arc::new(AtomicBool::new(false));
+    let thread_hits = Arc::clone(&hits);
+    let thread_stop = Arc::clone(&stop);
+    let handle = std::thread::spawn(move || {
+        while !thread_stop.load(Ordering::SeqCst) {
+            match listener.accept() {
+                Ok((mut stream, _addr)) => {
+                    thread_hits.fetch_add(1, Ordering::SeqCst);
+                    let mut buf = [0; 512];
+                    let _ = stream.read(&mut buf);
+                    let _ =
+                        stream.write_all(b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n");
+                }
+                Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+                Err(_) => break,
+            }
+        }
+    });
+
+    let external = format!("http://127.0.0.1:{port}/blocked");
+    let html = format!(
+        r#"<!doctype html>
+<html>
+  <head>
+    <link rel="stylesheet" href="{external}.css">
+    <style>div {{ padding: 13px }}</style>
+    <script>fetch("{external}/fetch").catch(() => {{}});</script>
+  </head>
+  <body>
+    <img src="{external}.png">
+    <div>x</div>
+  </body>
+</html>"#
+    );
+
+    let server = server();
+    let result = server
+        .lint_page_html(LintPageHtmlArgs {
+            html,
+            base_url: "https://example.com/".to_owned(),
+            working_dir: None,
+        })
+        .await
+        .expect("lint_page_html must not raise a JSON-RPC error for valid input");
+
+    tokio::time::sleep(Duration::from_millis(250)).await;
+    stop.store(true, Ordering::SeqCst);
+    handle.join().expect("canary thread must join");
+
+    assert_eq!(
+        hits.load(Ordering::SeqCst),
+        0,
+        "lint_page_html must not fetch external resources"
+    );
+
+    if !assert_rendered_or_skip_unavailable(
+        &result,
+        "lint_page_html must block external resources without breaking data-url rendering",
+    ) {
+        return;
+    }
+
+    let structured = result
+        .structured_content
+        .expect("successful response must include structured_content");
+    let by_rule = structured
+        .get("by_rule")
+        .and_then(serde_json::Value::as_object)
+        .expect("structuredContent.by_rule must be an object");
+    assert!(
+        by_rule.contains_key("spacing/grid-conformance"),
+        "inline style must still render after external fetches are blocked: {structured}",
     );
 
     server.shutdown().await.expect("shutdown must succeed");

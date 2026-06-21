@@ -1,8 +1,8 @@
 //! CSS custom-properties scraper for token discovery (e.g. `plumb init`).
 //!
 //! Scans each input file for `:root { ... }` blocks at the top level or
-//! wrapped inside a single `@media` / `@supports` at-rule, then extracts
-//! every `--foo: <value>;` declaration.
+//! wrapped inside a single supported at-rule (`@media`, `@supports`, or
+//! `@layer`), then extracts every `--foo: <value>;` declaration.
 //!
 //! Values are lightly typed:
 //!
@@ -38,9 +38,10 @@ use crate::ConfigError;
 pub struct CssPropertyScrape {
     /// Source path the declaration came from.
     pub source: PathBuf,
-    /// `None` for top-level `:root`. `Some("@media (...)")` (or
-    /// `"@supports (...)"`) when the `:root` block was wrapped in a
-    /// single at-rule. Preserves the at-rule prelude verbatim.
+    /// `None` for top-level `:root`. `Some("@media (...)")`,
+    /// `Some("@supports (...)")`, or `Some("@layer ...")` when the
+    /// `:root` block was wrapped in a single supported at-rule.
+    /// Preserves the at-rule prelude verbatim.
     pub at_rule: Option<String>,
     /// Custom-property name, e.g. `--bg-canvas`.
     pub name: String,
@@ -127,6 +128,9 @@ fn scrape_one(
         }
 
         if !parser.consume_byte_eq(b'{') {
+            if parser.consume_byte_eq(b';') {
+                continue;
+            }
             return Err(parse_error(
                 path,
                 contents,
@@ -138,10 +142,10 @@ fn scrape_one(
         if is_root_selector(prelude_trimmed) {
             collect_root_block(&mut parser, path, contents, None, out)?;
         } else if let Some(at_rule) = parse_at_rule_prelude(prelude_trimmed) {
-            // We allow a single level of @media / @supports wrapping a
-            // :root block. Any other at-rule (or nested rules inside
-            // this one beyond a single :root) gets skipped without
-            // erroring — that's tolerant by design.
+            // We allow a single supported at-rule wrapping a :root
+            // block. Any nested rules inside this one beyond a direct
+            // :root get skipped without erroring — that's tolerant by
+            // design.
             scan_at_rule_body(&mut parser, path, contents, &at_rule, out)?;
         } else {
             // Plain selector that isn't :root — skip its block.
@@ -161,8 +165,8 @@ fn is_root_selector(prelude: &str) -> bool {
     prelude.split_whitespace().collect::<String>() == ":root"
 }
 
-/// Recognize `@media (...)` / `@supports (...)` and return the
-/// trimmed prelude (e.g. `@media (prefers-color-scheme: dark)`).
+/// Recognize supported wrapper at-rules and return the trimmed prelude
+/// (e.g. `@media (prefers-color-scheme: dark)`).
 fn parse_at_rule_prelude(prelude: &str) -> Option<String> {
     let trimmed = prelude.trim();
     if !trimmed.starts_with('@') {
@@ -171,7 +175,7 @@ fn parse_at_rule_prelude(prelude: &str) -> Option<String> {
     let (kw, _) = trimmed
         .split_once(|c: char| c.is_ascii_whitespace() || c == '(')
         .unwrap_or((trimmed, ""));
-    if kw == "@media" || kw == "@supports" {
+    if kw == "@media" || kw == "@supports" || kw == "@layer" {
         Some(trimmed.to_owned())
     } else {
         None
@@ -223,9 +227,9 @@ fn collect_root_block(
     }
 }
 
-/// We're sitting at the open brace of an `@media (...)` /
-/// `@supports (...)` block. Look inside for a single `:root { ... }`
-/// rule and collect from it. Anything else is tolerantly skipped.
+/// We're sitting at the open brace of a supported wrapper at-rule. Look
+/// inside for a direct `:root { ... }` rule and collect from it.
+/// Anything else is tolerantly skipped.
 fn scan_at_rule_body(
     parser: &mut Parser<'_>,
     path: &Path,
@@ -256,6 +260,9 @@ fn scan_at_rule_body(
             .map_err(|fault| fault.into_error(path, contents))?;
         let prelude_trimmed = prelude.trim();
         if !parser.consume_byte_eq(b'{') {
+            if parser.consume_byte_eq(b';') {
+                continue;
+            }
             return Err(parse_error(
                 path,
                 contents,

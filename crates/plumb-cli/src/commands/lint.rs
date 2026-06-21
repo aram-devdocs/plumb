@@ -4,9 +4,9 @@
 //! engine → formatter → stdout.
 //!
 //! The orchestrator builds one [`Target`] per requested viewport and
-//! calls [`BrowserDriver::snapshot_all`] exactly once, so a real
-//! Chromium driver launches the browser only once per CLI invocation
-//! (PRD §10.3).
+//! calls [`BrowserDriver::snapshot_all`] exactly once, so real
+//! Chromium-backed linting launches the browser only once per CLI
+//! invocation (PRD §10.3).
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;

@@ -12,6 +12,8 @@
 pub mod grid_conformance;
 pub mod scale_conformance;
 
+use crate::snapshot::SnapshotNode;
+
 /// Physical-longhand spacing properties the rules in this category
 /// inspect.
 ///
@@ -32,3 +34,7 @@ pub(crate) const SPACING_PROPERTIES: &[&str] = &[
     "row-gap",
     "column-gap",
 ];
+
+pub(crate) fn is_framework_hidden_spacing_node(node: &SnapshotNode) -> bool {
+    node.selector == "html > body > next-route-announcer > div"
+}

@@ -43,6 +43,9 @@ cargo run -p plumb-e2e -- --all --chrome-path /usr/bin/google-chrome-stable
 
 # Override the plumb binary path.
 cargo run -p plumb-e2e -- --all --plumb-bin /tmp/plumb
+
+# Fail a stuck child `plumb lint` run faster.
+cargo run -p plumb-e2e -- --site html-css --lint-timeout-secs 30
 ```
 
 The simpler entry point is `just test-e2e`, which builds the binary
