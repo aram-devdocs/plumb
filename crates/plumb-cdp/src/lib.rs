@@ -119,6 +119,7 @@ const SNAPSHOT_CAPTURE_TIMEOUT_SECS: u64 = 60;
 const SNAPSHOT_CAPTURE_TIMEOUT: Duration = Duration::from_secs(SNAPSHOT_CAPTURE_TIMEOUT_SECS);
 const TRANSIENT_CAPTURE_RETRIES: usize = 1;
 const INITIAL_PAGE_URL: &str = "about:blank";
+const RAW_DEFAULT_READY_SELECTOR: &str = "body";
 
 /// CSS property whitelist passed to `DOMSnapshot.captureSnapshot` as the
 /// `computedStyles` argument.
@@ -1061,8 +1062,15 @@ fn should_fallback_to_raw_capture(err: &CdpError) -> bool {
     };
 
     source.downcast_ref::<io::Error>().is_some_and(|err| {
-        err.kind() == io::ErrorKind::TimedOut && err.to_string().contains("Browser.new_page")
+        let message = err.to_string();
+        (err.kind() == io::ErrorKind::TimedOut && message.contains("Browser.new_page"))
+            || is_page_navigation_init_timeout(&message)
     })
+}
+
+fn is_page_navigation_init_timeout(message: &str) -> bool {
+    message.contains("exhausted 30s ready-state budget")
+        && message.contains("Page.navigate exceeded 30s budget")
 }
 
 async fn capture_target(
@@ -2555,13 +2563,18 @@ async fn apply_post_navigate_waits_raw(
     page: &RawPage,
     target: &Target,
 ) -> Result<(), CdpError> {
-    if let Some(selector) = target.wait_for_selector.as_deref() {
-        wait_for_selector_raw(cdp, page, selector).await?;
-    }
+    wait_for_selector_raw(cdp, page, raw_ready_selector(target)).await?;
     if let Some(ms) = target.wait_ms {
         tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
     }
     Ok(())
+}
+
+fn raw_ready_selector(target: &Target) -> &str {
+    target
+        .wait_for_selector
+        .as_deref()
+        .unwrap_or(RAW_DEFAULT_READY_SELECTOR)
 }
 
 /// Install localStorage entries from an already-parsed Playwright
@@ -4812,6 +4825,18 @@ mod tests {
     }
 
     #[test]
+    fn raw_capture_fallback_accepts_page_navigation_init_timeout() {
+        let err = CdpError::Driver(Box::new(io::Error::other(
+            "navigation to `http://127.0.0.1:49196/` exhausted 30s ready-state \
+             budget after initial location assignment failed: driver failure: \
+             Page.navigate exceeded 30s budget; last navigation state read failed: \
+             navigation state read exceeded 10s budget",
+        )));
+
+        assert!(super::should_fallback_to_raw_capture(&err));
+    }
+
+    #[test]
     fn raw_capture_fallback_rejects_unrelated_timeouts() {
         let err = CdpError::Driver(Box::new(io::Error::new(
             io::ErrorKind::TimedOut,
@@ -4819,6 +4844,23 @@ mod tests {
         )));
 
         assert!(!super::should_fallback_to_raw_capture(&err));
+    }
+
+    #[test]
+    fn raw_ready_selector_defaults_to_body() {
+        let target = super::Target::default();
+
+        assert_eq!(super::raw_ready_selector(&target), "body");
+    }
+
+    #[test]
+    fn raw_ready_selector_preserves_user_selector() {
+        let target = super::Target {
+            wait_for_selector: Some("#app-ready".to_owned()),
+            ..super::Target::default()
+        };
+
+        assert_eq!(super::raw_ready_selector(&target), "#app-ready");
     }
 
     #[test]
