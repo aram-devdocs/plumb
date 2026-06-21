@@ -25,6 +25,11 @@
 //! - **DTCG token JSON files.** Files matching `*.tokens.json` or
 //!   placed under a `tokens/` directory are merged via
 //!   [`plumb_config::merge_dtcg`].
+//! - **Literal TypeScript/JavaScript token modules.** When `source_dir`
+//!   is inside a workspace, conventional package token modules under
+//!   `packages/*/src/tokens/**/*.{ts,tsx,js,jsx}` are parsed for
+//!   exported object constants with string/number leaves. The parser
+//!   never evaluates JavaScript or resolves aliases.
 //!
 //! ## Determinism contract
 //!
@@ -48,9 +53,11 @@
 
 mod classify;
 mod render;
+mod ts_tokens;
 mod walk;
 
-use std::path::{Path, PathBuf};
+use std::ffi::OsString;
+use std::path::{Component, Path, PathBuf};
 
 use indexmap::IndexMap;
 use plumb_config::ConfigError;
@@ -58,6 +65,8 @@ use plumb_core::Config;
 use thiserror::Error;
 
 pub use render::render_toml;
+
+type SummaryEntry = (u8, String, String);
 
 /// Maximum directory depth the walker descends into the source tree.
 ///
@@ -132,6 +141,9 @@ pub enum TokenSourceKind {
     TailwindConfig,
     /// CSS file containing one or more `:root` blocks.
     CssCustomProperties,
+    /// Literal TypeScript/JavaScript token module from a workspace
+    /// package token directory.
+    TokenModule,
     /// DTCG token document (`*.tokens.json` or `tokens/*.json`).
     Dtcg,
 }
@@ -144,6 +156,7 @@ impl TokenSourceKind {
             Self::TailwindConfig => "tailwind",
             Self::CssCustomProperties => "css",
             Self::Dtcg => "dtcg",
+            Self::TokenModule => "token-module",
         }
     }
 }
@@ -188,7 +201,7 @@ pub fn infer_config(source_dir: &Path) -> Result<InferredConfig, CodegenError> {
     let walked = walk::walk(source_dir)?;
 
     let mut config = Config::default();
-    let mut summary: Vec<(u8, String, String)> = Vec::new();
+    let mut summary: Vec<SummaryEntry> = Vec::new();
     let mut sources: Vec<TokenSource> = Vec::new();
 
     // Tailwind config — record presence only. Theme resolution is the
@@ -270,11 +283,20 @@ pub fn infer_config(source_dir: &Path) -> Result<InferredConfig, CodegenError> {
         ));
     }
 
+    merge_token_modules(
+        source_dir,
+        &walked.ts_token_modules,
+        &mut config,
+        &mut sources,
+        &mut summary,
+    )?;
+
     // Sort scales ascending with duplicates removed — deterministic
     // output regardless of file walk order.
     sort_and_dedup(&mut config.spacing.scale);
     sort_and_dedup(&mut config.type_scale.scale);
     sort_and_dedup(&mut config.radius.scale);
+    sort_and_dedup(&mut config.type_scale.weights);
 
     // Stable summary order: `(kind tag, relative path)`.
     summary.sort();
@@ -287,13 +309,52 @@ pub fn infer_config(source_dir: &Path) -> Result<InferredConfig, CodegenError> {
     })
 }
 
+fn merge_token_modules(
+    source_dir: &Path,
+    token_module_paths: &[PathBuf],
+    config: &mut Config,
+    sources: &mut Vec<TokenSource>,
+    summary: &mut Vec<SummaryEntry>,
+) -> Result<(), CodegenError> {
+    for token_module_path in token_module_paths {
+        let contents =
+            std::fs::read_to_string(token_module_path).map_err(|source| CodegenError::Io {
+                path: token_module_path.display().to_string(),
+                source,
+            })?;
+        let relative = relative_to(source_dir, token_module_path);
+        let import = ts_tokens::merge_literal_token_module(config, &relative, &contents);
+        sources.push(TokenSource {
+            kind: TokenSourceKind::TokenModule,
+            relative_path: relative.clone(),
+        });
+        summary.push((
+            order_tag(TokenSourceKind::TokenModule),
+            display_path(&relative),
+            format!(
+                "literal token module from {} (+{} colors, +{} spacing, +{} type sizes, +{} type families, +{} type weights, +{} radii)",
+                display_path(&relative),
+                import.colors,
+                import.spacing,
+                import.type_sizes,
+                import.type_families,
+                import.type_weights,
+                import.radii,
+            ),
+        ));
+    }
+    Ok(())
+}
+
 /// Lower numbers sort earlier in the rendered summary. Tailwind first
-/// (it's the framework signal), then CSS, then DTCG.
+/// (it's the framework signal), then CSS, then literal modules, then
+/// DTCG.
 fn order_tag(kind: TokenSourceKind) -> u8 {
     match kind {
         TokenSourceKind::TailwindConfig => 0,
         TokenSourceKind::CssCustomProperties => 1,
-        TokenSourceKind::Dtcg => 2,
+        TokenSourceKind::TokenModule => 2,
+        TokenSourceKind::Dtcg => 3,
     }
 }
 
@@ -301,8 +362,69 @@ fn order_tag(kind: TokenSourceKind) -> u8 {
 /// strip fails (e.g. an absolute path the walker handed back verbatim
 /// because canonicalization was not possible).
 fn relative_to(base: &Path, path: &Path) -> PathBuf {
-    path.strip_prefix(base)
-        .map_or_else(|_| path.to_path_buf(), Path::to_path_buf)
+    path.strip_prefix(base).map_or_else(
+        |_| lexical_relative_to(base, path).unwrap_or_else(|| path.to_path_buf()),
+        Path::to_path_buf,
+    )
+}
+
+fn lexical_relative_to(base: &Path, path: &Path) -> Option<PathBuf> {
+    let base_parts = lexical_parts(base);
+    let path_parts = lexical_parts(path);
+    if base_parts.prefix != path_parts.prefix || base_parts.rooted != path_parts.rooted {
+        return None;
+    }
+
+    let common_len = base_parts
+        .segments
+        .iter()
+        .zip(&path_parts.segments)
+        .take_while(|(left, right)| left == right)
+        .count();
+
+    let mut out = PathBuf::new();
+    for _ in common_len..base_parts.segments.len() {
+        out.push("..");
+    }
+    for segment in &path_parts.segments[common_len..] {
+        out.push(segment);
+    }
+    Some(out)
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct LexicalParts {
+    prefix: Option<OsString>,
+    rooted: bool,
+    segments: Vec<OsString>,
+}
+
+fn lexical_parts(path: &Path) -> LexicalParts {
+    let mut parts = LexicalParts {
+        prefix: None,
+        rooted: false,
+        segments: Vec::new(),
+    };
+
+    for component in path.components() {
+        match component {
+            Component::Prefix(prefix) => {
+                parts.prefix = Some(prefix.as_os_str().to_os_string());
+            }
+            Component::RootDir => {
+                parts.rooted = true;
+            }
+            Component::CurDir => {}
+            Component::ParentDir => {
+                parts.segments.push(OsString::from(".."));
+            }
+            Component::Normal(segment) => {
+                parts.segments.push(segment.to_os_string());
+            }
+        }
+    }
+
+    parts
 }
 
 /// Render a path with forward slashes regardless of host OS so summaries
@@ -475,6 +597,7 @@ mod tests {
     fn label_lookup_is_stable() {
         assert_eq!(TokenSourceKind::TailwindConfig.label(), "tailwind");
         assert_eq!(TokenSourceKind::CssCustomProperties.label(), "css");
+        assert_eq!(TokenSourceKind::TokenModule.label(), "token-module");
         assert_eq!(TokenSourceKind::Dtcg.label(), "dtcg");
     }
 }

@@ -32,6 +32,19 @@ const SKIPPED_DIRS: &[&str] = &[
     "target",
 ];
 
+/// Workspace-root marker files. A `package.json` marker is handled
+/// separately because it must declare a `workspaces` field.
+const WORKSPACE_MARKER_FILES: &[&str] = &[
+    "pnpm-workspace.yaml",
+    "pnpm-workspace.yml",
+    "lerna.json",
+    "nx.json",
+    "rush.json",
+];
+
+/// TypeScript/JavaScript extensions accepted under package token dirs.
+const TOKEN_MODULE_EXTENSIONS: &[&str] = &["js", "jsx", "ts", "tsx"];
+
 /// Discovered token-source paths, grouped by kind.
 ///
 /// Each list is sorted so the caller-visible output is deterministic.
@@ -46,6 +59,9 @@ pub(crate) struct Walked {
     pub(crate) css_files: Vec<PathBuf>,
     /// DTCG token JSON files (`*.tokens.json` or under `tokens/`).
     pub(crate) dtcg_files: Vec<PathBuf>,
+    /// Literal TypeScript/JavaScript token modules discovered from a
+    /// workspace package token directory.
+    pub(crate) ts_token_modules: Vec<PathBuf>,
 }
 
 /// Walk `source_dir` and return a [`Walked`] with token-source paths
@@ -63,9 +79,12 @@ pub(crate) fn walk(source_dir: &Path) -> Result<Walked, CodegenError> {
     walked.tailwind_configs.sort();
 
     walk_dir(source_dir, source_dir, 0, &mut walked)?;
+    discover_workspace_token_modules(source_dir, &mut walked)?;
 
     walked.css_files.sort();
     walked.dtcg_files.sort();
+    walked.ts_token_modules.sort();
+    walked.ts_token_modules.dedup();
 
     Ok(walked)
 }
@@ -80,26 +99,7 @@ fn walk_dir(
         return Ok(());
     }
 
-    let entries = match std::fs::read_dir(dir) {
-        Ok(entries) => entries,
-        Err(source) => {
-            return Err(CodegenError::Io {
-                path: dir.display().to_string(),
-                source,
-            });
-        }
-    };
-
-    let mut sorted: Vec<PathBuf> = Vec::new();
-    for entry in entries {
-        let entry = entry.map_err(|source| CodegenError::Io {
-            path: dir.display().to_string(),
-            source,
-        })?;
-        sorted.push(entry.path());
-    }
-    sorted.sort();
-
+    let sorted = read_sorted_paths(dir)?;
     for path in sorted {
         let file_type = match std::fs::symlink_metadata(&path) {
             Ok(meta) => meta.file_type(),
@@ -128,6 +128,147 @@ fn walk_dir(
     }
 
     Ok(())
+}
+
+fn read_sorted_paths(dir: &Path) -> Result<Vec<PathBuf>, CodegenError> {
+    let entries = std::fs::read_dir(dir).map_err(|source| CodegenError::Io {
+        path: dir.display().to_string(),
+        source,
+    })?;
+
+    let mut sorted: Vec<PathBuf> = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|source| CodegenError::Io {
+            path: dir.display().to_string(),
+            source,
+        })?;
+        sorted.push(entry.path());
+    }
+    sorted.sort();
+    Ok(sorted)
+}
+
+fn discover_workspace_token_modules(
+    source_dir: &Path,
+    walked: &mut Walked,
+) -> Result<(), CodegenError> {
+    let Some(workspace_root) = find_workspace_root(source_dir) else {
+        return Ok(());
+    };
+    let packages_dir = workspace_root.join("packages");
+    if !packages_dir.is_dir() {
+        return Ok(());
+    }
+
+    for package_path in read_sorted_paths(&packages_dir)? {
+        let file_type = match std::fs::symlink_metadata(&package_path) {
+            Ok(meta) => meta.file_type(),
+            Err(_) => continue,
+        };
+        if file_type.is_symlink() || !file_type.is_dir() {
+            continue;
+        }
+        let Some(name) = package_path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        if name.is_empty() || name.starts_with('.') || SKIPPED_DIRS.contains(&name) {
+            continue;
+        }
+        let token_dir = package_path.join("src").join("tokens");
+        if token_dir.is_dir() {
+            collect_token_modules(&token_dir, 0, walked)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn collect_token_modules(
+    dir: &Path,
+    depth: usize,
+    walked: &mut Walked,
+) -> Result<(), CodegenError> {
+    if depth > MAX_WALK_DEPTH {
+        return Ok(());
+    }
+
+    for path in read_sorted_paths(dir)? {
+        let file_type = match std::fs::symlink_metadata(&path) {
+            Ok(meta) => meta.file_type(),
+            Err(_) => continue,
+        };
+        if file_type.is_symlink() {
+            continue;
+        }
+        if file_type.is_dir() {
+            let name = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or_default();
+            if name.is_empty() || name.starts_with('.') || SKIPPED_DIRS.contains(&name) {
+                continue;
+            }
+            collect_token_modules(&path, depth + 1, walked)?;
+            continue;
+        }
+        if file_type.is_file() && is_token_module_file(&path) {
+            walked.ts_token_modules.push(path);
+        }
+    }
+
+    Ok(())
+}
+
+fn is_token_module_file(path: &Path) -> bool {
+    let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+        return false;
+    };
+    let lower_name = name.to_ascii_lowercase();
+    if lower_name.ends_with(".d.ts") {
+        return false;
+    }
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| {
+            TOKEN_MODULE_EXTENSIONS
+                .iter()
+                .any(|candidate| ext.eq_ignore_ascii_case(candidate))
+        })
+}
+
+fn find_workspace_root(source_dir: &Path) -> Option<PathBuf> {
+    let mut current = source_dir.to_path_buf();
+    loop {
+        if has_workspace_marker(&current) {
+            if current.as_os_str().is_empty() {
+                return Some(PathBuf::from("."));
+            }
+            return Some(current);
+        }
+        if !current.pop() {
+            return None;
+        }
+    }
+}
+
+fn has_workspace_marker(dir: &Path) -> bool {
+    if WORKSPACE_MARKER_FILES
+        .iter()
+        .any(|marker| dir.join(marker).is_file())
+    {
+        return true;
+    }
+    package_json_declares_workspaces(&dir.join("package.json"))
+}
+
+fn package_json_declares_workspaces(path: &Path) -> bool {
+    let Ok(contents) = std::fs::read_to_string(path) else {
+        return false;
+    };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&contents) else {
+        return false;
+    };
+    value.get("workspaces").is_some()
 }
 
 /// Decide which bucket (if any) a single file belongs to.
@@ -271,5 +412,52 @@ mod tests {
         std::fs::write(dot.join("settings.css"), ":root {}").unwrap();
         let walked = walk(dir.path()).unwrap();
         assert!(walked.css_files.is_empty());
+    }
+
+    #[test]
+    fn walk_from_app_subdir_finds_workspace_token_modules() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("pnpm-workspace.yaml"),
+            "packages:\n  - apps/*\n  - packages/*\n",
+        )
+        .unwrap();
+        let app = dir.path().join("apps/web");
+        std::fs::create_dir_all(&app).unwrap();
+        let tokens = dir.path().join("packages/types/src/tokens");
+        std::fs::create_dir_all(&tokens).unwrap();
+        std::fs::write(
+            tokens.join("spacing.ts"),
+            "export const SPACING = {} as const;\n",
+        )
+        .unwrap();
+        std::fs::write(
+            tokens.join("colors.jsx"),
+            "export const COLORS = {} as const;\n",
+        )
+        .unwrap();
+
+        let walked = walk(&app).unwrap();
+
+        assert_eq!(
+            walked.ts_token_modules,
+            vec![tokens.join("colors.jsx"), tokens.join("spacing.ts")]
+        );
+    }
+
+    #[test]
+    fn package_json_workspace_marker_requires_top_level_workspaces_field() {
+        let dir = tempfile::tempdir().unwrap();
+        let package_json = dir.path().join("package.json");
+
+        std::fs::write(&package_json, r#"{ "scripts": { "echo": "workspaces" } }"#).unwrap();
+        assert!(!package_json_declares_workspaces(&package_json));
+
+        std::fs::write(
+            &package_json,
+            r#"{ "private": true, "workspaces": { "packages": ["apps/*"] } }"#,
+        )
+        .unwrap();
+        assert!(package_json_declares_workspaces(&package_json));
     }
 }

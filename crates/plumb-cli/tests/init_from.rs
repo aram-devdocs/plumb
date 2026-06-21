@@ -164,3 +164,92 @@ fn init_from_empty_dir_writes_blank_starter() -> Result<(), Box<dyn std::error::
     assert!(written.contains("No design-token sources were discovered"));
     Ok(())
 }
+
+#[test]
+fn init_from_app_subdir_infers_workspace_package_token_modules()
+-> Result<(), Box<dyn std::error::Error>> {
+    let workspace = TempDir::new()?;
+    fs::write(
+        workspace.path().join("package.json"),
+        r#"{ "private": true, "workspaces": ["apps/*", "packages/*"] }"#,
+    )?;
+    fs::create_dir_all(workspace.path().join("apps/web"))?;
+    let tokens = workspace.path().join("packages/types/src/tokens");
+    fs::create_dir_all(&tokens)?;
+    fs::write(
+        tokens.join("spacing.ts"),
+        r"
+            export const SPACING = {
+              0.5: '2px',
+              1: '4px',
+              1.5: '6px',
+            } as const;
+
+            export const RADIUS = {
+              sm: '4px',
+              md: '6px',
+              '2xl': '16px',
+            } as const;
+        ",
+    )?;
+    fs::write(
+        tokens.join("colors.ts"),
+        r"
+            export const COLOR_TOKENS = {
+              navy: '#0A3D5C',
+            } as const;
+
+            export const STATUS_COLORS = {
+              success: '#22c55e',
+            } as const;
+
+            export const DESIGN_TOKENS = {
+              colors: COLOR_TOKENS,
+            } as const;
+        ",
+    )?;
+    fs::write(
+        tokens.join("typography.ts"),
+        r#"
+            export const FONT_FAMILY = {
+              heading: '"Poppins", sans-serif',
+              body: '"apertura", "Inter", system-ui, sans-serif',
+            } as const;
+
+            export const FONT_SIZE = {
+              '2xs': '9px',
+              xs: '10px',
+            } as const;
+
+            export const FONT_WEIGHT = {
+              normal: 400,
+              semibold: 600,
+              bold: 700,
+              extrabold: 800,
+            } as const;
+        "#,
+    )?;
+
+    let outdir = TempDir::new()?;
+    Command::cargo_bin("plumb")?
+        .arg("init")
+        .arg("--from")
+        .arg(workspace.path().join("apps/web"))
+        .current_dir(outdir.path())
+        .assert()
+        .success()
+        .stdout(contains("Inferred from"));
+
+    let written = fs::read_to_string(outdir.path().join("plumb.toml"))?;
+    assert!(written.contains("\"0.5\" = 2"));
+    assert!(written.contains("\"1.5\" = 6"));
+    assert!(written.contains("navy = \"#0A3D5C\""));
+    assert!(written.contains("success = \"#22c55e\""));
+    assert!(written.contains("weights = [\n    400,\n    600,\n    700,\n    800,\n]"));
+    assert!(written.contains("2,\n    4,\n    6,"));
+    assert!(written.contains("../../packages/types/src/tokens/spacing.ts"));
+    let workspace_path = workspace.path().to_string_lossy();
+    assert!(!written.contains(workspace_path.as_ref()));
+
+    Ok(())
+}
