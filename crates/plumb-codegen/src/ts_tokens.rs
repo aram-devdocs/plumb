@@ -35,8 +35,9 @@ pub(crate) fn merge_literal_token_module(
 ) -> TokenModuleImport {
     let mut exports = Parser::new(contents).parse_exported_objects();
     exports.sort_by(|a, b| {
-        token_sort_key(&a.name)
-            .cmp(&token_sort_key(&b.name))
+        export_priority(&a.name)
+            .cmp(&export_priority(&b.name))
+            .then_with(|| token_sort_key(&a.name).cmp(&token_sort_key(&b.name)))
             .then_with(|| a.name.cmp(&b.name))
     });
 
@@ -64,6 +65,14 @@ pub(crate) fn merge_literal_token_module(
     config.type_scale.weights.dedup();
 
     import
+}
+
+fn export_priority(name: &str) -> u8 {
+    match token_sort_key(name).as_str() {
+        "light" | "default" | "tokens" | "designtokens" => 0,
+        "dark" => 2,
+        _ => 1,
+    }
 }
 
 #[derive(Debug)]
@@ -852,6 +861,35 @@ mod tests {
                 .families
                 .contains(&"sans-serif".to_owned())
         );
+    }
+
+    #[test]
+    fn prefers_light_exports_before_dark_for_duplicate_color_keys() {
+        let source = r"
+            export const dark = {
+              background: '#000000',
+              primary: '#111111',
+              onlyDark: '#222222',
+            } as const;
+
+            export const light = {
+              background: '#ffffff',
+              primary: '#007068',
+            } as const;
+
+            export const otherColors = {
+              accent: '#123456',
+            } as const;
+        ";
+        let mut config = Config::default();
+
+        let import = merge_literal_token_module(&mut config, Path::new("tokens/colors.ts"), source);
+
+        assert_eq!(import.colors, 4);
+        assert_eq!(config.color.tokens["background"], "#ffffff");
+        assert_eq!(config.color.tokens["primary"], "#007068");
+        assert_eq!(config.color.tokens["accent"], "#123456");
+        assert_eq!(config.color.tokens["onlyDark"], "#222222");
     }
 
     #[test]
