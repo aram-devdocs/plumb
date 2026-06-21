@@ -2563,18 +2563,29 @@ async fn apply_post_navigate_waits_raw(
     page: &RawPage,
     target: &Target,
 ) -> Result<(), CdpError> {
-    wait_for_selector_raw(cdp, page, raw_ready_selector(target)).await?;
+    if let Some(selector) = raw_strict_ready_selector(target) {
+        wait_for_selector_raw(cdp, page, selector).await?;
+    } else {
+        wait_for_default_ready_selector_raw_best_effort(cdp, page).await;
+    }
     if let Some(ms) = target.wait_ms {
         tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
     }
     Ok(())
 }
 
-fn raw_ready_selector(target: &Target) -> &str {
-    target
-        .wait_for_selector
-        .as_deref()
-        .unwrap_or(RAW_DEFAULT_READY_SELECTOR)
+fn raw_strict_ready_selector(target: &Target) -> Option<&str> {
+    target.wait_for_selector.as_deref()
+}
+
+async fn wait_for_default_ready_selector_raw_best_effort(cdp: &mut RawCdpClient, page: &RawPage) {
+    if let Err(err) = wait_for_selector_raw(cdp, page, RAW_DEFAULT_READY_SELECTOR).await {
+        tracing::debug!(
+            error = %err,
+            selector = RAW_DEFAULT_READY_SELECTOR,
+            "raw default readiness selector did not resolve before snapshot"
+        );
+    }
 }
 
 /// Install localStorage entries from an already-parsed Playwright
@@ -4847,20 +4858,23 @@ mod tests {
     }
 
     #[test]
-    fn raw_ready_selector_defaults_to_body() {
+    fn raw_strict_ready_selector_is_absent_without_user_selector() {
         let target = super::Target::default();
 
-        assert_eq!(super::raw_ready_selector(&target), "body");
+        assert_eq!(super::raw_strict_ready_selector(&target), None);
     }
 
     #[test]
-    fn raw_ready_selector_preserves_user_selector() {
+    fn raw_strict_ready_selector_preserves_user_selector() {
         let target = super::Target {
             wait_for_selector: Some("#app-ready".to_owned()),
             ..super::Target::default()
         };
 
-        assert_eq!(super::raw_ready_selector(&target), "#app-ready");
+        assert_eq!(
+            super::raw_strict_ready_selector(&target),
+            Some("#app-ready")
+        );
     }
 
     #[test]
