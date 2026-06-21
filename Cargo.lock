@@ -2172,6 +2172,7 @@ dependencies = [
  "insta",
  "plumb-config",
  "plumb-core",
+ "serde_json",
  "tempfile",
  "thiserror",
  "toml 1.1.2+spec-1.1.0",
