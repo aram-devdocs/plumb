@@ -39,7 +39,7 @@ jobs:
       github.actor != 'dependabot[bot]' &&
       github.actor != 'renovate[bot]'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
         with:
@@ -76,7 +76,7 @@ jobs:
             references. Skip nits unless they stack; focus on
             substantive issues.
           claude_args: |
-            --max-turns 20
+            --max-turns 40
             --model claude-sonnet-4-6
             --allowed-tools "Bash(cargo *),Bash(git diff:*),Bash(git log:*),Read,Glob,Grep"
             --disallowed-tools "Bash(git push:*),Bash(git commit:*)"
