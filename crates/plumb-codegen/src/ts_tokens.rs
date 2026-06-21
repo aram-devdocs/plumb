@@ -675,9 +675,21 @@ fn has_joined(hints: &[String], needle: &str) -> bool {
 fn parse_px(value: &LiteralValue) -> Option<u32> {
     match value {
         LiteralValue::String(raw) => {
-            let trimmed = raw.trim();
-            let number = trimmed.strip_suffix("px")?.trim();
-            decimal_to_u32(number)
+            let trimmed = raw.trim().to_ascii_lowercase();
+            if let Some(number) = trimmed.strip_suffix("px") {
+                return decimal_to_u32(number.trim());
+            }
+            if let Some(number) = trimmed
+                .strip_suffix("rem")
+                .or_else(|| trimmed.strip_suffix("em"))
+            {
+                return number
+                    .trim()
+                    .parse::<f64>()
+                    .ok()
+                    .and_then(|n| decimal_to_u32_value(n * 16.0));
+            }
+            None
         }
         LiteralValue::Number(raw) => decimal_to_u32(raw),
         LiteralValue::Object(_) => None,
@@ -686,6 +698,10 @@ fn parse_px(value: &LiteralValue) -> Option<u32> {
 
 fn decimal_to_u32(raw: &str) -> Option<u32> {
     let number = raw.parse::<f64>().ok()?;
+    decimal_to_u32_value(number)
+}
+
+fn decimal_to_u32_value(number: f64) -> Option<u32> {
     if !number.is_finite() || number.is_sign_negative() || number > f64::from(u32::MAX) {
         return None;
     }
@@ -890,6 +906,40 @@ mod tests {
         assert_eq!(config.color.tokens["primary"], "#007068");
         assert_eq!(config.color.tokens["accent"], "#123456");
         assert_eq!(config.color.tokens["onlyDark"], "#222222");
+    }
+
+    #[test]
+    fn converts_rem_and_em_lengths_in_token_modules() {
+        let source = r"
+            export const radius = {
+              base: '0.75rem',
+              badge: '0.5em',
+            } as const;
+
+            export const spacing = {
+              md: '1.5rem',
+            } as const;
+
+            export const fontSize = {
+              sm: '0.875rem',
+            } as const;
+        ";
+        let mut config = Config::default();
+
+        let import = merge_literal_token_module(
+            &mut config,
+            Path::new("packages/theme/src/tokens/radius.ts"),
+            source,
+        );
+
+        assert_eq!(import.radii, 2);
+        assert_eq!(config.radius.scale, vec![8, 12]);
+        assert_eq!(import.spacing, 1);
+        assert_eq!(config.spacing.tokens["md"], 24);
+        assert_eq!(config.spacing.scale, vec![24]);
+        assert_eq!(import.type_sizes, 1);
+        assert_eq!(config.type_scale.tokens["sm"], 14);
+        assert_eq!(config.type_scale.scale, vec![14]);
     }
 
     #[test]
